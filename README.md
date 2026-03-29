@@ -1,4 +1,4 @@
-# InfraGuard
+![InfraGuard Logo](/images/infraguard_logo.svg)
 
 Red team infrastructure tracker and C2 redirector -- a modern alternative to [RedWarden](https://github.com/mgeeky/RedWarden).
 
