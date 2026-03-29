@@ -13,6 +13,7 @@ services:
       - ./examples:/app/examples:ro
       - ./data:/app/data
       - certs:/app/certs:ro
+      - geoip:/app/geoip:ro
     command: ["run", "-c", "/app/config/config.yaml", "--port", "443"]
     healthcheck:
       test: ["CMD", "python3", "-c", "import urllib.request,ssl,os; p=os.environ.get('INFRAGUARD_HEALTH_PATH','health'); urllib.request.urlopen(f'https://127.0.0.1:443/{p}', context=ssl._create_unverified_context())"]
@@ -36,6 +37,7 @@ services:
       - ./examples:/app/examples:ro
       - ./data:/app/data
       - certs:/app/certs:ro
+      - geoip:/app/geoip:ro
     command: ["dashboard", "-c", "/app/config/config.yaml", "--tls"]
     depends_on:
       proxy:
@@ -101,6 +103,28 @@ services:
     networks:
       - infraguard
 
+  # ── GeoIP database downloader ────────────────────────────────────────
+  # Downloads GeoLite2 databases from GitHub on first run.
+  # Run with: docker compose up geoip-update
+  # Databases are stored in the "geoip" volume at /geoip/*.mmdb
+  geoip-update:
+    image: alpine/curl:latest
+    container_name: infraguard-geoip-update
+    profiles: ["geoip"]
+    volumes:
+      - geoip:/geoip
+    entrypoint: /bin/sh
+    command: >
+      -c '
+        REPO="https://github.com/P3TERX/GeoLite.mmdb/raw/download"
+        echo "Downloading GeoLite2 databases..."
+        curl -sSL -o /geoip/GeoLite2-City.mmdb    "$REPO/GeoLite2-City.mmdb"    && echo "  City DB downloaded"
+        curl -sSL -o /geoip/GeoLite2-ASN.mmdb     "$REPO/GeoLite2-ASN.mmdb"     && echo "  ASN DB downloaded"
+        curl -sSL -o /geoip/GeoLite2-Country.mmdb  "$REPO/GeoLite2-Country.mmdb"  && echo "  Country DB downloaded"
+        ls -lh /geoip/*.mmdb
+        echo "Done."
+      '
+
   # ── Additional redirector node (scale with --scale proxy-node=N) ────
   # Uncomment to run extra redirector instances behind a load balancer.
   #
@@ -124,6 +148,7 @@ services:
 volumes:
   certs:
   certbot-www:
+  geoip:
 
 networks:
   infraguard:
