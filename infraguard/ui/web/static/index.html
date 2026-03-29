@@ -18,9 +18,26 @@
         }
         * { margin: 0; padding: 0; box-sizing: border-box; }
         body { font-family: 'SF Mono', 'Cascadia Code', monospace; background: var(--bg); color: var(--text); }
+
+        /* ── Login ──────────────────────────────────────────── */
+        #login-page { display: flex; align-items: center; justify-content: center; min-height: 100vh; }
+        .login-box { background: var(--surface); border: 1px solid var(--border); border-radius: 8px; padding: 32px; width: 380px; }
+        .login-box h1 { font-size: 20px; color: var(--accent); text-align: center; margin-bottom: 4px; }
+        .login-box p { font-size: 12px; color: var(--text-dim); text-align: center; margin-bottom: 24px; }
+        .login-box label { display: block; font-size: 12px; color: var(--text-dim); margin-bottom: 6px; text-transform: uppercase; }
+        .login-box input { width: 100%; padding: 10px 12px; background: var(--bg); border: 1px solid var(--border); border-radius: 4px; color: var(--text); font-family: inherit; font-size: 14px; margin-bottom: 16px; }
+        .login-box input:focus { outline: none; border-color: var(--accent); }
+        .login-btn { width: 100%; padding: 10px; background: var(--accent); color: var(--bg); border: none; border-radius: 4px; font-family: inherit; font-size: 14px; font-weight: bold; cursor: pointer; }
+        .login-btn:hover { opacity: 0.85; }
+        .login-btn:disabled { opacity: 0.5; cursor: not-allowed; }
+        .login-error { color: var(--red); font-size: 12px; text-align: center; margin-top: 12px; min-height: 18px; }
+
+        /* ── Dashboard ──────────────────────────────────────── */
+        #dashboard-page { display: none; }
         .header { background: var(--surface); border-bottom: 1px solid var(--border); padding: 16px 24px; display: flex; justify-content: space-between; align-items: center; }
         .header h1 { font-size: 18px; color: var(--accent); }
         .header .status { font-size: 12px; color: var(--green); }
+        .header-right { display: flex; gap: 12px; align-items: center; }
         .grid { display: grid; grid-template-columns: repeat(4, 1fr); gap: 16px; padding: 24px; }
         .card { background: var(--surface); border: 1px solid var(--border); border-radius: 8px; padding: 20px; }
         .card h3 { font-size: 12px; text-transform: uppercase; color: var(--text-dim); margin-bottom: 8px; }
@@ -39,74 +56,176 @@
         .event-row { display: flex; gap: 12px; padding: 6px 0; border-bottom: 1px solid var(--border); font-size: 12px; }
         .event-row .time { color: var(--text-dim); min-width: 80px; }
         .event-row .ip { color: var(--yellow); min-width: 120px; }
-        .refresh-btn { background: var(--accent); color: var(--bg); border: none; padding: 8px 16px; border-radius: 4px; cursor: pointer; font-family: inherit; font-size: 12px; }
-        .refresh-btn:hover { opacity: 0.8; }
+        .btn { background: var(--accent); color: var(--bg); border: none; padding: 8px 16px; border-radius: 4px; cursor: pointer; font-family: inherit; font-size: 12px; }
+        .btn:hover { opacity: 0.8; }
+        .btn-ghost { background: transparent; color: var(--text-dim); border: 1px solid var(--border); }
+        .btn-ghost:hover { color: var(--text); border-color: var(--text-dim); }
     </style>
 </head>
 <body>
-    <div class="header">
-        <h1>&#9763; InfraGuard Dashboard</h1>
-        <div>
-            <span class="status" id="ws-status">&#9679; Connecting...</span>
-            <button class="refresh-btn" onclick="refresh()">Refresh</button>
+
+    <!-- ── Login Page ───────────────────────────────────────── -->
+    <div id="login-page">
+        <div class="login-box">
+            <h1>InfraGuard</h1>
+            <p>Enter your API token to access the dashboard</p>
+            <label for="token-input">API Token</label>
+            <input type="password" id="token-input" placeholder="Token" autocomplete="off" autofocus>
+            <button class="login-btn" id="login-btn" onclick="doLogin()">Sign In</button>
+            <div class="login-error" id="login-error"></div>
         </div>
     </div>
 
-    <div class="grid">
-        <div class="card">
-            <h3>Total Requests</h3>
-            <div class="value" id="total">-</div>
-        </div>
-        <div class="card">
-            <h3>Allowed</h3>
-            <div class="value green" id="allowed">-</div>
-        </div>
-        <div class="card">
-            <h3>Blocked</h3>
-            <div class="value red" id="blocked">-</div>
-        </div>
-        <div class="card">
-            <h3>Unique IPs</h3>
-            <div class="value" id="unique-ips">-</div>
+    <!-- ── Dashboard Page ───────────────────────────────────── -->
+    <div id="dashboard-page">
+        <div class="header">
+            <h1>InfraGuard Dashboard</h1>
+            <div class="header-right">
+                <span class="status" id="ws-status">&#9679; Connecting...</span>
+                <button class="btn" onclick="refresh()">Refresh</button>
+                <button class="btn btn-ghost" onclick="doLogout()">Logout</button>
+            </div>
         </div>
 
-        <div class="card two-col">
-            <h3>Top Blocked IPs</h3>
-            <table>
-                <thead><tr><th>IP Address</th><th>Count</th></tr></thead>
-                <tbody id="blocked-ips"></tbody>
-            </table>
-        </div>
+        <div class="grid">
+            <div class="card">
+                <h3>Total Requests</h3>
+                <div class="value" id="total">-</div>
+            </div>
+            <div class="card">
+                <h3>Allowed</h3>
+                <div class="value green" id="allowed">-</div>
+            </div>
+            <div class="card">
+                <h3>Blocked</h3>
+                <div class="value red" id="blocked">-</div>
+            </div>
+            <div class="card">
+                <h3>Unique IPs</h3>
+                <div class="value" id="unique-ips">-</div>
+            </div>
 
-        <div class="card two-col">
-            <h3>Domain Statistics</h3>
-            <table>
-                <thead><tr><th>Domain</th><th>Total</th><th>Blocked</th><th>Block Rate</th></tr></thead>
-                <tbody id="domain-stats"></tbody>
-            </table>
-        </div>
+            <div class="card two-col">
+                <h3>Top Blocked IPs</h3>
+                <table>
+                    <thead><tr><th>IP Address</th><th>Count</th></tr></thead>
+                    <tbody id="blocked-ips"></tbody>
+                </table>
+            </div>
 
-        <div class="card full-width">
-            <h3>Live Request Feed</h3>
-            <div id="events"></div>
-        </div>
+            <div class="card two-col">
+                <h3>Domain Statistics</h3>
+                <table>
+                    <thead><tr><th>Domain</th><th>Total</th><th>Blocked</th><th>Block Rate</th></tr></thead>
+                    <tbody id="domain-stats"></tbody>
+                </table>
+            </div>
 
-        <div class="card full-width">
-            <h3>Recent Requests</h3>
-            <table>
-                <thead><tr><th>Time</th><th>Domain</th><th>IP</th><th>Method</th><th>URI</th><th>Result</th><th>Reason</th></tr></thead>
-                <tbody id="recent-requests"></tbody>
-            </table>
+            <div class="card full-width">
+                <h3>Live Request Feed</h3>
+                <div id="events"></div>
+            </div>
+
+            <div class="card full-width">
+                <h3>Recent Requests</h3>
+                <table>
+                    <thead><tr><th>Time</th><th>Domain</th><th>IP</th><th>Method</th><th>URI</th><th>Result</th><th>Reason</th></tr></thead>
+                    <tbody id="recent-requests"></tbody>
+                </table>
+            </div>
         </div>
     </div>
 
     <script>
         const API_BASE = window.location.origin;
-        const TOKEN = new URLSearchParams(window.location.search).get('token') || '';
-        const headers = TOKEN ? {'Authorization': `Bearer ${TOKEN}`} : {};
+
+        // ── Auth ───────────────────────────────────────────────
+        async function checkAuth() {
+            try {
+                const resp = await fetch(API_BASE + '/api/auth/check', {credentials: 'same-origin'});
+                const data = await resp.json();
+                if (!data.auth_required || data.authenticated) {
+                    showDashboard();
+                } else {
+                    showLogin();
+                }
+            } catch(e) {
+                showLogin();
+            }
+        }
+
+        function showLogin() {
+            document.getElementById('login-page').style.display = 'flex';
+            document.getElementById('dashboard-page').style.display = 'none';
+        }
+
+        function showDashboard() {
+            document.getElementById('login-page').style.display = 'none';
+            document.getElementById('dashboard-page').style.display = 'block';
+            refresh();
+            startPolling();
+            connectWS();
+        }
+
+        async function doLogin() {
+            const input = document.getElementById('token-input');
+            const btn = document.getElementById('login-btn');
+            const err = document.getElementById('login-error');
+            const token = input.value.trim();
+
+            if (!token) { err.textContent = 'Token is required'; return; }
+
+            btn.disabled = true;
+            btn.textContent = 'Signing in...';
+            err.textContent = '';
+
+            try {
+                const resp = await fetch(API_BASE + '/api/auth/login', {
+                    method: 'POST',
+                    headers: {'Content-Type': 'application/json'},
+                    body: JSON.stringify({token}),
+                    credentials: 'same-origin',
+                });
+                if (resp.ok) {
+                    input.value = '';
+                    showDashboard();
+                } else {
+                    const data = await resp.json();
+                    err.textContent = data.error || 'Authentication failed';
+                }
+            } catch(e) {
+                err.textContent = 'Connection failed';
+            }
+
+            btn.disabled = false;
+            btn.textContent = 'Sign In';
+        }
+
+        async function doLogout() {
+            await fetch(API_BASE + '/api/auth/logout', {method: 'POST', credentials: 'same-origin'});
+            if (pollInterval) clearInterval(pollInterval);
+            showLogin();
+        }
+
+        // Enter key submits login
+        document.getElementById('token-input').addEventListener('keydown', (e) => {
+            if (e.key === 'Enter') doLogin();
+        });
+
+        // ── Dashboard data ─────────────────────────────────────
+        let pollInterval = null;
+
+        function startPolling() {
+            if (pollInterval) clearInterval(pollInterval);
+            pollInterval = setInterval(refresh, 15000);
+        }
 
         async function fetchJSON(path) {
-            const resp = await fetch(API_BASE + path, {headers});
+            const resp = await fetch(API_BASE + path, {credentials: 'same-origin'});
+            if (resp.status === 401 || resp.status === 403) {
+                showLogin();
+                throw new Error('Session expired');
+            }
             return resp.json();
         }
 
@@ -114,8 +233,8 @@
             try {
                 const stats = await fetchJSON('/api/stats?hours=24');
                 document.getElementById('total').textContent = stats.total_requests;
-                document.getElementById('allowed').textContent = stats.allowed_requests;
-                document.getElementById('blocked').textContent = stats.blocked_requests;
+                document.getElementById('allowed').textContent = stats.allowed_requests ?? 0;
+                document.getElementById('blocked').textContent = stats.blocked_requests ?? 0;
                 document.getElementById('unique-ips').textContent = stats.unique_ips;
 
                 const blockedIps = document.getElementById('blocked-ips');
@@ -141,14 +260,17 @@
                     </tr>`;
                 }).join('');
             } catch(e) {
-                console.error('Refresh failed:', e);
+                if (e.message !== 'Session expired') console.error('Refresh failed:', e);
             }
         }
 
-        // WebSocket for live events
+        // ── WebSocket ──────────────────────────────────────────
+        let ws = null;
+
         function connectWS() {
+            if (ws) { try { ws.close(); } catch(_) {} }
             const wsUrl = `${location.protocol === 'https:' ? 'wss' : 'ws'}://${location.host}/ws/events`;
-            const ws = new WebSocket(wsUrl);
+            ws = new WebSocket(wsUrl);
             const statusEl = document.getElementById('ws-status');
             const eventsEl = document.getElementById('events');
 
@@ -171,9 +293,8 @@
             };
         }
 
-        refresh();
-        setInterval(refresh, 15000);
-        connectWS();
+        // ── Init ───────────────────────────────────────────────
+        checkAuth();
     </script>
 </body>
 </html>

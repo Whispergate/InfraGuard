@@ -18,7 +18,12 @@ from infraguard.intel.manager import IntelManager
 from infraguard.tracking.database import Database
 from infraguard.tracking.nodes import NodeRegistry
 from infraguard.tracking.stats import StatsQuery
-from infraguard.ui.api.auth import check_auth
+from infraguard.ui.api.auth import (
+    check_auth,
+    check_handler,
+    login_handler,
+    logout_handler,
+)
 from infraguard.ui.api.routes.config import get_config, get_domains
 from infraguard.ui.api.routes.decoys import get_decoy_file, list_decoys, update_decoy_file
 from infraguard.ui.api.routes.intel import add_blocklist, classify_ip
@@ -29,14 +34,23 @@ from infraguard.ui.api.websocket import EventBroadcaster
 
 log = structlog.get_logger()
 
+# Paths that don't require authentication
+_PUBLIC_PATHS = frozenset({"/", "", "/api/auth/login", "/api/auth/check"})
+_PUBLIC_PREFIXES = ("/static",)
+
 
 class AuthMiddleware(BaseHTTPMiddleware):
     async def dispatch(self, request: Request, call_next: RequestResponseEndpoint) -> Response:
-        # Skip auth for static files and websocket
-        if request.url.path.startswith("/static") or request.url.path == "/ws/events":
+        path = request.url.path
+
+        # Skip auth for public paths
+        if path in _PUBLIC_PATHS:
             return await call_next(request)
-        # Skip auth for the root dashboard page
-        if request.url.path == "/" or request.url.path == "":
+        for prefix in _PUBLIC_PREFIXES:
+            if path.startswith(prefix):
+                return await call_next(request)
+        # Skip auth for websocket
+        if path == "/ws/events":
             return await call_next(request)
 
         token = request.app.state.config.api.auth_token
@@ -77,7 +91,11 @@ def create_api_app(
     routes = [
         # Dashboard root
         Route("/", serve_index, methods=["GET"]),
-        # API routes
+        # Auth routes (public)
+        Route("/api/auth/login", login_handler, methods=["POST"]),
+        Route("/api/auth/logout", logout_handler, methods=["POST"]),
+        Route("/api/auth/check", check_handler, methods=["GET"]),
+        # API routes (require auth)
         Route("/api/stats", get_stats, methods=["GET"]),
         Route("/api/requests", get_requests, methods=["GET"]),
         Route("/api/nodes", list_nodes, methods=["GET"]),

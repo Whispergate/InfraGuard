@@ -149,7 +149,7 @@ activemq-data/
 
 # InfraGuard runtime data
 .infraguard/
-infraguard.db
+infraguard.db*
 data/
 
 # Environments

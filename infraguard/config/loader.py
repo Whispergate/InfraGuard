@@ -50,7 +50,7 @@ def _resolve_env_vars(obj: object) -> object:
             return os.environ.get(var_name, match.group(0))
         return _ENV_VAR_PATTERN.sub(_replacer, obj)
     elif isinstance(obj, dict):
-        return {k: _resolve_env_vars(v) for k, v in obj.items()}
+        return {_resolve_env_vars(k): _resolve_env_vars(v) for k, v in obj.items()}
     elif isinstance(obj, list):
         return [_resolve_env_vars(item) for item in obj]
     return obj

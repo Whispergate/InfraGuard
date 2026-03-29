@@ -56,7 +56,11 @@ class IntelManager:
                 self.blocklist.add_many(cached)
 
         # GeoIP
-        self.geoip = GeoIPLookup(config.geoip_db)
+        self.geoip = GeoIPLookup(
+            city_db=config.geoip_db,
+            asn_db=config.geoip_asn_db,
+            country_db=config.geoip_country_db,
+        )
 
         self._feed_task: asyncio.Task | None = None
 

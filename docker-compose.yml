@@ -12,11 +12,11 @@ services:
       - ./config:/app/config:ro
       - ./examples:/app/examples:ro
       - ./data:/app/data
-      - ./certs:/app/certs:ro
+      - certs:/app/certs:ro
     command: ["run", "-c", "/app/config/config.yaml", "--port", "443"]
     healthcheck:
-      test: ["CMD", "python3", "-c", "import urllib.request,ssl; urllib.request.urlopen('https://127.0.0.1:443/__infraguard__/health', context=ssl._create_unverified_context())"]
-      interval: 30s
+      test: ["CMD", "python3", "-c", "import urllib.request,ssl,os; p=os.environ.get('INFRAGUARD_HEALTH_PATH','health'); urllib.request.urlopen(f'https://127.0.0.1:443/{p}', context=ssl._create_unverified_context())"]
+      interval: 300s
       timeout: 10s
       retries: 5
       start_period: 15s
@@ -35,10 +35,69 @@ services:
       - ./config:/app/config:ro
       - ./examples:/app/examples:ro
       - ./data:/app/data
-    command: ["dashboard", "-c", "/app/config/config.yaml"]
+      - certs:/app/certs:ro
+    command: ["dashboard", "-c", "/app/config/config.yaml", "--tls"]
     depends_on:
       proxy:
         condition: service_healthy
+    networks:
+      - infraguard
+
+  # ── Let's Encrypt (optional) ────────────────────────────────────────
+  # Automatically obtains and renews TLS certificates via certbot.
+  # Enable by setting INFRAGUARD_LETSENCRYPT=true in .env.
+  #
+  # Requirements:
+  #   - Port 80 must be reachable from the internet
+  #   - INFRAGUARD_DOMAIN must resolve to this host
+  #   - INFRAGUARD_DOMAIN_EMAIL must be a valid email
+  #
+  # Certs are written to the shared "certs" volume at:
+  #   /etc/letsencrypt/live/${INFRAGUARD_DOMAIN}/fullchain.pem
+  #   /etc/letsencrypt/live/${INFRAGUARD_DOMAIN}/privkey.pem
+  #
+  # After first run, restart the proxy to pick up the new certs.
+  certbot:
+    image: certbot/certbot:latest
+    container_name: infraguard-certbot
+    profiles: ["letsencrypt"]
+    env_file: .env
+    volumes:
+      - certs:/etc/letsencrypt
+      - certbot-www:/var/www/certbot
+    entrypoint: /bin/sh
+    command: >
+      -c '
+        if [ "${INFRAGUARD_LETSENCRYPT}" = "true" ]; then
+          certbot certonly --standalone
+            --non-interactive --agree-tos
+            --email ${INFRAGUARD_DOMAIN_EMAIL}
+            -d ${INFRAGUARD_DOMAIN}
+            --preferred-challenges http
+          && echo "Certificate obtained for ${INFRAGUARD_DOMAIN}"
+        else
+          echo "Let'\''s Encrypt disabled (INFRAGUARD_LETSENCRYPT != true)"
+        fi
+      '
+    ports:
+      - "80:80"
+    networks:
+      - infraguard
+
+  # Renewal runs on a schedule (every 12 hours)
+  certbot-renew:
+    image: certbot/certbot:latest
+    container_name: infraguard-certbot-renew
+    profiles: ["letsencrypt"]
+    env_file: .env
+    volumes:
+      - certs:/etc/letsencrypt
+      - certbot-www:/var/www/certbot
+    entrypoint: /bin/sh
+    command: -c 'trap exit TERM; while :; do certbot renew --quiet; sleep 43200; done'
+    depends_on:
+      certbot:
+        condition: service_completed_successfully
     networks:
       - infraguard
 
@@ -55,12 +114,16 @@ services:
   #     - ./config:/app/config:ro
   #     - ./examples:/app/examples:ro
   #     - ./data:/app/data
-  #     - ./certs:/app/certs:ro
+  #     - certs:/app/certs:ro
   #   command: ["run", "-c", "/app/config/config.yaml"]
   #   networks:
   #     - infraguard
   #   deploy:
   #     replicas: 2
+
+volumes:
+  certs:
+  certbot-www:
 
 networks:
   infraguard:

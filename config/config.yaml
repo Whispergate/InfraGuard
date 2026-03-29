@@ -8,31 +8,54 @@ listeners:
       cert: "${INFRAGUARD_TLS_CERT}"
       key: "${INFRAGUARD_TLS_KEY}"
     domains:
-      - "cdn.example.com"
+      - "${INFRAGUARD_DOMAIN}"
   - bind: "0.0.0.0"
     port: 80
     domains:
-      - "cdn.example.com"
+      - "${INFRAGUARD_DOMAIN}"
 
 domains:
+
+  # ── Cobalt Strike domain ────────────────────────────────────────────
+  # Fronts a CS teamserver behind a jQuery CDN lookalike.
+  # Requests that don't match the malleable profile are redirected
+  # to the real jQuery site so the redirector looks legitimate.
   cdn.example.com:
-    upstream: "${INFRAGUARD_CS_UPSTREAM}"
-    profile_path: "/app/examples/jquery-c2.3.14.profile"
+    upstream: "https://10.0.0.5:8443"
+    profile_path: "examples/jquery-c2.3.14.profile"
     profile_type: "cobalt_strike"
-    whitelist_cidrs: []
+    whitelist_cidrs:
+      - "192.168.1.0/24"       # operator subnet
+      - "10.0.0.0/8"           # internal range
+    decoy_dir: null             # or path to static site served to blocked visitors
     drop_action:
       type: "redirect"
       target: "https://jquery.com"
+
+  # ── Mythic domain ───────────────────────────────────────────────────
+  # Fronts a Mythic teamserver behind a generic CDN static-assets page.
+  # Uses the Mythic HTTPX JSON profile format. Non-matching requests
+  # get proxied to a real site so the redirector returns valid HTML.
+  static.example.net:
+    upstream: "https://10.0.0.6:443"
+    profile_path: "examples/mythic-httpx.json"
+    profile_type: "mythic"
+    whitelist_cidrs: []         # empty = all IPs are allowed (no whitelist)
+    drop_action:
+      type: "proxy"            # serve real content from the target site
+      target: "https://example.net"
 
 intel:
   auto_block_scanners: true
   dynamic_whitelist_threshold: 3
   geoip_db: "${INFRAGUARD_GEOIP_DB}"
+  geoip_asn_db: "${INFRAGUARD_GEOIP_ASN_DB}"
+  geoip_country_db: "${INFRAGUARD_GEOIP_COUNTRY_DB}"
   feeds:
     enabled: true
 
 tracking:
-  db_path: "/app/data/infraguard.db"
+  db_path: "${INFRAGUARD_DB_PATH}"
 
 pipeline:
   block_score_threshold: 0.7
@@ -41,6 +64,7 @@ api:
   bind: "0.0.0.0"
   port: 8080
   auth_token: "${INFRAGUARD_API_TOKEN}"
+  health_path: "/${INFRAGUARD_HEALTH_PATH}"
 
 logging:
   level: "${INFRAGUARD_LOG_LEVEL}"

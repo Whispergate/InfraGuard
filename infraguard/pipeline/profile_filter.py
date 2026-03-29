@@ -70,7 +70,9 @@ class ProfileFilter:
                     score=0.8,
                 )
 
-        # Validate User-Agent if profile specifies one
+        # Validate User-Agent only if the profile explicitly specifies one.
+        # If the profile has no useragent set, skip this check — the bot
+        # filter already catches known-bad UAs from the blocklist.
         if profile.useragent:
             ua = request.headers.get("user-agent", "")
             if ua != profile.useragent:

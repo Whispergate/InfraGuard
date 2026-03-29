@@ -1,7 +1,5 @@
 # InfraGuard
 
-![InfraGuard Logo](/images/infraguard_logo.svg)
-
 Red team infrastructure tracker and C2 redirector -- a modern alternative to [RedWarden](https://github.com/mgeeky/RedWarden).
 
 InfraGuard sits between the internet and your C2 teamserver, validating every inbound request against your malleable C2 profile and blocking anything that doesn't conform. Scanners, bots, and blue team probes get redirected to a decoy site while legitimate beacon traffic passes through to your teamserver.
@@ -13,11 +11,17 @@ InfraGuard sits between the internet and your C2 teamserver, validating every in
 - **Scoring-based filter pipeline** -- 7 filters (IP, bot, header, DNS, geo, profile, replay) each contribute a 0.0-1.0 score; configurable threshold determines block/allow
 - **Anti-bot / anti-crawling** -- 40+ known scanner/bot User-Agent patterns, header anomaly detection
 - **IP intelligence** -- built-in CIDR blocklists for 19 security vendor ranges (Shodan, Censys, Rapid7, etc.), GeoIP filtering, reverse DNS keyword matching
+- **Threat intel feeds** -- auto-update blocklists from public sources (abuse.ch, Emerging Threats, Spamhaus DROP, Binary Defense) with configurable refresh interval and disk caching
+- **Rule ingestion** -- import IP blocklists and User-Agent patterns from existing `.htaccess` and `robots.txt` files
 - **Dynamic IP blocking** -- block IPs outside whitelisted ranges; auto-whitelist IPs after N valid C2 requests
 - **Drop actions** -- redirect, TCP reset, proxy to decoy site, or tarpit (slow-drip response to waste scanner time)
 - **Web dashboard** -- real-time SPA with live request feed, domain stats, top blocked IPs, WebSocket event streaming
-- **Terminal UI** -- Textual-based TUI for monitoring directly over SSH
-- **Backend config generation** -- generate Nginx, Caddy, or Apache configs from your C2 profiles
+- **Terminal UI** -- Textual-based TUI with login screen, live API polling, color-coded request log
+- **Backend config generation** -- generate Nginx, Caddy, or Apache configs with full operator customization (TLS, IP filtering, header checks, aliases, custom headers)
+- **Docker deployment** -- Dockerfile + docker-compose with optional Let's Encrypt auto-cert
+- **Self-signed TLS fallback** -- auto-generates certificates when configured paths don't exist
+- **Environment variable support** -- `.env` file auto-loaded; `${VAR}` syntax works in all config values and keys
+- **Configurable health endpoint** -- change the health check path to avoid fingerprinting
 - **Plugin system** -- extend the filter pipeline with custom plugins
 - **Structured logging** -- JSON-formatted structured logs via structlog
 - **Tracking & persistence** -- SQLite with WAL mode for request logging, statistics, and node registry
@@ -68,6 +72,17 @@ pip install .
 pip install ".[all]"
 ```
 
+### With Docker
+
+```bash
+git clone https://github.com/Whispergate/InfraGuard.git
+cd InfraGuard
+cp .env.example .env        # Edit with your values
+docker compose up -d
+```
+
+See [Docker Deployment](#docker-deployment) for full details.
+
 ### Optional dependency groups
 
 | Group | Packages | Purpose |
@@ -86,31 +101,46 @@ infraguard --version
 
 ## Quick Start
 
-### 1. Generate a starter configuration
+### 1. Set up environment
+
+```bash
+cp .env.example .env
+```
+
+Edit `.env` with your domain, teamserver address, and API token:
+
+```bash
+INFRAGUARD_DOMAIN=cdn.example.com
+INFRAGUARD_DOMAIN_EMAIL=operator@example.com
+INFRAGUARD_CS_UPSTREAM=https://10.0.0.5:8443
+INFRAGUARD_API_TOKEN=your-secret-token
+```
+
+### 2. Generate a starter configuration
 
 ```bash
 infraguard init -o config.yaml
 ```
 
-This creates a `config.yaml` with annotated defaults. Edit it to match your deployment.
+This creates a `config.yaml` with annotated defaults. Environment variables like `${INFRAGUARD_API_TOKEN}` are resolved from your `.env` file automatically.
 
-### 2. Parse and inspect your C2 profile
+### 3. Parse and inspect your C2 profile
 
 ```bash
 # Cobalt Strike malleable profile
-infraguard profile parse profiles/jquery-c2.3.14.profile
+infraguard profile parse examples/jquery-c2.3.14.profile
 
 # Mythic HTTPX profile (JSON)
-infraguard profile parse profiles/mythic-http.json
+infraguard profile parse examples/mythic-httpx.json
 
 # Output as JSON
-infraguard profile parse profiles/jquery-c2.3.14.profile --format json
+infraguard profile parse examples/jquery-c2.3.14.profile --format json
 
 # Convert CS profile to InfraGuard JSON format
-infraguard profile convert profiles/jquery-c2.3.14.profile -o profiles/jquery.json
+infraguard profile convert examples/jquery-c2.3.14.profile -o profiles/jquery.json
 ```
 
-### 3. Start the redirector proxy
+### 4. Start the redirector proxy
 
 ```bash
 infraguard run -c config.yaml
@@ -119,33 +149,86 @@ infraguard run -c config.yaml
 InfraGuard will:
 - Load each domain's C2 profile
 - Build the filter pipeline (IP, bot, header, DNS, profile conformance, replay detection)
+- Connect to the tracking database and start recording events
+- Auto-generate a self-signed TLS certificate if the configured cert paths don't exist
 - Start the ASGI reverse proxy on the configured listener
 
-### 4. Start the web dashboard (optional)
+### 5. Start the web dashboard (optional)
 
 ```bash
 infraguard dashboard -c config.yaml
 ```
 
-Open `http://127.0.0.1:8080` in your browser. Pass `?token=YOUR_TOKEN` if auth is configured.
+Open `http://127.0.0.1:8080` in your browser. Pass `?token=YOUR_TOKEN` if auth is configured. The dashboard shows live stats, request logs, domain breakdowns, and top blocked IPs.
 
-### 5. Launch the terminal UI (optional)
+### 6. Launch the terminal UI (optional)
 
 ```bash
+# With login screen
+infraguard tui
+
+# Auto-connect to a dashboard
+infraguard tui --url http://127.0.0.1:8080 --token your-secret-token
+
+# Read connection details from config
 infraguard tui -c config.yaml
 ```
 
-### 6. Generate web server configs (optional)
+The TUI shows a login screen where you enter the dashboard URL and API token. If `--url` and `--token` are provided (or read from config), it skips login and connects directly.
 
-If you prefer to front InfraGuard with Nginx, Caddy, or Apache:
+### 7. Import existing server rules (optional)
 
 ```bash
-infraguard generate nginx -c config.yaml -o nginx.conf
-infraguard generate caddy -c config.yaml -o Caddyfile
-infraguard generate apache -c config.yaml -o .htaccess
+# Ingest .htaccess IP blocks and User-Agent rules
+infraguard ingest .htaccess --format blocklist -o banned_ips.txt
+
+# Ingest robots.txt bot names
+infraguard ingest robots.txt
+
+# Ingest multiple files
+infraguard ingest .htaccess robots.txt --format json
 ```
 
-These configs replicate URI matching, User-Agent validation, and header checks using native server directives. Note: transform chain validation and scoring require the InfraGuard proxy itself.
+### 8. Generate web server configs (optional)
+
+```bash
+# Basic generation from config
+infraguard generate nginx -c config.yaml -o nginx.conf
+
+# With operator overrides
+infraguard generate nginx -c config.yaml \
+  --listen-port 8443 \
+  --redirect-url "https://decoy.example.com" \
+  --alias "cdn.example.com:static.example.com" \
+  --header "X-Frame-Options:DENY" \
+  --header "X-Content-Type-Options:nosniff"
+
+# Other backends
+infraguard generate caddy -c config.yaml -o Caddyfile
+infraguard generate apache -c config.yaml -o vhost.conf
+```
+
+Generated configs include TLS paths, IP allow/deny blocks from whitelists, User-Agent validation, header checks, and proxy rules -- all derived from your C2 profile and InfraGuard config.
+
+## Environment Variables
+
+InfraGuard auto-loads a `.env` file from the config file's directory or the current working directory. Copy `.env.example` to `.env` and fill in your values.
+
+The `${VAR}` syntax works everywhere in `config.yaml` -- including dictionary keys, list values, and nested strings. Real environment variables take precedence over `.env` file values.
+
+| Variable | Purpose | Example |
+|---|---|---|
+| `INFRAGUARD_DOMAIN` | Primary redirector domain | `cdn.example.com` |
+| `INFRAGUARD_DOMAIN_EMAIL` | Email for Let's Encrypt registration | `operator@example.com` |
+| `INFRAGUARD_LETSENCRYPT` | Enable auto-cert via certbot | `true` / `false` |
+| `INFRAGUARD_TLS_CERT` | Path to TLS certificate | `/app/certs/live/.../fullchain.pem` |
+| `INFRAGUARD_TLS_KEY` | Path to TLS private key | `/app/certs/live/.../privkey.pem` |
+| `INFRAGUARD_API_TOKEN` | Dashboard API bearer token | `your-secret-token` |
+| `INFRAGUARD_CS_UPSTREAM` | Cobalt Strike teamserver address | `https://10.0.0.5:8443` |
+| `INFRAGUARD_MYTHIC_UPSTREAM` | Mythic teamserver address | `https://10.0.0.6:443` |
+| `INFRAGUARD_GEOIP_DB` | Path to MaxMind GeoLite2 database | `/usr/share/GeoIP/GeoLite2-City.mmdb` |
+| `INFRAGUARD_HEALTH_PATH` | Custom health endpoint path (OPSEC) | `status`, `api/ping`, `.well-known/health` |
+| `INFRAGUARD_LOG_LEVEL` | Log level | `DEBUG` / `INFO` / `WARNING` |
 
 ## Configuration
 
@@ -158,15 +241,15 @@ listeners:
   - bind: "0.0.0.0"
     port: 443
     tls:
-      cert: "/etc/letsencrypt/live/cdn.example.com/fullchain.pem"
-      key: "/etc/letsencrypt/live/cdn.example.com/privkey.pem"
+      cert: "${INFRAGUARD_TLS_CERT}"
+      key: "${INFRAGUARD_TLS_KEY}"
     domains:
       - "cdn.example.com"
 
 domains:
   cdn.example.com:
     upstream: "https://10.0.0.5:8443"
-    profile_path: "profiles/jquery-c2.3.14.profile"
+    profile_path: "examples/jquery-c2.3.14.profile"
     profile_type: "cobalt_strike"
     whitelist_cidrs:
       - "192.168.1.0/24"
@@ -226,6 +309,11 @@ intel:
   dynamic_whitelist_threshold: 3                     # Auto-whitelist after N valid requests
   banned_ip_file: "data/banned_ips.txt"              # Additional CIDR blocklist file
   banned_words_file: "data/banned_words.txt"         # Header keyword blocklist file
+  feeds:
+    enabled: true                                    # Auto-update from threat intel feeds
+    refresh_interval_hours: 6                        # How often to refresh
+    cache_dir: ".infraguard/feeds"                   # Disk cache for fetched feeds
+    urls: []                                         # Empty = use built-in defaults
 
 # ── Filter Pipeline ───────────────────────────────────────────────────
 pipeline:
@@ -247,7 +335,8 @@ tracking:
 api:
   bind: "127.0.0.1"
   port: 8080
-  auth_token: "${INFRAGUARD_API_TOKEN}"   # Bearer token (env var recommended)
+  auth_token: "${INFRAGUARD_API_TOKEN}"              # Bearer token (env var recommended)
+  health_path: "/health"                             # Customize to avoid fingerprinting
 
 # ── Logging ───────────────────────────────────────────────────────────
 logging:
@@ -276,6 +365,51 @@ plugins:
 | `mythic` | `.json` | Mythic HTTPX profile JSON |
 
 Profile type is auto-detected from the file extension. Use `--type` to override.
+
+### TLS Certificate Resolution
+
+InfraGuard resolves TLS certificates in this order:
+
+1. **Configured paths** -- if `tls.cert` and `tls.key` exist on disk, use them
+2. **Let's Encrypt** -- if running via Docker with `INFRAGUARD_LETSENCRYPT=true`, certbot places certs at the configured paths
+3. **Self-signed fallback** -- if neither exists, a self-signed certificate is auto-generated for the domain and saved to `.infraguard/tls/`
+
+Self-signed certs include SANs for the domain, its wildcard, `localhost`, and `127.0.0.1`.
+
+### Threat Intel Feeds
+
+When `intel.feeds.enabled` is `true`, InfraGuard periodically fetches IP blocklists from public threat intelligence sources and merges them into the blocklist. Fetched data is cached to disk so it survives restarts.
+
+Built-in feed sources (used when `urls` is empty):
+- Feodo Tracker (Dridex, Emotet, TrickBot C2s)
+- Emerging Threats compromised IPs
+- CI Army bad IPs
+- Spamhaus DROP (Don't Route Or Peer)
+- Binary Defense IP banlist
+
+Add custom feeds by providing URLs that serve plain-text IP/CIDR lists (one per line):
+
+```yaml
+intel:
+  feeds:
+    urls:
+      - "https://example.com/custom-blocklist.txt"
+      - "https://example.com/another-feed.txt"
+```
+
+### Configurable Health Endpoint
+
+By default, the proxy exposes a health check at `/health`. Change this to avoid fingerprinting:
+
+```yaml
+api:
+  health_path: "/${INFRAGUARD_HEALTH_PATH}"
+```
+
+```bash
+# .env
+INFRAGUARD_HEALTH_PATH=api/v1/status
+```
 
 ## Filter Pipeline
 
@@ -308,31 +442,87 @@ ALLOW or BLOCK (based on cumulative score)
 
 Hard blocks (score = 1.0) short-circuit immediately. Soft signals (score < threshold) accumulate.
 
+## Rule Ingestion
+
+Import IP blocklists and User-Agent patterns from existing server configuration files:
+
+```bash
+# Parse .htaccess deny rules, RewriteCond UA patterns, Require directives
+infraguard ingest .htaccess
+
+# Parse robots.txt bot names and disallowed paths
+infraguard ingest robots.txt
+
+# Combine multiple files
+infraguard ingest .htaccess robots.txt
+
+# Output as a blocklist file (usable as intel.banned_ip_file)
+infraguard ingest .htaccess --format blocklist -o banned_ips.txt
+
+# Output as JSON for programmatic use
+infraguard ingest .htaccess robots.txt --format json
+```
+
+Supported `.htaccess` directives:
+- `Deny from` / `Allow from` -- IP/CIDR extraction
+- `Require ip` / `Require not ip` -- IP whitelist/blacklist
+- `RewriteCond %{HTTP_USER_AGENT}` -- User-Agent pattern extraction (splits alternation groups)
+- `SetEnvIfNoCase User-Agent` -- User-Agent pattern extraction
+
+Supported `robots.txt` directives:
+- `User-agent:` (non-wildcard) -- bot name extraction
+- `Disallow:` -- blocked path extraction
+
 ## CLI Reference
 
 ```
-infraguard --version                          Show version
-infraguard --help                             Show help
+infraguard --version                                Show version
+infraguard --help                                   Show help
 
-infraguard run -c config.yaml                 Start the reverse proxy
-infraguard run -c config.yaml --port 8443     Override listen port
-infraguard run -c config.yaml --host 0.0.0.0  Override bind address
+infraguard run -c config.yaml                       Start the reverse proxy
+infraguard run -c config.yaml --port 8443           Override listen port
+infraguard run -c config.yaml --host 0.0.0.0        Override bind address
 
-infraguard dashboard -c config.yaml           Start the web dashboard
-infraguard tui -c config.yaml                 Launch terminal UI
+infraguard dashboard -c config.yaml                 Start the web dashboard
+infraguard dashboard -c config.yaml --port 9090     Override dashboard port
 
-infraguard profile parse <file>               Parse and display a C2 profile
-infraguard profile parse <file> --format json  Output as JSON
-infraguard profile parse <file> --type mythic  Force profile type
-infraguard profile convert <file> -o out.json  Convert profile to JSON
+infraguard tui                                      Launch TUI with login screen
+infraguard tui --url http://host:8080 --token TOK   Auto-connect to dashboard
+infraguard tui -c config.yaml                       Read URL/token from config
 
-infraguard generate nginx -c config.yaml       Generate Nginx config
-infraguard generate caddy -c config.yaml       Generate Caddyfile
-infraguard generate apache -c config.yaml      Generate Apache .htaccess
+infraguard profile parse <file>                     Parse and display a C2 profile
+infraguard profile parse <file> --format json        Output as JSON
+infraguard profile parse <file> --type mythic        Force profile type
+infraguard profile convert <file> -o out.json        Convert profile to JSON
 
-infraguard init -o config.yaml                 Generate starter config
-infraguard validate -c config.yaml             Validate config file
+infraguard ingest <files...>                         Ingest .htaccess/robots.txt rules
+infraguard ingest <files...> --format blocklist      Output as IP blocklist
+infraguard ingest <files...> --format json           Output as JSON
+infraguard ingest <files...> -o banned_ips.txt       Write blocklist to file
+
+infraguard generate nginx -c config.yaml             Generate Nginx config
+infraguard generate caddy -c config.yaml             Generate Caddyfile
+infraguard generate apache -c config.yaml            Generate Apache VirtualHost
+
+infraguard init -o config.yaml                       Generate starter config
+infraguard validate -c config.yaml                   Validate config file
 ```
+
+### Generator options
+
+The `generate` command accepts additional flags for operator customization:
+
+| Flag | Description |
+|---|---|
+| `--listen-port PORT` | Override listen port (default: from config) |
+| `--ssl-cert PATH` | Override SSL certificate path |
+| `--ssl-key PATH` | Override SSL key path |
+| `--redirect-url URL` | Override redirect URL for blocked requests |
+| `--default-action redirect\|404` | Action for non-matching requests |
+| `--no-ip-filter` | Omit IP allow/deny blocks |
+| `--no-header-check` | Omit header validation rules |
+| `--alias DOMAIN:ALIAS` | Add server name alias (repeatable) |
+| `--header NAME:VALUE` | Add custom response header (repeatable) |
 
 ## Dashboard API
 
@@ -354,7 +544,62 @@ When running with `infraguard dashboard`, the following REST API is available:
 | `/api/decoys/{domain}/{file}` | PUT | Update a decoy file (`{"content": "..."}`) |
 | `/ws/events` | WS | Real-time event stream (WebSocket) |
 
-All API endpoints require a `Authorization: Bearer <token>` header when `auth_token` is configured.
+All API endpoints require an `Authorization: Bearer <token>` header when `auth_token` is configured.
+
+## Docker Deployment
+
+### Quick start
+
+```bash
+cp .env.example .env
+# Edit .env with your domain, teamserver, and token
+docker compose up -d
+```
+
+This starts two services:
+- **proxy** -- the redirector on ports 443 and 80
+- **dashboard** -- the web UI on port 8080
+
+### With Let's Encrypt
+
+```bash
+# Set in .env:
+#   INFRAGUARD_LETSENCRYPT=true
+#   INFRAGUARD_DOMAIN=cdn.example.com
+#   INFRAGUARD_DOMAIN_EMAIL=operator@example.com
+
+# Obtain the initial certificate
+docker compose --profile letsencrypt up certbot
+
+# Start the proxy (will use the LE cert)
+docker compose up -d proxy dashboard
+
+# Start auto-renewal (checks every 12 hours)
+docker compose --profile letsencrypt up -d certbot-renew
+```
+
+Requirements for Let's Encrypt:
+- Port 80 must be reachable from the internet
+- `INFRAGUARD_DOMAIN` must resolve to this host's public IP
+- `INFRAGUARD_DOMAIN_EMAIL` must be a valid email address
+
+### Scaling
+
+```bash
+# Run multiple redirector nodes
+docker compose up -d --scale proxy-node=3
+```
+
+Uncomment the `proxy-node` service in `docker-compose.yml` to enable.
+
+### Volumes
+
+| Volume | Purpose |
+|---|---|
+| `./config` | Configuration files (mounted read-only) |
+| `./examples` | C2 profiles (mounted read-only) |
+| `./data` | SQLite database (persisted) |
+| `certs` | TLS certificates (shared between proxy and certbot) |
 
 ## Architecture
 
@@ -363,17 +608,17 @@ infraguard/
     __init__.py              Package init
     __main__.py              python -m infraguard entry
     main.py                  Click CLI
-    config/                  YAML config loading + Pydantic validation
+    config/                  YAML config loading, .env support, Pydantic validation
     core/                    ASGI proxy engine (app, proxy, router, TLS, drop actions)
     profiles/                C2 profile parsers (Cobalt Strike + Mythic)
     pipeline/                Request validation filters (IP, bot, header, DNS, geo, profile, replay)
-    intel/                   IP intelligence (blocklists, GeoIP, reverse DNS, known ranges)
+    intel/                   IP intelligence (blocklists, GeoIP, rDNS, feeds, rule ingestion)
     tracking/                SQLite persistence (request logging, stats, node registry)
     plugins/                 Plugin system (protocol, loader, builtins)
     ui/
         api/                 REST API + WebSocket (Starlette)
         web/                 SPA dashboard (HTML/JS/CSS)
-        tui/                 Terminal UI (Textual)
+        tui/                 Terminal UI (Textual) with login screen
     backends/                Config generators (Nginx, Caddy, Apache)
     models/                  Shared types and event models
 ```
@@ -382,15 +627,19 @@ infraguard/
 
 | Feature | RedWarden | InfraGuard |
 |---|---|---|
-| Architecture | Single ~99KB file | Modular package (71 files) |
+| Architecture | Single ~99KB file | Modular package |
 | Profile parsing | Regex state machine | Structured parser with full block/transform support |
 | C2 support | Cobalt Strike only | Cobalt Strike + Mythic |
 | Filter model | Binary pass/fail | Scoring-based (0.0-1.0 threshold) |
 | Operator UI | None | Web dashboard + Terminal UI |
-| Config generation | None | Nginx, Caddy, Apache |
+| Config generation | None | Nginx, Caddy, Apache with full customization |
+| Rule ingestion | None | .htaccess + robots.txt parser |
+| Threat intel feeds | None | Auto-update from 5 public sources |
 | Plugin system | Basic 4-method interface | Protocol-based with lifecycle hooks |
 | Anti-replay | SQLite hash | In-memory with configurable window |
 | Drop actions | redirect, reset, proxy | redirect, reset, proxy, tarpit |
+| TLS management | Manual only | Auto self-signed + Let's Encrypt integration |
+| Deployment | Manual | Docker Compose with health checks |
 | Logging | Custom colored output | Structured JSON (structlog) |
 | Async | Tornado callbacks | Native async/await (ASGI + uvicorn) |
 

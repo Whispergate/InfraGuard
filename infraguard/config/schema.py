@@ -55,6 +55,8 @@ class FeedConfig(BaseModel):
 
 class IntelConfig(BaseModel):
     geoip_db: str | None = None
+    geoip_asn_db: str | None = None
+    geoip_country_db: str | None = None
     blocked_countries: list[str] = Field(default_factory=list)
     blocked_asns: list[int] = Field(default_factory=list)
     auto_block_scanners: bool = True
@@ -73,6 +75,7 @@ class APIConfig(BaseModel):
     bind: str = DEFAULT_API_BIND
     port: int = DEFAULT_API_PORT
     auth_token: str | None = None
+    health_path: str = "/health"
 
 
 class PipelineConfig(BaseModel):

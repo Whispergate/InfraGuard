@@ -25,6 +25,10 @@ def create_app(config: InfraGuardConfig) -> Starlette:
     recorder = EventRecorder(db)
     router = DomainRouter(config, recorder=recorder)
 
+    # Health endpoint path is configurable to avoid fingerprinting
+    health_path = config.api.health_path.strip("/")
+    health_route = f"/{health_path}" if health_path else "/health"
+
     async def proxy_handler(request: Request) -> Response:
         return await router.handle(request)
 
@@ -35,7 +39,11 @@ def create_app(config: InfraGuardConfig) -> Starlette:
     async def lifespan(app: Starlette):
         await db.connect()
         await recorder.start()
-        log.info("infraguard_started", domains=list(config.domains.keys()))
+        log.info(
+            "infraguard_started",
+            domains=list(config.domains.keys()),
+            health_endpoint=health_route,
+        )
         yield
         await recorder.stop()
         await router.close()
@@ -43,7 +51,7 @@ def create_app(config: InfraGuardConfig) -> Starlette:
 
     app = Starlette(
         routes=[
-            Route("/__infraguard__/health", health_check, methods=["GET"]),
+            Route(health_route, health_check, methods=["GET"]),
             Route("/{path:path}", proxy_handler, methods=["GET", "POST", "PUT", "DELETE", "PATCH", "HEAD", "OPTIONS"]),
             Route("/", proxy_handler, methods=["GET", "POST", "PUT", "DELETE", "PATCH", "HEAD", "OPTIONS"]),
         ],
