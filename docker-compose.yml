@@ -163,7 +163,7 @@ services:
     volumes:
       - pwndrop-data:/pwndrop/data
       - certs:/pwndrop/certs:ro
-      - ./config/pwndrop.ini:/pwndrop/pwndrop.ini:ro
+      - ./config/pwndrop.ini:/pwndrop/pwndrop.ini
     networks:
       - infraguard
 
