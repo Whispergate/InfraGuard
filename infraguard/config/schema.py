@@ -3,6 +3,7 @@
 from __future__ import annotations
 
 from pathlib import Path
+from typing import Any
 
 from pydantic import BaseModel, Field
 
@@ -95,6 +96,24 @@ class LoggingConfig(BaseModel):
     file: str | None = None
 
 
+class EventFilterConfig(BaseModel):
+    """Controls which events a plugin forwards."""
+
+    only_blocked: bool = False
+    only_allowed: bool = False
+    min_score: float | None = None
+    exclude_domains: list[str] = Field(default_factory=list)
+    include_domains: list[str] = Field(default_factory=list)
+
+
+class PluginSettings(BaseModel):
+    """Per-plugin settings. Each plugin reads its own keys from ``options``."""
+
+    enabled: bool = True
+    event_filter: EventFilterConfig = Field(default_factory=EventFilterConfig)
+    options: dict[str, Any] = Field(default_factory=dict)
+
+
 class InfraGuardConfig(BaseModel):
     """Root configuration model for InfraGuard."""
 
@@ -106,3 +125,4 @@ class InfraGuardConfig(BaseModel):
     pipeline: PipelineConfig = Field(default_factory=PipelineConfig)
     logging: LoggingConfig = Field(default_factory=LoggingConfig)
     plugins: list[str] = Field(default_factory=list)
+    plugin_settings: dict[str, PluginSettings] = Field(default_factory=dict)

@@ -13,6 +13,7 @@ from starlette.routing import Route
 from infraguard.config.schema import InfraGuardConfig
 from infraguard.core.middleware import RequestLoggingMiddleware
 from infraguard.core.router import DomainRouter
+from infraguard.plugins.loader import load_plugins
 from infraguard.tracking.database import Database
 from infraguard.tracking.recorder import EventRecorder
 
@@ -21,8 +22,11 @@ log = structlog.get_logger()
 
 def create_app(config: InfraGuardConfig) -> Starlette:
     """Create the ASGI application from configuration."""
+    # Load plugins
+    plugins = load_plugins(config.plugins, config.plugin_settings)
+
     db = Database(config.tracking.db_path)
-    recorder = EventRecorder(db)
+    recorder = EventRecorder(db, plugins=plugins)
     router = DomainRouter(config, recorder=recorder)
 
     # Health endpoint path is configurable to avoid fingerprinting
@@ -38,14 +42,27 @@ def create_app(config: InfraGuardConfig) -> Starlette:
     @asynccontextmanager
     async def lifespan(app: Starlette):
         await db.connect()
+        # Start plugins (isolated — one failure doesn't stop others)
+        for p in plugins:
+            try:
+                await p.on_startup()
+            except Exception:
+                log.exception("plugin_startup_error", plugin=getattr(p, "name", "?"))
         await recorder.start()
         log.info(
             "infraguard_started",
             domains=list(config.domains.keys()),
+            plugins=[getattr(p, "name", "?") for p in plugins],
             health_endpoint=health_route,
         )
         yield
         await recorder.stop()
+        # Shutdown plugins
+        for p in plugins:
+            try:
+                await p.on_shutdown()
+            except Exception:
+                log.exception("plugin_shutdown_error", plugin=getattr(p, "name", "?"))
         await router.close()
         await db.close()
 

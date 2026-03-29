@@ -1,9 +1,10 @@
-"""Async batched event recording to SQLite."""
+"""Async batched event recording to SQLite with plugin dispatch."""
 
 from __future__ import annotations
 
 import asyncio
 from collections import deque
+from typing import Any
 
 import structlog
 
@@ -18,6 +19,9 @@ class EventRecorder:
 
     Events are buffered and flushed to SQLite either when the buffer
     reaches ``batch_size`` or every ``flush_interval`` seconds.
+
+    If *plugins* are provided, each plugin's ``on_event`` is called
+    (fire-and-forget via ``asyncio.create_task``) for every recorded event.
     """
 
     def __init__(
@@ -25,16 +29,18 @@ class EventRecorder:
         db: Database,
         batch_size: int = 50,
         flush_interval: float = 5.0,
+        plugins: list[Any] | None = None,
     ):
         self.db = db
         self.batch_size = batch_size
         self.flush_interval = flush_interval
         self._buffer: deque[RequestEvent] = deque()
         self._task: asyncio.Task | None = None
+        self._plugins = plugins or []
 
     async def start(self) -> None:
         self._task = asyncio.create_task(self._flush_loop())
-        log.info("recorder_started", batch_size=self.batch_size)
+        log.info("recorder_started", batch_size=self.batch_size, plugins=len(self._plugins))
 
     async def stop(self) -> None:
         if self._task:
@@ -50,6 +56,18 @@ class EventRecorder:
         self._buffer.append(event)
         if len(self._buffer) >= self.batch_size:
             asyncio.create_task(self._flush())
+
+        # Dispatch to plugins (fire-and-forget)
+        for plugin in self._plugins:
+            asyncio.create_task(self._safe_on_event(plugin, event))
+
+    @staticmethod
+    async def _safe_on_event(plugin: Any, event: RequestEvent) -> None:
+        try:
+            await plugin.on_event(event)
+        except Exception:
+            name = getattr(plugin, "name", "unknown")
+            log.exception("plugin_on_event_error", plugin=name)
 
     async def _flush_loop(self) -> None:
         while True:
