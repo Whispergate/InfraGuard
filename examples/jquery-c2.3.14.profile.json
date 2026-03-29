@@ -1,0 +1,111 @@
+{
+  "name": "jQuery Malleable 3.14",
+  "get": {
+    "verb": "GET",
+    "uris": [
+      "/jquery-3.3.14.min.js"
+    ],
+    "client": {
+      "headers": {
+        "Accept": "text/html,application/xhtml+xml,application/xml;q=0.9,*/*;q=0.8",
+        "Host": "code.jquery.com",
+        "Referer": "http://code.jquery.com/",
+        "Accept-Encoding": "gzip, deflate"
+      },
+      "parameters": null,
+      "message": {
+        "location": "cookie",
+        "name": "__cfduid"
+      },
+      "transforms": [
+        {
+          "action": "base64",
+          "value": ""
+        },
+        {
+          "action": "prepend",
+          "value": "__cfduid="
+        }
+      ]
+    },
+    "server": {
+      "headers": {
+        "Server": "NetDNA-cache/2.2",
+        "Cache-Control": "max-age=0, no-cache",
+        "Pragma": "no-cache",
+        "Connection": "keep-alive",
+        "Content-Type": "application/javascript; charset=utf-8"
+      },
+      "transforms": [
+        {
+          "action": "base64",
+          "value": ""
+        },
+        {
+          "action": "prepend",
+          "value": "!function(e,t){\\"
+        },
+        {
+          "action": "prepend",
+          "value": "/*! jQuery v3.3.1 | (c) JS Foundation and other contributors | jquery.org/license */"
+        },
+        {
+          "action": "append",
+          "value": "\\"
+        }
+      ]
+    }
+  },
+  "post": {
+    "verb": "POST",
+    "uris": [
+      "/jquery-3.3.15.min.js"
+    ],
+    "client": {
+      "headers": {
+        "Accept": "text/html,application/xhtml+xml,application/xml;q=0.9,*/*;q=0.8",
+        "Host": "code.jquery.com",
+        "Referer": "http://code.jquery.com/",
+        "Accept-Encoding": "gzip, deflate"
+      },
+      "parameters": null,
+      "message": {
+        "location": "body",
+        "name": ""
+      },
+      "transforms": [
+        {
+          "action": "base64",
+          "value": ""
+        }
+      ]
+    },
+    "server": {
+      "headers": {
+        "Server": "NetDNA-cache/2.2",
+        "Cache-Control": "max-age=0, no-cache",
+        "Pragma": "no-cache",
+        "Connection": "keep-alive",
+        "Content-Type": "application/javascript; charset=utf-8"
+      },
+      "transforms": [
+        {
+          "action": "base64",
+          "value": ""
+        },
+        {
+          "action": "prepend",
+          "value": "!function(e,t){\\"
+        },
+        {
+          "action": "prepend",
+          "value": "/*! jQuery v3.3.1 | (c) JS Foundation and other contributors | jquery.org/license */"
+        },
+        {
+          "action": "append",
+          "value": "\\"
+        }
+      ]
+    }
+  }
+}

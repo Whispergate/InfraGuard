@@ -1,0 +1,86 @@
+{
+  "name": "Mythic HTTPX - CDN Static Assets",
+  "get": {
+    "verb": "GET",
+    "uris": [
+      "/assets/style.css",
+      "/assets/main.js"
+    ],
+    "client": {
+      "headers": {
+        "Accept": "text/css,*/*;q=0.1",
+        "Host": "static.example.net",
+        "Accept-Encoding": "gzip, deflate, br",
+        "User-Agent": "Mozilla/5.0 (Macintosh; Intel Mac OS X 10_15_7) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/120.0.0.0 Safari/537.36"
+      },
+      "parameters": null,
+      "message": {
+        "location": "cookie",
+        "name": "_ga"
+      },
+      "transforms": [
+        {
+          "action": "base64url",
+          "value": ""
+        },
+        {
+          "action": "prepend",
+          "value": "_ga=GA1.2."
+        }
+      ]
+    },
+    "server": {
+      "headers": {
+        "Server": "cloudflare",
+        "Cache-Control": "public, max-age=31536000",
+        "Content-Type": "text/css; charset=utf-8",
+        "CF-Cache-Status": "HIT"
+      },
+      "transforms": [
+        {
+          "action": "base64url",
+          "value": ""
+        }
+      ]
+    }
+  },
+  "post": {
+    "verb": "POST",
+    "uris": [
+      "/api/v1/telemetry"
+    ],
+    "client": {
+      "headers": {
+        "Accept": "application/json",
+        "Host": "static.example.net",
+        "Content-Type": "application/json",
+        "Accept-Encoding": "gzip, deflate, br",
+        "User-Agent": "Mozilla/5.0 (Macintosh; Intel Mac OS X 10_15_7) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/120.0.0.0 Safari/537.36"
+      },
+      "parameters": null,
+      "message": {
+        "location": "body",
+        "name": ""
+      },
+      "transforms": [
+        {
+          "action": "base64url",
+          "value": ""
+        }
+      ]
+    },
+    "server": {
+      "headers": {
+        "Server": "cloudflare",
+        "Content-Type": "application/json",
+        "CF-Cache-Status": "DYNAMIC"
+      },
+      "transforms": [
+        {
+          "action": "base64url",
+          "value": ""
+        }
+      ]
+    }
+  }
+}

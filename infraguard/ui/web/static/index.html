@@ -1,0 +1,179 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+    <meta charset="UTF-8">
+    <meta name="viewport" content="width=device-width, initial-scale=1.0">
+    <title>InfraGuard Dashboard</title>
+    <style>
+        :root {
+            --bg: #0d1117;
+            --surface: #161b22;
+            --border: #30363d;
+            --text: #c9d1d9;
+            --text-dim: #8b949e;
+            --accent: #58a6ff;
+            --green: #3fb950;
+            --red: #f85149;
+            --yellow: #d29922;
+        }
+        * { margin: 0; padding: 0; box-sizing: border-box; }
+        body { font-family: 'SF Mono', 'Cascadia Code', monospace; background: var(--bg); color: var(--text); }
+        .header { background: var(--surface); border-bottom: 1px solid var(--border); padding: 16px 24px; display: flex; justify-content: space-between; align-items: center; }
+        .header h1 { font-size: 18px; color: var(--accent); }
+        .header .status { font-size: 12px; color: var(--green); }
+        .grid { display: grid; grid-template-columns: repeat(4, 1fr); gap: 16px; padding: 24px; }
+        .card { background: var(--surface); border: 1px solid var(--border); border-radius: 8px; padding: 20px; }
+        .card h3 { font-size: 12px; text-transform: uppercase; color: var(--text-dim); margin-bottom: 8px; }
+        .card .value { font-size: 28px; font-weight: bold; }
+        .card .value.green { color: var(--green); }
+        .card .value.red { color: var(--red); }
+        .full-width { grid-column: 1 / -1; }
+        .two-col { grid-column: span 2; }
+        table { width: 100%; border-collapse: collapse; font-size: 13px; }
+        th { text-align: left; padding: 8px 12px; color: var(--text-dim); font-size: 11px; text-transform: uppercase; border-bottom: 1px solid var(--border); }
+        td { padding: 8px 12px; border-bottom: 1px solid var(--border); }
+        .badge { display: inline-block; padding: 2px 8px; border-radius: 4px; font-size: 11px; font-weight: bold; }
+        .badge.allow { background: rgba(63,185,80,0.15); color: var(--green); }
+        .badge.block { background: rgba(248,81,73,0.15); color: var(--red); }
+        #events { max-height: 400px; overflow-y: auto; }
+        .event-row { display: flex; gap: 12px; padding: 6px 0; border-bottom: 1px solid var(--border); font-size: 12px; }
+        .event-row .time { color: var(--text-dim); min-width: 80px; }
+        .event-row .ip { color: var(--yellow); min-width: 120px; }
+        .refresh-btn { background: var(--accent); color: var(--bg); border: none; padding: 8px 16px; border-radius: 4px; cursor: pointer; font-family: inherit; font-size: 12px; }
+        .refresh-btn:hover { opacity: 0.8; }
+    </style>
+</head>
+<body>
+    <div class="header">
+        <h1>&#9763; InfraGuard Dashboard</h1>
+        <div>
+            <span class="status" id="ws-status">&#9679; Connecting...</span>
+            <button class="refresh-btn" onclick="refresh()">Refresh</button>
+        </div>
+    </div>
+
+    <div class="grid">
+        <div class="card">
+            <h3>Total Requests</h3>
+            <div class="value" id="total">-</div>
+        </div>
+        <div class="card">
+            <h3>Allowed</h3>
+            <div class="value green" id="allowed">-</div>
+        </div>
+        <div class="card">
+            <h3>Blocked</h3>
+            <div class="value red" id="blocked">-</div>
+        </div>
+        <div class="card">
+            <h3>Unique IPs</h3>
+            <div class="value" id="unique-ips">-</div>
+        </div>
+
+        <div class="card two-col">
+            <h3>Top Blocked IPs</h3>
+            <table>
+                <thead><tr><th>IP Address</th><th>Count</th></tr></thead>
+                <tbody id="blocked-ips"></tbody>
+            </table>
+        </div>
+
+        <div class="card two-col">
+            <h3>Domain Statistics</h3>
+            <table>
+                <thead><tr><th>Domain</th><th>Total</th><th>Blocked</th><th>Block Rate</th></tr></thead>
+                <tbody id="domain-stats"></tbody>
+            </table>
+        </div>
+
+        <div class="card full-width">
+            <h3>Live Request Feed</h3>
+            <div id="events"></div>
+        </div>
+
+        <div class="card full-width">
+            <h3>Recent Requests</h3>
+            <table>
+                <thead><tr><th>Time</th><th>Domain</th><th>IP</th><th>Method</th><th>URI</th><th>Result</th><th>Reason</th></tr></thead>
+                <tbody id="recent-requests"></tbody>
+            </table>
+        </div>
+    </div>
+
+    <script>
+        const API_BASE = window.location.origin;
+        const TOKEN = new URLSearchParams(window.location.search).get('token') || '';
+        const headers = TOKEN ? {'Authorization': `Bearer ${TOKEN}`} : {};
+
+        async function fetchJSON(path) {
+            const resp = await fetch(API_BASE + path, {headers});
+            return resp.json();
+        }
+
+        async function refresh() {
+            try {
+                const stats = await fetchJSON('/api/stats?hours=24');
+                document.getElementById('total').textContent = stats.total_requests;
+                document.getElementById('allowed').textContent = stats.allowed_requests;
+                document.getElementById('blocked').textContent = stats.blocked_requests;
+                document.getElementById('unique-ips').textContent = stats.unique_ips;
+
+                const blockedIps = document.getElementById('blocked-ips');
+                blockedIps.innerHTML = stats.top_blocked_ips
+                    .map(r => `<tr><td>${r.ip}</td><td>${r.count}</td></tr>`).join('');
+
+                const domainStats = document.getElementById('domain-stats');
+                domainStats.innerHTML = stats.domains
+                    .map(d => `<tr><td>${d.domain}</td><td>${d.total}</td><td>${d.blocked}</td><td>${(d.block_rate * 100).toFixed(1)}%</td></tr>`).join('');
+
+                const reqs = await fetchJSON('/api/requests?limit=50');
+                const tbody = document.getElementById('recent-requests');
+                tbody.innerHTML = reqs.requests.map(r => {
+                    const badge = r.filter_result === 'allow' ? 'allow' : 'block';
+                    return `<tr>
+                        <td>${r.timestamp?.substring(11, 19) || ''}</td>
+                        <td>${r.domain}</td>
+                        <td>${r.client_ip}</td>
+                        <td>${r.method}</td>
+                        <td>${r.uri}</td>
+                        <td><span class="badge ${badge}">${r.filter_result}</span></td>
+                        <td>${r.filter_reason || ''}</td>
+                    </tr>`;
+                }).join('');
+            } catch(e) {
+                console.error('Refresh failed:', e);
+            }
+        }
+
+        // WebSocket for live events
+        function connectWS() {
+            const wsUrl = `${location.protocol === 'https:' ? 'wss' : 'ws'}://${location.host}/ws/events`;
+            const ws = new WebSocket(wsUrl);
+            const statusEl = document.getElementById('ws-status');
+            const eventsEl = document.getElementById('events');
+
+            ws.onopen = () => { statusEl.textContent = '\u25CF Connected'; statusEl.style.color = 'var(--green)'; };
+            ws.onclose = () => { statusEl.textContent = '\u25CF Disconnected'; statusEl.style.color = 'var(--red)'; setTimeout(connectWS, 3000); };
+            ws.onmessage = (e) => {
+                const data = JSON.parse(e.data);
+                const div = document.createElement('div');
+                div.className = 'event-row';
+                const badge = data.filter_result === 'allow' ? 'allow' : 'block';
+                div.innerHTML = `
+                    <span class="time">${new Date().toLocaleTimeString()}</span>
+                    <span class="ip">${data.client_ip || ''}</span>
+                    <span>${data.method || ''} ${data.uri || ''}</span>
+                    <span class="badge ${badge}">${data.filter_result || ''}</span>
+                    <span>${data.filter_reason || ''}</span>
+                `;
+                eventsEl.prepend(div);
+                if (eventsEl.children.length > 100) eventsEl.lastChild.remove();
+            };
+        }
+
+        refresh();
+        setInterval(refresh, 15000);
+        connectWS();
+    </script>
+</body>
+</html>

@@ -1,0 +1,67 @@
+services:
+  # ── Reverse proxy (core redirector) ─────────────────────────────────
+  proxy:
+    build: .
+    container_name: infraguard-proxy
+    restart: unless-stopped
+    env_file: .env
+    ports:
+      - "443:443"
+      - "80:80"
+    volumes:
+      - ./config:/app/config:ro
+      - ./examples:/app/examples:ro
+      - ./data:/app/data
+      - ./certs:/app/certs:ro
+    command: ["run", "-c", "/app/config/config.yaml", "--port", "443"]
+    healthcheck:
+      test: ["CMD", "python3", "-c", "import urllib.request,ssl; urllib.request.urlopen('https://127.0.0.1:443/__infraguard__/health', context=ssl._create_unverified_context())"]
+      interval: 30s
+      timeout: 10s
+      retries: 5
+      start_period: 15s
+    networks:
+      - infraguard
+
+  # ── Web dashboard ───────────────────────────────────────────────────
+  dashboard:
+    build: .
+    container_name: infraguard-dashboard
+    restart: unless-stopped
+    env_file: .env
+    ports:
+      - "8080:8080"
+    volumes:
+      - ./config:/app/config:ro
+      - ./examples:/app/examples:ro
+      - ./data:/app/data
+    command: ["dashboard", "-c", "/app/config/config.yaml"]
+    depends_on:
+      proxy:
+        condition: service_healthy
+    networks:
+      - infraguard
+
+  # ── Additional redirector node (scale with --scale proxy-node=N) ────
+  # Uncomment to run extra redirector instances behind a load balancer.
+  #
+  # proxy-node:
+  #   build: .
+  #   restart: unless-stopped
+  #   env_file: .env
+  #   ports:
+  #     - "443"
+  #   volumes:
+  #     - ./config:/app/config:ro
+  #     - ./examples:/app/examples:ro
+  #     - ./data:/app/data
+  #     - ./certs:/app/certs:ro
+  #   command: ["run", "-c", "/app/config/config.yaml"]
+  #   networks:
+  #     - infraguard
+  #   deploy:
+  #     replicas: 2
+
+networks:
+  infraguard:
+    driver: bridge

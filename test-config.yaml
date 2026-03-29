@@ -1,0 +1,19 @@
+# Test config for InfraGuard development
+listeners:
+  - bind: "127.0.0.1"
+    port: 8443
+    domains:
+      - "code.jquery.com"
+
+domains:
+  code.jquery.com:
+    upstream: "https://httpbin.org"
+    profile_path: "examples/jquery-c2.3.14.profile"
+    profile_type: "cobalt_strike"
+    drop_action:
+      type: "redirect"
+      target: "https://jquery.com"
+
+logging:
+  level: "DEBUG"
+  format: "json"

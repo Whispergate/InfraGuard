@@ -1,0 +1,47 @@
+# InfraGuard Docker Configuration
+# Environment variables are loaded from .env automatically.
+
+listeners:
+  - bind: "0.0.0.0"
+    port: 443
+    tls:
+      cert: "${INFRAGUARD_TLS_CERT}"
+      key: "${INFRAGUARD_TLS_KEY}"
+    domains:
+      - "cdn.example.com"
+  - bind: "0.0.0.0"
+    port: 80
+    domains:
+      - "cdn.example.com"
+
+domains:
+  cdn.example.com:
+    upstream: "${INFRAGUARD_CS_UPSTREAM}"
+    profile_path: "/app/examples/jquery-c2.3.14.profile"
+    profile_type: "cobalt_strike"
+    whitelist_cidrs: []
+    drop_action:
+      type: "redirect"
+      target: "https://jquery.com"
+
+intel:
+  auto_block_scanners: true
+  dynamic_whitelist_threshold: 3
+  geoip_db: "${INFRAGUARD_GEOIP_DB}"
+  feeds:
+    enabled: true
+
+tracking:
+  db_path: "/app/data/infraguard.db"
+
+pipeline:
+  block_score_threshold: 0.7
+
+api:
+  bind: "0.0.0.0"
+  port: 8080
+  auth_token: "${INFRAGUARD_API_TOKEN}"
+
+logging:
+  level: "${INFRAGUARD_LOG_LEVEL}"
+  format: "json"
