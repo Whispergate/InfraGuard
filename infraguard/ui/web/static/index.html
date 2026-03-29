@@ -212,6 +212,14 @@
             if (e.key === 'Enter') doLogin();
         });
 
+        // ── HTML escaping (prevent XSS from stored request data) ──
+        function esc(s) {
+            if (s == null) return '';
+            const d = document.createElement('div');
+            d.textContent = String(s);
+            return d.innerHTML;
+        }
+
         // ── Dashboard data ─────────────────────────────────────
         let pollInterval = null;
 
@@ -239,24 +247,24 @@
 
                 const blockedIps = document.getElementById('blocked-ips');
                 blockedIps.innerHTML = stats.top_blocked_ips
-                    .map(r => `<tr><td>${r.ip}</td><td>${r.count}</td></tr>`).join('');
+                    .map(r => `<tr><td>${esc(r.ip)}</td><td>${esc(r.count)}</td></tr>`).join('');
 
                 const domainStats = document.getElementById('domain-stats');
                 domainStats.innerHTML = stats.domains
-                    .map(d => `<tr><td>${d.domain}</td><td>${d.total}</td><td>${d.blocked}</td><td>${(d.block_rate * 100).toFixed(1)}%</td></tr>`).join('');
+                    .map(d => `<tr><td>${esc(d.domain)}</td><td>${esc(d.total)}</td><td>${esc(d.blocked)}</td><td>${(d.block_rate * 100).toFixed(1)}%</td></tr>`).join('');
 
                 const reqs = await fetchJSON('/api/requests?limit=50');
                 const tbody = document.getElementById('recent-requests');
                 tbody.innerHTML = reqs.requests.map(r => {
                     const badge = r.filter_result === 'allow' ? 'allow' : 'block';
                     return `<tr>
-                        <td>${r.timestamp?.substring(11, 19) || ''}</td>
-                        <td>${r.domain}</td>
-                        <td>${r.client_ip}</td>
-                        <td>${r.method}</td>
-                        <td>${r.uri}</td>
-                        <td><span class="badge ${badge}">${r.filter_result}</span></td>
-                        <td>${r.filter_reason || ''}</td>
+                        <td>${esc(r.timestamp?.substring(11, 19))}</td>
+                        <td>${esc(r.domain)}</td>
+                        <td>${esc(r.client_ip)}</td>
+                        <td>${esc(r.method)}</td>
+                        <td>${esc(r.uri)}</td>
+                        <td><span class="badge ${badge}">${esc(r.filter_result)}</span></td>
+                        <td>${esc(r.filter_reason)}</td>
                     </tr>`;
                 }).join('');
             } catch(e) {
@@ -282,11 +290,11 @@
                 div.className = 'event-row';
                 const badge = data.filter_result === 'allow' ? 'allow' : 'block';
                 div.innerHTML = `
-                    <span class="time">${new Date().toLocaleTimeString()}</span>
-                    <span class="ip">${data.client_ip || ''}</span>
-                    <span>${data.method || ''} ${data.uri || ''}</span>
-                    <span class="badge ${badge}">${data.filter_result || ''}</span>
-                    <span>${data.filter_reason || ''}</span>
+                    <span class="time">${esc(new Date().toLocaleTimeString())}</span>
+                    <span class="ip">${esc(data.client_ip)}</span>
+                    <span>${esc(data.method)} ${esc(data.uri)}</span>
+                    <span class="badge ${badge}">${esc(data.filter_result)}</span>
+                    <span>${esc(data.filter_reason)}</span>
                 `;
                 eventsEl.prepend(div);
                 if (eventsEl.children.length > 100) eventsEl.lastChild.remove();
