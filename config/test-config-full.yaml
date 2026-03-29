@@ -1,16 +1,19 @@
 # InfraGuard Full Configuration Example
-# Demonstrates multi-domain support with both Cobalt Strike and Mythic C2 profiles
+# Demonstrates all features: multi-domain, both C2 frameworks, SIEM/webhook
+# plugins, threat feeds, GeoIP, and configurable health endpoint.
+#
+# Environment variables (${VAR}) are resolved from .env automatically.
 
 # ── Listeners ─────────────────────────────────────────────────────────
 # Each listener binds a port and maps it to one or more domains.
-# You can run multiple listeners on different ports / TLS certs.
+# TLS certs are auto-generated (self-signed) if the paths don't exist.
 
 listeners:
   - bind: "0.0.0.0"
     port: 443
     tls:
-      cert: "/etc/letsencrypt/live/cdn.example.com/fullchain.pem"
-      key: "/etc/letsencrypt/live/cdn.example.com/privkey.pem"
+      cert: "${INFRAGUARD_TLS_CERT}"
+      key: "${INFRAGUARD_TLS_KEY}"
     domains:
       - "cdn.example.com"
       - "static.example.net"
@@ -31,7 +34,7 @@ domains:
   # Requests that don't match the malleable profile are redirected
   # to the real jQuery site so the redirector looks legitimate.
   cdn.example.com:
-    upstream: "https://10.0.0.5:8443"
+    upstream: "${INFRAGUARD_CS_UPSTREAM}"
     profile_path: "examples/jquery-c2.3.14.profile"
     profile_type: "cobalt_strike"
     whitelist_cidrs:
@@ -47,7 +50,7 @@ domains:
   # Uses the Mythic HTTPX JSON profile format. Non-matching requests
   # get proxied to a real site so the redirector returns valid HTML.
   static.example.net:
-    upstream: "https://10.0.0.6:443"
+    upstream: "${INFRAGUARD_MYTHIC_UPSTREAM}"
     profile_path: "examples/mythic-httpx.json"
     profile_type: "mythic"
     whitelist_cidrs: []         # empty = all IPs are allowed (no whitelist)
@@ -58,7 +61,9 @@ domains:
 # ── IP Intelligence ───────────────────────────────────────────────────
 
 intel:
-  geoip_db: null                         # set to /path/to/GeoLite2-City.mmdb if available
+  geoip_db: "${INFRAGUARD_GEOIP_DB}"
+  geoip_asn_db: "${INFRAGUARD_GEOIP_ASN_DB}"
+  geoip_country_db: "${INFRAGUARD_GEOIP_COUNTRY_DB}"
   blocked_countries: []                  # e.g. ["CN", "RU", "KP"]
   blocked_asns: []                       # e.g. [14061] for DigitalOcean
   auto_block_scanners: true              # block Shodan, Censys, Rapid7, etc.
@@ -85,7 +90,7 @@ pipeline:
 # ── Tracking ──────────────────────────────────────────────────────────
 
 tracking:
-  db_path: "infraguard.db"
+  db_path: "${INFRAGUARD_DB_PATH}"
   retention_days: 30
 
 # ── Dashboard API ─────────────────────────────────────────────────────
@@ -94,11 +99,132 @@ api:
   bind: "127.0.0.1"
   port: 8080
   auth_token: "${INFRAGUARD_API_TOKEN}"
+  health_path: "/${INFRAGUARD_HEALTH_PATH}"  # customizable to avoid fingerprinting
 
 # ── Logging ───────────────────────────────────────────────────────────
 
 logging:
-  level: "INFO"
+  level: "${INFRAGUARD_LOG_LEVEL}"
   format: "json"
 
-plugins: []
+# ── Plugins ───────────────────────────────────────────────────────────
+# List of plugin module paths to load. Each plugin can be configured
+# independently via plugin_settings below.
+
+plugins:
+  # SIEM integrations (batch-based, high throughput)
+  # - infraguard.plugins.builtin.elasticsearch
+  # - infraguard.plugins.builtin.wazuh
+  # - infraguard.plugins.builtin.syslog
+
+  # Webhook integrations (immediate, per-event alerts)
+  # - infraguard.plugins.builtin.discord
+  # - infraguard.plugins.builtin.slack
+  # - infraguard.plugins.builtin.generic_webhook
+
+  # Example / testing
+  - infraguard.plugins.builtin.example
+
+# ── Plugin Settings ───────────────────────────────────────────────────
+# Per-plugin configuration. The key matches the plugin's `name` attribute.
+# Each plugin supports:
+#   enabled: bool          -- set false to skip loading
+#   event_filter:          -- control which events are forwarded
+#     only_blocked: bool   -- only forward blocked requests
+#     only_allowed: bool   -- only forward allowed requests
+#     min_score: float     -- only forward events with score >= this
+#     include_domains: []  -- only forward events for these domains
+#     exclude_domains: []  -- skip events for these domains
+#   options: {}            -- plugin-specific key/value pairs
+
+plugin_settings:
+
+  # ── Elasticsearch ─────────────────────────────────────────────────
+  # Forwards events to Elasticsearch via the _bulk API.
+  # Supports API key auth or basic auth (username/password).
+  # elasticsearch:
+  #   enabled: true
+  #   event_filter:
+  #     min_score: 0.0          # forward all events (0.0 = everything)
+  #   options:
+  #     url: "${ELASTICSEARCH_URL}"             # e.g. https://es.example.com:9200
+  #     index: "infraguard-events"
+  #     api_key: "${ELASTICSEARCH_API_KEY}"     # or use username/password below
+  #     # username: "elastic"
+  #     # password: "${ELASTICSEARCH_PASSWORD}"
+  #     batch_size: 50
+  #     flush_interval: 10
+
+  # ── Wazuh ─────────────────────────────────────────────────────────
+  # Forwards events to Wazuh-Indexer (OpenSearch) via _bulk API.
+  # Authenticates via Wazuh API JWT token (auto-refreshed).
+  # wazuh:
+  #   enabled: true
+  #   event_filter:
+  #     min_score: 0.0
+  #   options:
+  #     url: "${WAZUH_API_URL}"                 # e.g. https://wazuh.example.com:55000
+  #     indexer_url: "${WAZUH_INDEXER_URL}"      # e.g. https://wazuh.example.com:9200
+  #     username: "wazuh-wui"
+  #     password: "${WAZUH_PASSWORD}"
+  #     index: "infraguard-events"
+  #     batch_size: 50
+  #     flush_interval: 10
+
+  # ── Syslog ────────────────────────────────────────────────────────
+  # Forwards events as CEF or JSON syslog messages.
+  # Supports UDP, TCP, and TCP+TLS transports.
+  # Covers Splunk, QRadar, ArcSight, and any syslog-compatible SIEM.
+  # syslog:
+  #   enabled: true
+  #   event_filter:
+  #     only_blocked: true
+  #   options:
+  #     host: "syslog.example.com"
+  #     port: 514                               # 514=UDP, 6514=TLS
+  #     protocol: "udp"                          # udp | tcp | tcp+tls
+  #     format: "cef"                            # cef | json
+  #     facility: 1                              # syslog facility (1=user)
+  #     # ca_cert: "/path/to/ca.pem"             # for tcp+tls
+  #     batch_size: 100
+  #     flush_interval: 5
+
+  # ── Discord ───────────────────────────────────────────────────────
+  # Sends alerts to a Discord channel via webhook with rich embeds.
+  # Color-coded: red for blocked, green for allowed.
+  # discord:
+  #   enabled: true
+  #   event_filter:
+  #     only_blocked: true                       # only alert on blocked requests
+  #   options:
+  #     webhook_url: "${DISCORD_WEBHOOK_URL}"
+  #     username: "InfraGuard"
+  #     # avatar_url: "https://example.com/logo.png"
+  #     # mention_role: "123456789"              # Discord role ID to @mention
+
+  # ── Slack ─────────────────────────────────────────────────────────
+  # Sends alerts to Slack via incoming webhook with Block Kit formatting.
+  # slack:
+  #   enabled: true
+  #   event_filter:
+  #     only_blocked: true
+  #   options:
+  #     webhook_url: "${SLACK_WEBHOOK_URL}"
+  #     # channel: "#infraguard-alerts"          # override webhook default
+  #     username: "InfraGuard"
+  #     icon_emoji: ":shield:"
+
+  # ── Generic Webhook ───────────────────────────────────────────────
+  # POST JSON events to any URL. Covers Rocket.Chat, Mattermost,
+  # Microsoft Teams, and custom endpoints.
+  # generic_webhook:
+  #   enabled: true
+  #   event_filter:
+  #     only_blocked: true
+  #   options:
+  #     url: "${WEBHOOK_URL}"
+  #     method: "POST"                           # HTTP method
+  #     content_type: "application/json"
+  #     headers:                                 # extra HTTP headers
+  #       Authorization: "Bearer ${WEBHOOK_TOKEN}"
+  #     # body_template: '{"text": "Blocked {client_ip} on {domain}: {uri}"}'

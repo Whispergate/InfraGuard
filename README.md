@@ -15,14 +15,17 @@ InfraGuard sits between the internet and your C2 teamserver, validating every in
 - **Rule ingestion** -- import IP blocklists and User-Agent patterns from existing `.htaccess` and `robots.txt` files
 - **Dynamic IP blocking** -- block IPs outside whitelisted ranges; auto-whitelist IPs after N valid C2 requests
 - **Drop actions** -- redirect, TCP reset, proxy to decoy site, or tarpit (slow-drip response to waste scanner time)
-- **Web dashboard** -- real-time SPA with live request feed, domain stats, top blocked IPs, WebSocket event streaming
+- **Web dashboard** -- real-time SPA with login page, live request feed, domain stats, top blocked IPs, authenticated WebSocket event streaming
 - **Terminal UI** -- Textual-based TUI with login screen, live API polling, color-coded request log
+- **SIEM integration** -- built-in plugins for Elasticsearch, Wazuh, and Syslog (CEF/JSON) with batched forwarding
+- **Webhook alerts** -- built-in plugins for Discord (embeds), Slack (Block Kit), and generic webhook (Rocket.Chat, Mattermost, Teams)
+- **Plugin system** -- event-driven architecture with `on_event` hooks, per-plugin config, event filtering (only_blocked, min_score, domain include/exclude)
 - **Backend config generation** -- generate Nginx, Caddy, or Apache configs with full operator customization (TLS, IP filtering, header checks, aliases, custom headers)
-- **Docker deployment** -- Dockerfile + docker-compose with optional Let's Encrypt auto-cert
+- **Docker deployment** -- Dockerfile + docker-compose with optional Let's Encrypt auto-cert and GeoIP database downloader
+- **GeoIP support** -- all three GeoLite2 databases (City, ASN, Country) with Docker auto-download
 - **Self-signed TLS fallback** -- auto-generates certificates when configured paths don't exist
 - **Environment variable support** -- `.env` file auto-loaded; `${VAR}` syntax works in all config values and keys
 - **Configurable health endpoint** -- change the health check path to avoid fingerprinting
-- **Plugin system** -- extend the filter pipeline with custom plugins
 - **Structured logging** -- JSON-formatted structured logs via structlog
 - **Tracking & persistence** -- SQLite with WAL mode for request logging, statistics, and node registry
 
@@ -583,6 +586,16 @@ Requirements for Let's Encrypt:
 - `INFRAGUARD_DOMAIN` must resolve to this host's public IP
 - `INFRAGUARD_DOMAIN_EMAIL` must be a valid email address
 
+### With GeoIP databases
+
+```bash
+# Download all three GeoLite2 databases (City, ASN, Country)
+docker compose --profile geoip up geoip-update
+
+# Then start normally — databases are mounted at /app/geoip/
+docker compose up -d proxy dashboard
+```
+
 ### Scaling
 
 ```bash
@@ -600,6 +613,7 @@ Uncomment the `proxy-node` service in `docker-compose.yml` to enable.
 | `./examples` | C2 profiles (mounted read-only) |
 | `./data` | SQLite database (persisted) |
 | `certs` | TLS certificates (shared between proxy and certbot) |
+| `geoip` | GeoLite2 databases (populated by `geoip-update` service) |
 
 ## Architecture
 
@@ -635,7 +649,9 @@ infraguard/
 | Config generation | None | Nginx, Caddy, Apache with full customization |
 | Rule ingestion | None | .htaccess + robots.txt parser |
 | Threat intel feeds | None | Auto-update from 5 public sources |
-| Plugin system | Basic 4-method interface | Protocol-based with lifecycle hooks |
+| Plugin system | Basic 4-method interface | Event-driven with on_event hooks + per-plugin config |
+| SIEM integration | None | Elasticsearch, Wazuh, Syslog (CEF/JSON) |
+| Webhook alerts | None | Discord, Slack, generic webhook |
 | Anti-replay | SQLite hash | In-memory with configurable window |
 | Drop actions | redirect, reset, proxy | redirect, reset, proxy, tarpit |
 | TLS management | Manual only | Auto self-signed + Let's Encrypt integration |
@@ -643,18 +659,170 @@ infraguard/
 | Logging | Custom colored output | Structured JSON (structlog) |
 | Async | Tornado callbacks | Native async/await (ASGI + uvicorn) |
 
-## Writing Plugins
+## Built-in Plugins
 
-Create a Python module with a `Plugin` class:
+### SIEM Integrations
+
+All SIEM plugins batch events for high throughput and support configurable event filtering.
+
+#### Elasticsearch
+
+```yaml
+plugins:
+  - infraguard.plugins.builtin.elasticsearch
+
+plugin_settings:
+  elasticsearch:
+    event_filter:
+      min_score: 0.0                # forward all events
+    options:
+      url: "https://es.example.com:9200"
+      index: "infraguard-events"
+      api_key: "${ELASTICSEARCH_API_KEY}"
+      # Or use basic auth:
+      # username: "elastic"
+      # password: "${ELASTICSEARCH_PASSWORD}"
+      batch_size: 50
+      flush_interval: 10
+```
+
+#### Wazuh
+
+```yaml
+plugins:
+  - infraguard.plugins.builtin.wazuh
+
+plugin_settings:
+  wazuh:
+    options:
+      url: "https://wazuh.example.com:55000"          # Wazuh API (for JWT auth)
+      indexer_url: "https://wazuh.example.com:9200"    # Wazuh-Indexer (OpenSearch)
+      username: "wazuh-wui"
+      password: "${WAZUH_PASSWORD}"
+      index: "infraguard-events"
+      batch_size: 50
+      flush_interval: 10
+```
+
+#### Syslog (Splunk, QRadar, ArcSight)
+
+```yaml
+plugins:
+  - infraguard.plugins.builtin.syslog
+
+plugin_settings:
+  syslog:
+    event_filter:
+      only_blocked: true
+    options:
+      host: "syslog.example.com"
+      port: 514                  # 514=UDP, 6514=TLS
+      protocol: "udp"            # udp | tcp | tcp+tls
+      format: "cef"              # cef | json
+      facility: 1                # syslog facility (1=user)
+      batch_size: 100
+      flush_interval: 5
+```
+
+CEF output example:
+```
+CEF:0|InfraGuard|InfraGuard|1.0.0|request|Request Blocked|7|src=1.2.3.4 dst=cdn.example.com requestMethod=GET request=/callback cs1=bot_detected cs1Label=filterReason cn1=0.85 cn1Label=filterScore
+```
+
+### Webhook Integrations
+
+Webhook plugins send alerts immediately per-event (not batched) for real-time operator notifications.
+
+#### Discord
+
+```yaml
+plugins:
+  - infraguard.plugins.builtin.discord
+
+plugin_settings:
+  discord:
+    event_filter:
+      only_blocked: true
+    options:
+      webhook_url: "${DISCORD_WEBHOOK_URL}"
+      username: "InfraGuard"
+      # avatar_url: "https://example.com/logo.png"
+      # mention_role: "123456789"    # Role ID to @mention on blocks
+```
+
+#### Slack
+
+```yaml
+plugins:
+  - infraguard.plugins.builtin.slack
+
+plugin_settings:
+  slack:
+    event_filter:
+      only_blocked: true
+    options:
+      webhook_url: "${SLACK_WEBHOOK_URL}"
+      # channel: "#infraguard-alerts"
+      username: "InfraGuard"
+      icon_emoji: ":shield:"
+```
+
+#### Generic Webhook (Rocket.Chat, Mattermost, Teams)
+
+```yaml
+plugins:
+  - infraguard.plugins.builtin.generic_webhook
+
+plugin_settings:
+  generic_webhook:
+    event_filter:
+      only_blocked: true
+    options:
+      url: "${WEBHOOK_URL}"
+      method: "POST"
+      content_type: "application/json"
+      headers:
+        Authorization: "Bearer ${WEBHOOK_TOKEN}"
+      # body_template: '{"text": "Blocked {client_ip} on {domain}: {uri}"}'
+```
+
+### Event Filtering
+
+All plugins support the same `event_filter` options to control which events are forwarded:
+
+| Option | Type | Description |
+|---|---|---|
+| `only_blocked` | bool | Only forward blocked requests |
+| `only_allowed` | bool | Only forward allowed requests |
+| `min_score` | float | Only forward events with score >= this value |
+| `include_domains` | list | Only forward events for these domains |
+| `exclude_domains` | list | Skip events for these domains |
+
+### Plugin Summary
+
+| Plugin | Type | Transport | Use case |
+|---|---|---|---|
+| `elasticsearch` | SIEM | HTTP `_bulk` API | Elasticsearch / OpenSearch |
+| `wazuh` | SIEM | HTTP `_bulk` + JWT | Wazuh SIEM |
+| `syslog` | SIEM | UDP/TCP/TLS | Splunk, QRadar, ArcSight |
+| `discord` | Webhook | HTTP POST | Discord channel alerts |
+| `slack` | Webhook | HTTP POST | Slack channel alerts |
+| `generic_webhook` | Webhook | HTTP POST | Rocket.Chat, Mattermost, Teams, custom |
+
+## Writing Custom Plugins
+
+Create a Python module with a `Plugin` class. Inherit from `BasePlugin` for convenience:
 
 ```python
 # my_plugin.py
 from infraguard.models.common import FilterResult
+from infraguard.models.events import RequestEvent
 from infraguard.pipeline.base import RequestContext
+from infraguard.plugins.base import BasePlugin
 from starlette.responses import Response
 
 
-class Plugin:
+class Plugin(BasePlugin):
     name = "my-plugin"
     version = "1.0.0"
 
@@ -667,6 +835,11 @@ class Plugin:
     async def on_response(self, ctx: RequestContext, response: Response) -> Response | None:
         return None
 
+    async def on_event(self, event: RequestEvent) -> None:
+        # Called after every request (allow or block)
+        # Use self._opt("key") to read from plugin_settings.options
+        pass
+
     async def on_startup(self) -> None:
         pass
 
@@ -674,11 +847,38 @@ class Plugin:
         pass
 ```
 
+For forwarding plugins, inherit from `ForwardingPlugin` or `BatchForwardingPlugin`:
+
+```python
+from infraguard.plugins.builtin._base import ForwardingPlugin
+from infraguard.models.events import RequestEvent
+
+
+class Plugin(ForwardingPlugin):
+    name = "my-forwarder"
+    version = "1.0.0"
+
+    async def on_event(self, event: RequestEvent) -> None:
+        if not self._should_forward(event):  # applies event_filter config
+            return
+        data = self._event_to_dict(event)    # serialize to dict
+        url = self._opt("url")               # read from plugin_settings.options
+        await self._client.post(url, json=data)
+```
+
 Add it to your config:
 
 ```yaml
 plugins:
   - "my_plugin"
+
+plugin_settings:
+  my-plugin:
+    enabled: true
+    event_filter:
+      only_blocked: true
+    options:
+      url: "https://my-endpoint.com/events"
 ```
 
 ## License
