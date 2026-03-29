@@ -60,6 +60,27 @@ def generate_caddy(
             lines.append("    }")
             lines.append("")
 
+        # ── Content delivery routes ───────────────────────────────────
+        if domain_config.content_routes:
+            lines.append("    # Content delivery routes")
+            for cr in domain_config.content_routes:
+                pat = cr.path.rstrip("*").rstrip("/") + "/*" if cr.path.endswith("/*") else cr.path
+                lines.append(f"    route {pat} {{")
+                if cr.backend.type.value in ("pwndrop", "http_proxy"):
+                    lines.extend([
+                        "        reverse_proxy {",
+                        f"            to {cr.backend.target}",
+                        "            transport http {",
+                        "                tls_insecure_skip_verify",
+                        "            }",
+                        "        }",
+                    ])
+                elif cr.backend.type.value == "filesystem":
+                    lines.append(f"        file_server {{")
+                    lines.append(f"            root {cr.backend.target}")
+                    lines.append(f"        }}")
+                lines.extend(["    }", ""])
+
         # ── C2 URI routes ─────────────────────────────────────────────
         all_uris = profile.all_uris()
         for uri in all_uris:

@@ -14,6 +14,7 @@ InfraGuard sits between the internet and your C2 teamserver, validating every in
 - **Threat intel feeds** -- auto-update blocklists from public sources (abuse.ch, Emerging Threats, Spamhaus DROP, Binary Defense) with configurable refresh interval and disk caching
 - **Rule ingestion** -- import IP blocklists and User-Agent patterns from existing `.htaccess` and `robots.txt` files
 - **Dynamic IP blocking** -- block IPs outside whitelisted ranges; auto-whitelist IPs after N valid C2 requests
+- **Content delivery routes** -- serve payloads, decoys, and static files at specific paths via PwnDrop, local filesystem, or HTTP proxy backends, with optional conditional delivery (real content to targets, decoys to scanners)
 - **Drop actions** -- redirect, TCP reset, proxy to decoy site, or tarpit (slow-drip response to waste scanner time)
 - **Web dashboard** -- real-time SPA with login page, live request feed, domain stats, top blocked IPs, authenticated WebSocket event streaming
 - **Terminal UI** -- Textual-based TUI with login screen, live API polling, color-coded request log
@@ -21,7 +22,7 @@ InfraGuard sits between the internet and your C2 teamserver, validating every in
 - **Webhook alerts** -- built-in plugins for Discord (embeds), Slack (Block Kit), and generic webhook (Rocket.Chat, Mattermost, Teams)
 - **Plugin system** -- event-driven architecture with `on_event` hooks, per-plugin config, event filtering (only_blocked, min_score, domain include/exclude)
 - **Backend config generation** -- generate Nginx, Caddy, or Apache configs with full operator customization (TLS, IP filtering, header checks, aliases, custom headers)
-- **Docker deployment** -- Dockerfile + docker-compose with optional Let's Encrypt auto-cert and GeoIP database downloader
+- **Docker deployment** -- Dockerfile + docker-compose with optional Let's Encrypt, GeoIP downloader, and PwnDrop payload server
 - **GeoIP support** -- all three GeoLite2 databases (City, ASN, Country) with Docker auto-download
 - **Self-signed TLS fallback** -- auto-generates certificates when configured paths don't exist
 - **Environment variable support** -- `.env` file auto-loaded; `${VAR}` syntax works in all config values and keys
@@ -445,6 +446,89 @@ ALLOW or BLOCK (based on cumulative score)
 
 Hard blocks (score = 1.0) short-circuit immediately. Soft signals (score < threshold) accumulate.
 
+## Content Delivery Routes
+
+Content routes let you serve payloads, decoys, and static files at specific URI paths through the same redirector that handles C2 traffic. They are evaluated **before** the C2 profile filter, so paths like `/downloads/payload.exe` go to your payload server instead of being blocked as "URI not in profile".
+
+```
+Request → resolve domain → match content route?
+                             ├─ YES → [optional fingerprint check] → serve from backend
+                             └─ NO  → run full C2 filter pipeline → proxy/drop
+```
+
+### Backend types
+
+| Type | Description | Target format |
+|---|---|---|
+| `pwndrop` | Proxy to a PwnDrop instance | `http://pwndrop:80` or `https://pwndrop.example.com` |
+| `filesystem` | Serve local files from a directory | `/app/decoys` or `./decoys/cdn.example.com` |
+| `http_proxy` | Generic reverse proxy to any URL | `https://redfile.internal:9090` |
+
+### Configuration
+
+```yaml
+domains:
+  cdn.example.com:
+    upstream: "https://10.0.0.5:8443"
+    profile_path: "examples/jquery-c2.3.14.profile"
+    profile_type: "cobalt_strike"
+
+    content_routes:
+      # PwnDrop payload delivery with conditional filtering
+      - path: "/downloads/*"
+        backend:
+          type: "pwndrop"
+          target: "http://pwndrop:80"
+          auth_token: "${PWNDROP_TOKEN}"
+        conditional:
+          score_threshold: 0.5
+          scanner_backend:
+            type: "http_proxy"
+            target: "https://jquery.com/downloads/"
+        track: true
+
+      # Static files from local directory
+      - path: "/assets/*"
+        backend:
+          type: "filesystem"
+          target: "./decoys/cdn.example.com"
+
+      # RedFile conditional delivery
+      - path: "/share/*"
+        backend:
+          type: "http_proxy"
+          target: "https://redfile.internal:9090"
+        conditional:
+          score_threshold: 0.4
+```
+
+### URI patterns
+
+| Pattern | Type | Example match |
+|---|---|---|
+| `/file.exe` | Exact | Only `/file.exe` |
+| `/downloads/*` | Prefix glob | `/downloads/payload.exe`, `/downloads/doc.pdf` |
+| `~^/d/[a-f0-9]+` | Regex (prefix `~`) | `/d/abc123`, `/d/ff00` |
+
+First match wins. Routes are evaluated in config order.
+
+### Conditional delivery
+
+When `conditional` is configured, InfraGuard runs a **fingerprint pipeline** (IP, bot, header, geo filters -- but NOT the C2 profile filter) to classify the visitor:
+
+- **Score below threshold** -- legitimate target, serve the real payload from the primary backend
+- **Score above threshold** -- scanner/bot detected, serve from `scanner_backend` or return 404
+
+This lets you deliver payloads to real targets while showing decoy content to blue team scanners -- all through the same URL.
+
+### Download tracking
+
+Content delivery events are recorded in the same tracking database with `filter_result` values:
+- `content_served` -- real content delivered
+- `content_blocked` -- scanner detected, decoy served
+
+These appear in the dashboard alongside C2 traffic stats. The `/api/stats/content` endpoint provides aggregated content delivery statistics.
+
 ## Rule Ingestion
 
 Import IP blocklists and User-Agent patterns from existing server configuration files:
@@ -535,6 +619,7 @@ When running with `infraguard dashboard`, the following REST API is available:
 |---|---|---|
 | `/api/stats` | GET | Overview statistics (last 24h by default, `?hours=N`) |
 | `/api/requests` | GET | Recent request log (`?limit=50&domain=...`) |
+| `/api/stats/content` | GET | Content delivery statistics (`?hours=24`) |
 | `/api/nodes` | GET | List registered redirector nodes |
 | `/api/nodes/register` | POST | Register a new node |
 | `/api/nodes/{id}/heartbeat` | POST | Update node heartbeat |
@@ -596,6 +681,29 @@ docker compose --profile geoip up geoip-update
 docker compose up -d proxy dashboard
 ```
 
+### With PwnDrop (payload delivery)
+
+```bash
+# Start PwnDrop alongside the proxy
+docker compose --profile pwndrop up -d pwndrop
+
+# Access PwnDrop admin UI at https://localhost:8443
+# InfraGuard reaches it internally at http://pwndrop:80
+```
+
+Then configure content routes in your config to proxy payload paths to PwnDrop:
+
+```yaml
+domains:
+  cdn.example.com:
+    content_routes:
+      - path: "/downloads/*"
+        backend:
+          type: "pwndrop"
+          target: "http://pwndrop:80"
+          auth_token: "${PWNDROP_TOKEN}"
+```
+
 ### Scaling
 
 ```bash
@@ -614,6 +722,7 @@ Uncomment the `proxy-node` service in `docker-compose.yml` to enable.
 | `./data` | SQLite database (persisted) |
 | `certs` | TLS certificates (shared between proxy and certbot) |
 | `geoip` | GeoLite2 databases (populated by `geoip-update` service) |
+| `pwndrop-data` | PwnDrop uploaded files and database |
 
 ## Architecture
 
@@ -623,7 +732,7 @@ infraguard/
     __main__.py              python -m infraguard entry
     main.py                  Click CLI
     config/                  YAML config loading, .env support, Pydantic validation
-    core/                    ASGI proxy engine (app, proxy, router, TLS, drop actions)
+    core/                    ASGI proxy engine (app, proxy, router, TLS, drop actions, content delivery)
     profiles/                C2 profile parsers (Cobalt Strike + Mythic)
     pipeline/                Request validation filters (IP, bot, header, DNS, geo, profile, replay)
     intel/                   IP intelligence (blocklists, GeoIP, rDNS, feeds, rule ingestion)
@@ -648,6 +757,7 @@ infraguard/
 | Operator UI | None | Web dashboard + Terminal UI |
 | Config generation | None | Nginx, Caddy, Apache with full customization |
 | Rule ingestion | None | .htaccess + robots.txt parser |
+| Content delivery | None | PwnDrop, filesystem, HTTP proxy with conditional delivery |
 | Threat intel feeds | None | Auto-update from 5 public sources |
 | Plugin system | Basic 4-method interface | Event-driven with on_event hooks + per-plugin config |
 | SIEM integration | None | Elasticsearch, Wazuh, Syslog (CEF/JSON) |

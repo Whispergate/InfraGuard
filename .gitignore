@@ -219,3 +219,6 @@ __marimo__/
 
 # Streamlit
 .streamlit/secrets.toml
+
+# Vendor source (cloned at build time, not tracked)
+vendor/pwndrop/pwndrop/

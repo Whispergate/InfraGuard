@@ -1,11 +1,13 @@
 """Domain-based request routing.
 
 Routes incoming requests to the correct DomainConfig based on the Host
-header. Each domain has its own C2 profile and filter pipeline instance.
+header. Each domain has its own C2 profile, filter pipeline, and optional
+content delivery routes.
 """
 
 from __future__ import annotations
 
+import time
 from ipaddress import IPv4Address, IPv6Address, ip_address
 from pathlib import Path
 
@@ -13,9 +15,9 @@ import structlog
 from starlette.requests import Request
 from starlette.responses import Response
 
-import time
-
 from infraguard.config.schema import DomainConfig, InfraGuardConfig, PipelineConfig
+from infraguard.core.content import ContentBackend, RouteMatch, create_backend
+from infraguard.core.content_router import ContentRouteResolver
 from infraguard.core.drop import handle_drop
 from infraguard.core.proxy import ProxyHandler
 from infraguard.intel.ip_lists import CIDRList
@@ -31,8 +33,8 @@ from infraguard.pipeline.profile_filter import ProfileFilter
 from infraguard.pipeline.replay_filter import ReplayFilter
 from infraguard.profiles.cobalt_strike import parse_cobalt_strike_file
 from infraguard.profiles.models import C2Profile
-from infraguard.tracking.recorder import EventRecorder
 from infraguard.profiles.mythic import parse_mythic_file
+from infraguard.tracking.recorder import EventRecorder
 
 log = structlog.get_logger()
 
@@ -46,11 +48,15 @@ class DomainRoute:
         config: DomainConfig,
         profile: C2Profile,
         pipeline: FilterPipeline,
+        content_resolver: ContentRouteResolver | None = None,
+        fingerprint_pipeline: FilterPipeline | None = None,
     ):
         self.domain = domain
         self.config = config
         self.profile = profile
         self.pipeline = pipeline
+        self.content_resolver = content_resolver
+        self.fingerprint_pipeline = fingerprint_pipeline
 
 
 class DomainRouter:
@@ -67,6 +73,7 @@ class DomainRouter:
         self.routes: dict[str, DomainRoute] = {}
         self._extra_filters = extra_filters or []
         self._recorder = recorder
+        self._content_backends: list[ContentBackend] = []
 
         # Initialize shared intel manager
         self.intel = IntelManager(config.intel)
@@ -104,19 +111,52 @@ class DomainRouter:
         filters.extend(self._extra_filters)
         return filters
 
+    def _build_fingerprint_filters(self) -> list:
+        """Build a filter chain WITHOUT ProfileFilter and ReplayFilter.
+
+        Used for content route conditional delivery — catches bots and
+        scanners without requiring C2 profile conformance.
+        """
+        pc = self.config.pipeline
+        filters: list = []
+        if pc.enable_ip_filter:
+            filters.append(IPFilter(self.intel, self._domain_whitelists))
+        if pc.enable_bot_filter:
+            filters.append(BotFilter())
+        if pc.enable_header_filter:
+            filters.append(HeaderFilter())
+        if pc.enable_dns_filter:
+            filters.append(DNSFilter())
+        return filters
+
     def _load_routes(self) -> None:
         filters = self._build_filters()
+        fp_filters = self._build_fingerprint_filters()
 
         for domain_name, domain_config in self.config.domains.items():
             profile = self._load_profile(domain_config)
             pipeline = FilterPipeline(filters, self.config.pipeline)
-            route = DomainRoute(domain_name, domain_config, profile, pipeline)
+
+            # Build content route resolver if the domain has content routes
+            content_resolver = None
+            fp_pipeline = None
+            if domain_config.content_routes:
+                content_resolver = ContentRouteResolver(domain_config.content_routes)
+                fp_pipeline = FilterPipeline(fp_filters, self.config.pipeline)
+
+            route = DomainRoute(
+                domain_name, domain_config, profile, pipeline,
+                content_resolver, fp_pipeline,
+            )
             self.routes[domain_name] = route
+
+            content_count = len(domain_config.content_routes)
             log.info(
                 "domain_loaded",
                 domain=domain_name,
                 profile=profile.name,
                 uris=profile.all_uris(),
+                content_routes=content_count,
             )
 
     @staticmethod
@@ -130,7 +170,6 @@ class DomainRouter:
     def resolve(self, request: Request) -> DomainRoute | None:
         """Find the DomainRoute for a request based on Host header."""
         host = request.headers.get("host", "")
-        # Strip port if present
         hostname = host.split(":")[0]
 
         if hostname in self.routes:
@@ -165,7 +204,16 @@ class DomainRouter:
         else:
             client_ip = ip_address("0.0.0.0")
 
-        # Build request context
+        # ── Content route check (before C2 pipeline) ─────────────
+        if route.content_resolver:
+            content_match = route.content_resolver.match(request)
+            if content_match is not None:
+                content_match.domain = route.domain
+                return await self._handle_content_route(
+                    request, route, content_match, client_ip, start,
+                )
+
+        # ── C2 filter pipeline ────────────────────────────────────
         body = await request.body()
         ctx = RequestContext(
             request=request,
@@ -175,7 +223,6 @@ class DomainRouter:
             metadata={"body": body},
         )
 
-        # Run filter pipeline
         result = await route.pipeline.evaluate(ctx)
 
         if result.allowed:
@@ -228,5 +275,107 @@ class DomainRouter:
 
         return response
 
+    async def _handle_content_route(
+        self,
+        request: Request,
+        route: DomainRoute,
+        match: RouteMatch,
+        client_ip: IPv4Address | IPv6Address,
+        start: float,
+    ) -> Response:
+        """Handle a request that matched a content delivery route."""
+        content_config = match.route
+        filter_score = 0.0
+
+        # Optional fingerprint check for conditional delivery
+        if content_config.conditional and content_config.conditional.use_fingerprint_filters:
+            body = await request.body()
+            ctx = RequestContext(
+                request=request,
+                client_ip=client_ip,
+                domain_config=route.config,
+                profile=route.profile,
+                metadata={"body": body},
+            )
+            if route.fingerprint_pipeline:
+                fp_result = await route.fingerprint_pipeline.evaluate(ctx)
+                filter_score = fp_result.total_score
+
+                if filter_score >= content_config.conditional.score_threshold:
+                    # Scanner/bot detected — serve decoy or redirect
+                    log.info(
+                        "content_blocked",
+                        domain=route.domain,
+                        client=str(client_ip),
+                        path=request.url.path,
+                        score=round(filter_score, 2),
+                    )
+                    if content_config.conditional.scanner_backend:
+                        backend = create_backend(content_config.conditional.scanner_backend)
+                        self._content_backends.append(backend)
+                        response = await backend.serve(request, match)
+                    else:
+                        response = Response(status_code=404, content=b"Not Found")
+
+                    self._record_content_event(
+                        route.domain, client_ip, request, response,
+                        "content_blocked", filter_score, start, content_config.track,
+                    )
+                    return response
+
+        # Serve real content
+        backend = create_backend(content_config.backend)
+        self._content_backends.append(backend)
+        response = await backend.serve(request, match)
+
+        log.info(
+            "content_served",
+            domain=route.domain,
+            client=str(client_ip),
+            path=request.url.path,
+            status=response.status_code,
+        )
+
+        self._record_content_event(
+            route.domain, client_ip, request, response,
+            "content_served", filter_score, start, content_config.track,
+        )
+        return response
+
+    def _record_content_event(
+        self,
+        domain: str,
+        client_ip: IPv4Address | IPv6Address,
+        request: Request,
+        response: Response,
+        filter_result: str,
+        filter_score: float,
+        start: float,
+        track: bool,
+    ) -> None:
+        """Record a content delivery event to the tracking database."""
+        if not track or not self._recorder:
+            return
+        duration_ms = (time.perf_counter() - start) * 1000
+        self._recorder.record(
+            RequestEvent.now(
+                domain=domain,
+                client_ip=str(client_ip),
+                method=request.method,
+                uri=request.url.path,
+                user_agent=request.headers.get("user-agent", ""),
+                filter_result=filter_result,
+                filter_reason=None,
+                filter_score=filter_score,
+                response_status=response.status_code,
+                duration_ms=round(duration_ms, 1),
+            )
+        )
+
     async def close(self) -> None:
         await self.proxy.close()
+        for backend in self._content_backends:
+            try:
+                await backend.close()
+            except Exception:
+                pass

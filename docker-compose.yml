@@ -145,10 +145,33 @@ services:
   #   deploy:
   #     replicas: 2
 
+  # ── PwnDrop payload delivery (optional) ──────────────────────────────
+  # Self-hosted file hosting for serving payloads via content routes.
+  # Enable with: docker compose --profile pwndrop up -d pwndrop
+  # Access PwnDrop UI at https://localhost:8443
+  # InfraGuard reaches it internally at http://pwndrop:80
+  pwndrop:
+    build:
+      context: ./vendor/pwndrop
+      dockerfile: Dockerfile
+    container_name: infraguard-pwndrop
+    profiles: ["pwndrop"]
+    restart: unless-stopped
+    env_file: .env
+    ports:
+      - "8443:443"
+    volumes:
+      - pwndrop-data:/pwndrop/data
+      - certs:/pwndrop/certs:ro
+      - ./config/pwndrop.ini:/pwndrop/pwndrop.ini:ro
+    networks:
+      - infraguard
+
 volumes:
   certs:
   certbot-www:
   geoip:
+  pwndrop-data:
 
 networks:
   infraguard:

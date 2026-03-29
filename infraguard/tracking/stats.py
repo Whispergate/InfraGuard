@@ -86,6 +86,23 @@ class StatsQuery:
             top_blocked_ips=[(r["client_ip"], r["cnt"]) for r in top_blocked],
         )
 
+    async def content_stats(self, hours: int = 24) -> list[dict]:
+        """Aggregate content delivery statistics."""
+        rows = await self.db.fetchall(
+            """SELECT
+                domain, uri,
+                SUM(CASE WHEN filter_result = 'content_served' THEN 1 ELSE 0 END) as served,
+                SUM(CASE WHEN filter_result = 'content_blocked' THEN 1 ELSE 0 END) as blocked,
+                COUNT(DISTINCT client_ip) as unique_ips
+            FROM requests
+            WHERE filter_result IN ('content_served', 'content_blocked')
+              AND timestamp > datetime('now', ?)
+            GROUP BY domain, uri
+            ORDER BY served DESC""",
+            (f"-{hours} hours",),
+        )
+        return rows
+
     async def recent_requests(
         self, limit: int = 50, domain: str | None = None
     ) -> list[dict]:

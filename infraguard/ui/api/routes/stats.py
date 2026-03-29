@@ -8,6 +8,14 @@ from starlette.responses import JSONResponse
 from infraguard.tracking.stats import StatsQuery
 
 
+async def get_content_stats(request: Request) -> JSONResponse:
+    """GET /api/stats/content -- content delivery statistics."""
+    stats_query: StatsQuery = request.app.state.stats_query
+    hours = int(request.query_params.get("hours", "24"))
+    rows = await stats_query.content_stats(hours=hours)
+    return JSONResponse({"content_routes": rows, "count": len(rows)})
+
+
 async def get_stats(request: Request) -> JSONResponse:
     """GET /api/stats - overview statistics."""
     stats_query: StatsQuery = request.app.state.stats_query

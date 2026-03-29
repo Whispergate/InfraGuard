@@ -29,7 +29,7 @@ from infraguard.ui.api.routes.decoys import get_decoy_file, list_decoys, update_
 from infraguard.ui.api.routes.intel import add_blocklist, classify_ip
 from infraguard.ui.api.routes.nodes import heartbeat_node, list_nodes, register_node
 from infraguard.ui.api.routes.requests import get_requests
-from infraguard.ui.api.routes.stats import get_stats
+from infraguard.ui.api.routes.stats import get_content_stats, get_stats
 from infraguard.ui.api.websocket import EventBroadcaster
 
 log = structlog.get_logger()
@@ -97,6 +97,7 @@ def create_api_app(
         Route("/api/auth/check", check_handler, methods=["GET"]),
         # API routes (require auth)
         Route("/api/stats", get_stats, methods=["GET"]),
+        Route("/api/stats/content", get_content_stats, methods=["GET"]),
         Route("/api/requests", get_requests, methods=["GET"]),
         Route("/api/nodes", list_nodes, methods=["GET"]),
         Route("/api/nodes/register", register_node, methods=["POST"]),

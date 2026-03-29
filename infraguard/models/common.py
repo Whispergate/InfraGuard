@@ -20,6 +20,12 @@ class ProfileType(str, Enum):
     MYTHIC = "mythic"
 
 
+class ContentBackendType(str, Enum):
+    PWNDROP = "pwndrop"
+    FILESYSTEM = "filesystem"
+    HTTP_PROXY = "http_proxy"
+
+
 class FilterAction(str, Enum):
     ALLOW = "allow"
     BLOCK = "block"

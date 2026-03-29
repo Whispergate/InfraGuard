@@ -32,6 +32,26 @@ domains:
       type: "redirect"
       target: "https://jquery.com"
 
+    # ── Content delivery routes (optional) ──────────────────────────
+    # Evaluated BEFORE the C2 profile filter. Serve payloads, decoys,
+    # or static files at specific paths without affecting beacon traffic.
+    # content_routes:
+    #   - path: "/downloads/*"
+    #     backend:
+    #       type: "pwndrop"
+    #       target: "http://pwndrop:80"    # Docker internal URL
+    #       auth_token: "${PWNDROP_TOKEN}"
+    #     conditional:
+    #       score_threshold: 0.5           # bots/scanners get decoy instead
+    #       scanner_backend:
+    #         type: "http_proxy"
+    #         target: "https://jquery.com"
+    #     track: true
+    #   - path: "/assets/*"
+    #     backend:
+    #       type: "filesystem"
+    #       target: "/app/decoys"
+
   # ── Mythic domain ───────────────────────────────────────────────────
   # Fronts a Mythic teamserver behind a generic CDN static-assets page.
   # Uses the Mythic HTTPX JSON profile format. Non-matching requests

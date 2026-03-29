@@ -87,6 +87,22 @@ def generate_apache(
             "",
         ])
 
+        # ── Content delivery routes ───────────────────────────────────
+        if domain_config.content_routes:
+            lines.append("    # Content delivery routes")
+            for cr in domain_config.content_routes:
+                pat = cr.path
+                if pat.endswith("/*"):
+                    regex = f"^{_esc_re(pat[:-2])}/"
+                else:
+                    regex = f"^{_esc_re(pat)}$"
+                if cr.backend.type.value in ("pwndrop", "http_proxy"):
+                    lines.append(f'    RewriteCond %{{REQUEST_URI}} "{regex}"')
+                    lines.append(f"    RewriteRule ^(.*)$ {cr.backend.target}$1 [P,L]")
+                elif cr.backend.type.value == "filesystem":
+                    lines.append(f"    Alias {pat.rstrip('/*')} {cr.backend.target}")
+                lines.append("")
+
         # ── C2 URI rules ──────────────────────────────────────────────
         all_uris = profile.all_uris()
         if all_uris:

@@ -17,7 +17,7 @@ from infraguard.config.defaults import (
     DEFAULT_LOG_LEVEL,
     DEFAULT_RETENTION_DAYS,
 )
-from infraguard.models.common import DropActionType, ProfileType
+from infraguard.models.common import ContentBackendType, DropActionType, ProfileType
 
 
 class TLSConfig(BaseModel):
@@ -30,6 +30,33 @@ class DropActionConfig(BaseModel):
     target: str = "https://www.google.com"
 
 
+class ContentBackendConfig(BaseModel):
+    """Configuration for a content delivery backend."""
+
+    type: ContentBackendType
+    target: str = ""
+    auth_token: str | None = None
+    headers: dict[str, str] = Field(default_factory=dict)
+
+
+class ConditionalDeliveryConfig(BaseModel):
+    """Serve different content based on fingerprint filter score."""
+
+    score_threshold: float = 0.5
+    scanner_backend: ContentBackendConfig | None = None
+    use_fingerprint_filters: bool = True
+
+
+class ContentRouteConfig(BaseModel):
+    """Maps a URI pattern to a content delivery backend."""
+
+    path: str
+    backend: ContentBackendConfig
+    conditional: ConditionalDeliveryConfig | None = None
+    track: bool = True
+    methods: list[str] = Field(default_factory=lambda: ["GET"])
+
+
 class DomainConfig(BaseModel):
     upstream: str
     profile_path: str
@@ -38,6 +65,7 @@ class DomainConfig(BaseModel):
     decoy_dir: str | None = None
     drop_action: DropActionConfig = Field(default_factory=DropActionConfig)
     rules: list[str] = Field(default_factory=list)
+    content_routes: list[ContentRouteConfig] = Field(default_factory=list)
 
 
 class ListenerConfig(BaseModel):

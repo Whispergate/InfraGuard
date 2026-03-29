@@ -80,6 +80,25 @@ def generate_nginx(
                 "",
             ])
 
+        # ── Content delivery routes ───────────────────────────────────
+        if domain_config.content_routes:
+            lines.append("    # Content delivery routes (evaluated before C2 URIs)")
+            for cr in domain_config.content_routes:
+                pat = cr.path
+                if pat.endswith("/*"):
+                    loc = f"location {pat[:-1]} {{"  # /downloads/* → /downloads/
+                else:
+                    loc = f"location = {pat} {{"
+                lines.append(f"    {loc}")
+                if cr.backend.type.value in ("pwndrop", "http_proxy"):
+                    lines.append(f"        proxy_pass {cr.backend.target};")
+                    lines.append("        proxy_set_header Host $host;")
+                    lines.append("        proxy_ssl_verify off;")
+                elif cr.backend.type.value == "filesystem":
+                    lines.append(f"        alias {cr.backend.target};")
+                lines.append("    }")
+                lines.append("")
+
         # ── C2 URI locations ──────────────────────────────────────────
         all_uris = profile.all_uris()
         if all_uris:
