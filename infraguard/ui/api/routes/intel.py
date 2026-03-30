@@ -45,3 +45,42 @@ async def add_blocklist(request: Request) -> JSONResponse:
     cidrs = body.get("cidrs", [])
     intel.blocklist.add_many(cidrs)
     return JSONResponse({"status": "ok", "blocklist_size": intel.blocklist.size})
+
+
+async def remove_blocklist(request: Request) -> JSONResponse:
+    """DELETE /api/intel/blocklist - remove an IP/CIDR from the blocklist."""
+    intel: IntelManager = request.app.state.intel_manager
+    body = await request.json()
+    ip_str = body.get("ip", "")
+
+    # Normalize to CIDR if it's a single IP
+    cidr = ip_str if "/" in ip_str else f"{ip_str}/32"
+
+    removed = intel.blocklist.remove(cidr)
+    return JSONResponse({
+        "status": "ok" if removed else "not_found",
+        "ip": ip_str,
+        "removed": removed,
+        "blocklist_size": intel.blocklist.size,
+    })
+
+
+async def add_whitelist(request: Request) -> JSONResponse:
+    """POST /api/intel/whitelist - dynamically whitelist an IP."""
+    intel: IntelManager = request.app.state.intel_manager
+    body = await request.json()
+    ip_str = body.get("ip", "")
+
+    try:
+        ip_address(ip_str)
+    except ValueError:
+        return JSONResponse({"error": f"Invalid IP: {ip_str}"}, status_code=400)
+
+    # Add to dynamic whitelist (survives for session, not persisted to config)
+    intel.dynamic_whitelist._whitelisted.add(ip_str)
+
+    return JSONResponse({
+        "status": "ok",
+        "ip": ip_str,
+        "whitelisted": True,
+    })

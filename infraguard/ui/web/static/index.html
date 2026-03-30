@@ -63,6 +63,11 @@
         .btn { background: var(--accent); color: var(--bg); border: none; padding: 8px 16px; border-radius: 4px; cursor: pointer; font-family: inherit; font-size: 12px; }
         .btn:hover { opacity: 0.8; }
         .btn-ghost { background: transparent; color: var(--text-dim); border: 1px solid var(--border); }
+        .btn-sm { padding: 2px 8px; font-size: 10px; border-radius: 3px; cursor: pointer; font-family: inherit; border: none; }
+        .btn-unblock { background: rgba(63,185,80,0.2); color: var(--green); }
+        .btn-unblock:hover { background: rgba(63,185,80,0.4); }
+        .btn-block { background: rgba(248,81,73,0.2); color: var(--red); }
+        .btn-block:hover { background: rgba(248,81,73,0.4); }
         .btn-ghost:hover { color: var(--text); border-color: var(--text-dim); }
     </style>
 </head>
@@ -116,7 +121,7 @@
             <div class="card two-col">
                 <h3>Top Blocked IPs</h3>
                 <table>
-                    <thead><tr><th>IP Address</th><th>Count</th></tr></thead>
+                    <thead><tr><th>IP Address</th><th>Count</th><th>Actions</th></tr></thead>
                     <tbody id="blocked-ips"></tbody>
                 </table>
             </div>
@@ -137,7 +142,7 @@
             <div class="card full-width">
                 <h3>Recent Requests</h3>
                 <table>
-                    <thead><tr><th>Time</th><th>Proto</th><th>Domain</th><th>IP</th><th>Method</th><th>URI</th><th>Result</th><th>Reason</th></tr></thead>
+                    <thead><tr><th>Time</th><th>Proto</th><th>Domain</th><th>IP</th><th>Method</th><th>URI</th><th>Result</th><th>Reason</th><th>Actions</th></tr></thead>
                     <tbody id="recent-requests"></tbody>
                 </table>
             </div>
@@ -228,6 +233,49 @@
             return d.innerHTML;
         }
 
+        // ── IP management actions ──────────────────────────────
+        async function whitelistIP(ip) {
+            if (!confirm(`Whitelist ${ip}? This will allow all traffic from this IP.`)) return;
+            try {
+                const resp = await fetch(API_BASE + '/api/intel/whitelist', {
+                    method: 'POST',
+                    headers: {'Content-Type': 'application/json'},
+                    body: JSON.stringify({ip}),
+                    credentials: 'same-origin',
+                });
+                if (resp.ok) { refresh(); }
+                else { alert('Failed to whitelist IP'); }
+            } catch(e) { alert('Error: ' + e.message); }
+        }
+
+        async function unblockIP(ip) {
+            if (!confirm(`Remove ${ip} from blocklist?`)) return;
+            try {
+                const resp = await fetch(API_BASE + '/api/intel/blocklist', {
+                    method: 'DELETE',
+                    headers: {'Content-Type': 'application/json'},
+                    body: JSON.stringify({ip}),
+                    credentials: 'same-origin',
+                });
+                if (resp.ok) { refresh(); }
+                else { alert('Failed to unblock IP'); }
+            } catch(e) { alert('Error: ' + e.message); }
+        }
+
+        async function blockIP(ip) {
+            if (!confirm(`Block ${ip}? This will add it to the blocklist.`)) return;
+            try {
+                const resp = await fetch(API_BASE + '/api/intel/blocklist', {
+                    method: 'POST',
+                    headers: {'Content-Type': 'application/json'},
+                    body: JSON.stringify({cidrs: [ip + '/32']}),
+                    credentials: 'same-origin',
+                });
+                if (resp.ok) { refresh(); }
+                else { alert('Failed to block IP'); }
+            } catch(e) { alert('Error: ' + e.message); }
+        }
+
         // ── Dashboard data ─────────────────────────────────────
         let pollInterval = null;
 
@@ -255,7 +303,7 @@
 
                 const blockedIps = document.getElementById('blocked-ips');
                 blockedIps.innerHTML = stats.top_blocked_ips
-                    .map(r => `<tr><td>${esc(r.ip)}</td><td>${esc(r.count)}</td></tr>`).join('');
+                    .map(r => `<tr><td>${esc(r.ip)}</td><td>${esc(r.count)}</td><td><button class="btn-sm btn-unblock" onclick="whitelistIP('${esc(r.ip)}')">Whitelist</button> <button class="btn-sm btn-unblock" onclick="unblockIP('${esc(r.ip)}')">Unblock</button></td></tr>`).join('');
 
                 const domainStats = document.getElementById('domain-stats');
                 domainStats.innerHTML = stats.domains
@@ -265,6 +313,10 @@
                 const tbody = document.getElementById('recent-requests');
                 tbody.innerHTML = reqs.requests.map(r => {
                     const badge = r.filter_result === 'allow' ? 'allow' : 'block';
+                    const isBlocked = r.filter_result === 'block';
+                    const actions = isBlocked
+                        ? `<button class="btn-sm btn-unblock" onclick="whitelistIP('${esc(r.client_ip)}')">Whitelist</button> <button class="btn-sm btn-unblock" onclick="unblockIP('${esc(r.client_ip)}')">Unblock</button>`
+                        : `<button class="btn-sm btn-block" onclick="blockIP('${esc(r.client_ip)}')">Block</button>`;
                     return `<tr>
                         <td>${esc(r.timestamp?.substring(11, 19))}</td>
                         <td>${esc(r.protocol || 'http')}</td>
@@ -274,6 +326,7 @@
                         <td>${esc(r.uri)}</td>
                         <td><span class="badge ${badge}">${esc(r.filter_result)}</span></td>
                         <td>${esc(r.filter_reason)}</td>
+                        <td>${actions}</td>
                     </tr>`;
                 }).join('');
             } catch(e) {
