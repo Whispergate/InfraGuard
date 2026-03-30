@@ -7,6 +7,10 @@ InfraGuard sits between the internet and your C2 teamserver, validating every in
 ![Mythic Callbacks Xenon](/images/xenon_callback.png)
 ![InfraGuard Dashboard](/images/infraguard_dashboard.png)
 
+## Architecture
+
+![Architecture Diagram](/images/InfraGuard%20Infrastructure%20Diagram.drawio)
+
 ## Features
 
 - **Multi-domain proxying** -- proxy multiple domains simultaneously, each with independent C2 profiles, upstreams, and rules
@@ -25,6 +29,7 @@ InfraGuard sits between the internet and your C2 teamserver, validating every in
 - **Webhook alerts** -- built-in plugins for Discord (embeds), Slack (Block Kit), and generic webhook (Rocket.Chat, Mattermost, Teams)
 - **Plugin system** -- event-driven architecture with `on_event` hooks, per-plugin config, event filtering (only_blocked, min_score, domain include/exclude)
 - **Backend config generation** -- generate Nginx, Caddy, or Apache configs with full operator customization (TLS, IP filtering, header checks, aliases, custom headers)
+- **Edge proxies** -- lightweight Cloudflare Worker and AWS Lambda for domain fronting through CDN infrastructure, edge country blocking, and host rewriting
 - **Docker deployment** -- Dockerfile + docker-compose with optional Let's Encrypt, GeoIP downloader, and PwnDrop payload server
 - **GeoIP support** -- all three GeoLite2 databases (City, ASN, Country) with Docker auto-download
 - **Self-signed TLS fallback** -- auto-generates certificates when configured paths don't exist
@@ -637,6 +642,56 @@ When running with `infraguard dashboard`, the following REST API is available:
 
 All API endpoints require an `Authorization: Bearer <token>` header when `auth_token` is configured.
 
+## Cloudflare Worker Deployment
+
+InfraGuard includes a lightweight Cloudflare Worker that acts as an edge reverse proxy, providing domain fronting through Cloudflare's CDN.
+
+```
+Internet → [Cloudflare Edge Worker] → [InfraGuard Server on VPS] → [C2 Teamserver]
+```
+
+From a network observer's perspective, all traffic goes to Cloudflare's IPs -- your server is never exposed.
+
+```bash
+cd workers/infraguard-edge
+npm install -g wrangler
+wrangler login
+
+# Edit wrangler.toml with your InfraGuard backend URL and domains
+npx wrangler deploy
+```
+
+The Worker handles:
+- **Domain fronting** -- traffic appears to go to Cloudflare
+- **Edge country blocking** -- drop requests from banned countries at the edge
+- **Host rewriting** -- map Cloudflare domains to C2 profile Host headers
+- **Client IP injection** -- `X-Real-IP` / `X-Forwarded-For` with the real client IP
+
+See [workers/infraguard-edge/README.md](workers/infraguard-edge/README.md) for full configuration.
+
+## AWS Lambda Deployment
+
+InfraGuard also includes an AWS Lambda edge proxy for domain fronting through CloudFront or Lambda Function URLs.
+
+```bash
+cd workers/infraguard-lambda
+
+# Deploy with SAM CLI
+sam build
+sam deploy --guided \
+  --parameter-overrides \
+    InfraGuardBackend=https://your-server:443 \
+    AllowedHosts=cdn.example.com \
+    BlockedCountries=CN,RU,KP
+```
+
+Supports three deployment modes:
+- **Lambda Function URL** -- standalone HTTPS endpoint, simplest setup
+- **CloudFront + Lambda@Edge** -- full CDN with global edge distribution
+- **API Gateway + Lambda** -- HTTP API endpoint
+
+Zero external dependencies (stdlib only). See [workers/infraguard-lambda/README.md](workers/infraguard-lambda/README.md) for full configuration.
+
 ## Docker Deployment
 
 ### Quick start
@@ -680,7 +735,7 @@ Requirements for Let's Encrypt:
 # Download all three GeoLite2 databases (City, ASN, Country)
 docker compose --profile geoip up geoip-update
 
-# Then start normally — databases are mounted at /app/geoip/
+# Then start normally - databases are mounted at /app/geoip/
 docker compose up -d proxy dashboard
 ```
 
@@ -768,6 +823,7 @@ infraguard/
 | Anti-replay | SQLite hash | In-memory with configurable window |
 | Drop actions | redirect, reset, proxy | redirect, reset, proxy, tarpit |
 | TLS management | Manual only | Auto self-signed + Let's Encrypt integration |
+| Edge deployment | None | Cloudflare Worker + AWS Lambda edge proxies with domain fronting |
 | Deployment | Manual | Docker Compose with health checks |
 | Logging | Custom colored output | Structured JSON (structlog) |
 | Async | Tornado callbacks | Native async/await (ASGI + uvicorn) |

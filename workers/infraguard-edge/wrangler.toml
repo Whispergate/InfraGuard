@@ -1,0 +1,34 @@
+# InfraGuard Edge Worker - Cloudflare Worker Configuration
+# Docs: https://developers.cloudflare.com/workers/wrangler/configuration/
+
+name = "infraguard-edge"
+main = "src/worker.py"
+compatibility_date = "2026-03-01"
+compatibility_flags = ["python_workers"]
+
+# ── Routes ────────────────────────────────────────────────────────────
+# Uncomment and configure for your domain(s):
+# routes = [
+#   { pattern = "cdn.example.com/*", zone_name = "example.com" },
+#   { pattern = "static.example.net/*", zone_name = "example.net" },
+# ]
+
+# ── Environment Variables ─────────────────────────────────────────────
+[vars]
+# Your InfraGuard server URL (the VPS/server running InfraGuard)
+INFRAGUARD_BACKEND = "https://your-infraguard-server.example.com:443"
+
+# Comma-separated list of allowed Host headers
+ALLOWED_HOSTS = "cdn.example.com,static.example.net"
+
+# Block requests from these countries at the edge (ISO 3166-1 alpha-2)
+BLOCKED_COUNTRIES = ""
+
+# Host header rewriting: map Cloudflare domain to the Host your C2 profile expects
+# Format: "cloudflare-domain:expected-host" (comma-separated for multiple)
+# Example: "cdn.workers.dev:code.jquery.com,static.workers.dev:static.example.net"
+HOST_MAP = ""
+
+# ── Secrets (set via `wrangler secret put`) ───────────────────────────
+# If your InfraGuard requires auth headers, add them via secrets:
+#   npx wrangler secret put INFRAGUARD_AUTH_HEADER

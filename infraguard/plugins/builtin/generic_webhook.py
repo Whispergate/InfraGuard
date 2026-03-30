@@ -1,4 +1,4 @@
-"""Generic webhook plugin — POST JSON events to any URL.
+"""Generic webhook plugin - POST JSON events to any URL.
 
 Covers Rocket.Chat, Mattermost, Microsoft Teams, and custom endpoints.
 """

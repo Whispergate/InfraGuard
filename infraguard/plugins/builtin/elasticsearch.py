@@ -1,4 +1,4 @@
-"""Elasticsearch SIEM plugin — forwards events via the _bulk API."""
+"""Elasticsearch SIEM plugin - forwards events via the _bulk API."""
 
 from __future__ import annotations
 

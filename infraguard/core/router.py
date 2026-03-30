@@ -114,7 +114,7 @@ class DomainRouter:
     def _build_fingerprint_filters(self) -> list:
         """Build a filter chain WITHOUT ProfileFilter and ReplayFilter.
 
-        Used for content route conditional delivery — catches bots and
+        Used for content route conditional delivery - catches bots and
         scanners without requiring C2 profile conformance.
         """
         pc = self.config.pipeline
@@ -302,7 +302,7 @@ class DomainRouter:
                 filter_score = fp_result.total_score
 
                 if filter_score >= content_config.conditional.score_threshold:
-                    # Scanner/bot detected — serve decoy or redirect
+                    # Scanner/bot detected - serve decoy or redirect
                     log.info(
                         "content_blocked",
                         domain=route.domain,

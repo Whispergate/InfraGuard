@@ -1,4 +1,4 @@
-"""Discord webhook plugin — sends alerts with rich embeds."""
+"""Discord webhook plugin - sends alerts with rich embeds."""
 
 from __future__ import annotations
 

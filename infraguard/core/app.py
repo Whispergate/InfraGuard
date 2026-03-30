@@ -42,7 +42,7 @@ def create_app(config: InfraGuardConfig) -> Starlette:
     @asynccontextmanager
     async def lifespan(app: Starlette):
         await db.connect()
-        # Start plugins (isolated — one failure doesn't stop others)
+        # Start plugins (isolated - one failure doesn't stop others)
         for p in plugins:
             try:
                 await p.on_startup()

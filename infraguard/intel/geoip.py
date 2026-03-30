@@ -65,7 +65,7 @@ class GeoIPLookup:
             except Exception:
                 log.exception("geoip_load_error", type="country", path=country_db)
 
-        # ASN DB (separate — provides ASN + org)
+        # ASN DB (separate - provides ASN + org)
         if asn_db and Path(asn_db).exists():
             try:
                 self._asn_reader = maxminddb.open_database(asn_db)

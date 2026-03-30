@@ -38,7 +38,7 @@ def load_plugins(
                 log.warning("plugin_invalid", module=path, reason="No plugin or Plugin found")
                 continue
 
-            # Check settings — skip if disabled
+            # Check settings - skip if disabled
             name = getattr(plugin_obj, "name", path.rsplit(".", 1)[-1])
             ps = settings.get(name)
             if ps and hasattr(ps, "enabled") and not ps.enabled:

@@ -105,7 +105,7 @@ def resolve_tls_paths(
         log.info("tls_loaded", cert=str(cert_path))
         return str(cert_path), str(key_path)
 
-    # Certs not found — generate self-signed
+    # Certs not found - generate self-signed
     domain = domains[0] if domains else "localhost"
     log.warning(
         "tls_certs_not_found",
