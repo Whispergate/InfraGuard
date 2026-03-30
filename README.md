@@ -195,16 +195,23 @@ The TUI shows a login screen where you enter the dashboard URL and API token. If
 
 ### 7. Import existing server rules (optional)
 
+Place `.htaccess` or `robots.txt` files in the `rules/` directory, then ingest them:
+
 ```bash
-# Ingest .htaccess IP blocks and User-Agent rules
-infraguard ingest .htaccess --format blocklist -o banned_ips.txt
+# Ingest .htaccess into a blocklist (loaded by the proxy on startup)
+infraguard ingest rules/.htaccess --format blocklist -o rules/banned_ips.txt
 
 # Ingest robots.txt bot names
-infraguard ingest robots.txt
+infraguard ingest rules/robots.txt
 
 # Ingest multiple files
-infraguard ingest .htaccess robots.txt --format json
+infraguard ingest rules/.htaccess rules/robots.txt --format json
+
+# Restart proxy to load the new rules
+docker compose restart proxy
 ```
+
+The generated `rules/banned_ips.txt` is mounted into Docker at `/app/rules/` and loaded via `intel.banned_ip_file`.
 
 ### 8. Generate web server configs (optional)
 
@@ -244,6 +251,7 @@ The `${VAR}` syntax works everywhere in `config.yaml` -- including dictionary ke
 | `INFRAGUARD_CS_UPSTREAM` | Cobalt Strike teamserver address | `https://10.0.0.5:8443` |
 | `INFRAGUARD_MYTHIC_UPSTREAM` | Mythic teamserver address | `https://10.0.0.6:443` |
 | `INFRAGUARD_GEOIP_DB` | Path to MaxMind GeoLite2 database | `/usr/share/GeoIP/GeoLite2-City.mmdb` |
+| `INFRAGUARD_BANNED_IP_FILE` | Path to ingested IP blocklist | `/app/rules/banned_ips.txt` |
 | `INFRAGUARD_HEALTH_PATH` | Custom health endpoint path (OPSEC) | `status`, `api/ping`, `.well-known/health` |
 | `INFRAGUARD_LOG_LEVEL` | Log level | `DEBUG` / `INFO` / `WARNING` |
 
@@ -674,32 +682,53 @@ These appear in the dashboard alongside C2 traffic stats. The `/api/stats/conten
 
 ## Rule Ingestion
 
-Import IP blocklists and User-Agent patterns from existing server configuration files:
+Import IP blocklists and User-Agent patterns from existing server configuration files. Drop rule files into the `rules/` directory, ingest them into a blocklist, and the proxy loads it on startup.
+
+### Workflow
 
 ```bash
-# Parse .htaccess deny rules, RewriteCond UA patterns, Require directives
-infraguard ingest .htaccess
+# 1. Place rule files in the rules/ directory
+cp /path/to/.htaccess rules/
+cp /path/to/robots.txt rules/
 
-# Parse robots.txt bot names and disallowed paths
-infraguard ingest robots.txt
+# 2. Ingest and generate a blocklist
+infraguard ingest rules/.htaccess --format blocklist -o rules/banned_ips.txt
 
-# Combine multiple files
-infraguard ingest .htaccess robots.txt
-
-# Output as a blocklist file (usable as intel.banned_ip_file)
-infraguard ingest .htaccess --format blocklist -o banned_ips.txt
-
-# Output as JSON for programmatic use
-infraguard ingest .htaccess robots.txt --format json
+# 3. Restart the proxy to load the new rules
+docker compose restart proxy
 ```
 
-Supported `.htaccess` directives:
+The `rules/` directory is mounted into Docker containers at `/app/rules/` (read-only). The config references the generated blocklist via `intel.banned_ip_file`. If the file doesn't exist yet, the proxy starts normally with just the built-in security vendor ranges.
+
+### Commands
+
+```bash
+# Parse .htaccess deny rules, expr -R CIDRs, RewriteCond UA patterns
+infraguard ingest rules/.htaccess
+
+# Parse robots.txt bot names and disallowed paths
+infraguard ingest rules/robots.txt
+
+# Combine multiple files
+infraguard ingest rules/.htaccess rules/robots.txt
+
+# Output as a blocklist file (loaded by the proxy via intel.banned_ip_file)
+infraguard ingest rules/.htaccess --format blocklist -o rules/banned_ips.txt
+
+# Output as JSON for programmatic use
+infraguard ingest rules/.htaccess rules/robots.txt --format json
+```
+
+### Supported `.htaccess` directives
+
 - `Deny from` / `Allow from` -- IP/CIDR extraction
 - `Require ip` / `Require not ip` -- IP whitelist/blacklist
+- `RewriteCond expr "-R 'CIDR'"` -- Apache 2.4+ expression-based IP range matching
 - `RewriteCond %{HTTP_USER_AGENT}` -- User-Agent pattern extraction (splits alternation groups)
 - `SetEnvIfNoCase User-Agent` -- User-Agent pattern extraction
 
-Supported `robots.txt` directives:
+### Supported `robots.txt` directives
+
 - `User-agent:` (non-wildcard) -- bot name extraction
 - `Disallow:` -- blocked path extraction
 
@@ -912,6 +941,7 @@ Uncomment the `proxy-node` service in `docker-compose.yml` to enable.
 |---|---|
 | `./config` | Configuration files (mounted read-only) |
 | `./examples` | C2 profiles (mounted read-only) |
+| `./rules` | Ingested blocklists and rule source files (mounted read-only) |
 | `./data` | SQLite database (persisted) |
 | `certs` | TLS certificates (shared between proxy and certbot) |
 | `geoip` | GeoLite2 databases (populated by `geoip-update` service) |
@@ -1186,6 +1216,13 @@ plugin_settings:
     options:
       url: "https://my-endpoint.com/events"
 ```
+
+## Contributions
+
+- Mgeeky - Original Idea ([RedWarden](https://github.com/mgeeky/RedWarden))
+- curi0usJack - [.htaccess rules](https://gist.github.com/curi0usJack/971385e8334e189d93a6cb4671238b10)
+- Profiles
+  - threatexpress - [jquery-c2.3.14.profile](https://github.com/threatexpress/malleable-c2/blob/master/jquery-c2.3.14.profile)
 
 ## License
 

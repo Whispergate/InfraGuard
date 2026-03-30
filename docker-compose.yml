@@ -11,6 +11,7 @@ services:
     volumes:
       - ./config:/app/config:ro
       - ./examples:/app/examples:ro
+      - ./rules:/app/rules:ro
       - ./data:/app/data
       - certs:/app/certs:ro
       - geoip:/app/geoip:ro
