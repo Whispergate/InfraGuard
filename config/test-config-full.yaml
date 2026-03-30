@@ -2,7 +2,7 @@
 # InfraGuard Full Configuration Reference
 # ═══════════════════════════════════════════════════════════════════════
 #
-# Demonstrates every feature: multi-protocol listeners, 4 C2 frameworks,
+# Demonstrates every feature: multi-protocol listeners, 5 C2 frameworks,
 # content delivery routes, SIEM/webhook plugins, threat intel feeds,
 # GeoIP, rule ingestion, and OPSEC options.
 #
@@ -16,7 +16,7 @@
 # don't exist.
 
 listeners:
-  # HTTPS listener for HTTP-based C2 traffic (CS, Mythic, BRC4, Sliver)
+  # HTTPS listener for HTTP-based C2 traffic (CS, Mythic, BRC4, Sliver, Havoc)
   - protocol: "https"
     bind: "0.0.0.0"
     port: 443
@@ -28,8 +28,9 @@ listeners:
       - "static.example.net"
       - "api.example.com"
       - "assets.example.com"
+      - "portal.example.com"
 
-  # HTTP listener (no TLS — for redirects, staging, or port 80 cover)
+  # HTTP listener (no TLS - for redirects, staging, or port 80 cover)
   - protocol: "http"
     bind: "0.0.0.0"
     port: 80
@@ -74,10 +75,11 @@ listeners:
 # teamserver, IP whitelist, drop action, and content delivery routes.
 #
 # Supported profile types:
-#   cobalt_strike  — .profile files (Malleable C2 DSL)
-#   mythic         — .json files (Mythic HTTPX profile format)
-#   brute_ratel    — .json files (BRC4 server config with listeners)
-#   sliver         — .json files (Sliver HTTP C2 profile with URI generation)
+#   cobalt_strike  - .profile files (Malleable C2 DSL)
+#   mythic         - .json files (Mythic HTTPX profile format)
+#   brute_ratel    - .json files (BRC4 server config with listeners)
+#   sliver         - .json files (Sliver HTTP C2 profile with URI generation)
+#   havoc          - .toml files (Havoc/Kaine profile with URI alternation patterns)
 
 domains:
 
@@ -157,6 +159,18 @@ domains:
   #   drop_action:
   #     type: "tarpit"         # slow-drip response to waste scanner time
   #     target: ""
+
+  # ── Havoc domain ───────────────────────────────────────────────────
+  # Fronts a Havoc teamserver. TOML profile defines URI patterns with
+  # [a|b|c] alternation syntax that expands into all valid combinations.
+  # Supports Kaine agent task-request (GET) and task-output (POST).
+  # portal.example.com:
+  #   upstream: "https://10.0.0.9:40056"
+  #   profile_path: "examples/kaine.toml"
+  #   profile_type: "havoc"
+  #   drop_action:
+  #     type: "proxy"
+  #     target: "https://portal.azure.com"
 
 # ── IP Intelligence ───────────────────────────────────────────────────
 
@@ -242,14 +256,14 @@ plugins:
 
 # ── Plugin Settings ───────────────────────────────────────────────────
 # Per-plugin config keyed by plugin name. Each plugin supports:
-#   enabled: bool          — set false to skip loading
-#   event_filter:          — control which events are forwarded
-#     only_blocked: bool   — only forward blocked requests
-#     only_allowed: bool   — only forward allowed requests
-#     min_score: float     — only forward events with score >= this
-#     include_domains: []  — only forward events for these domains
-#     exclude_domains: []  — skip events for these domains
-#   options: {}            — plugin-specific key/value pairs
+#   enabled: bool          - set false to skip loading
+#   event_filter:          - control which events are forwarded
+#     only_blocked: bool   - only forward blocked requests
+#     only_allowed: bool   - only forward allowed requests
+#     min_score: float     - only forward events with score >= this
+#     include_domains: []  - only forward events for these domains
+#     exclude_domains: []  - skip events for these domains
+#   options: {}            - plugin-specific key/value pairs
 
 plugin_settings:
 

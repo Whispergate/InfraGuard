@@ -1,0 +1,123 @@
+[[kaine.http.profile]]
+
+    name       = "example profile"
+    category   = 'normal'
+    user-agent = 'Mozilla/5.0 (Windows NT 10.0; WOW64) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/45.0.2454.85 Safari/537.36'
+
+    ##
+    ## specify how the agent should send its get-task request
+    ##
+
+    #
+    # agent part of the get-task part
+    #
+
+    agent.task-request.headers = [
+        { 'Cache-Control'         = 'no-cache' },
+        { 'Content-Type'          = 'application/x-www-form-urlencoded' },
+        { 'ytrewq-header-[a|b|c]' = 'static-value' }
+    ]
+
+    agent.task-request.uri = [
+        { 'GET' = '/[a|b|c|d]/ytrewq/get.js' },
+        { 'GET' = '/[a|b|c|d]/ytrewq/[post1|post2|post3|post4].js' },
+    ]
+
+    agent.task-request.parameters = [
+        { 'ytrewq-parameter' = 'value-[x|y|z]' },
+        { 'ytrewq-[a|b|c]'   = 'value-[x|y|z]' }
+    ]
+
+    #
+    # only is used when ever 'parameter' or 'header' keyword is being used
+    agent.task-request.body = [
+        'hello world from task-request',
+        'another body text for task-request',
+    ]
+
+    agent.task-request.transform = [
+        # how we should transform the given raw data
+        { encode  = 'base64', padding = false },
+        { append  = '-xxx' },
+        { prepend = 'key-' },
+
+        # finally, set where we should place the data
+        # { parameter = 'img' }
+
+        # random bytes padding to add to the data (as a range or single value)
+        # { padding = [125, 200] }, # { padding = 150 } also possible
+
+        # encoding using netbios name encoding algo
+        # { encode = 'xor' },     # xor obfuscate the raw bytes first
+        # { encode = 'netbios' }, # upper = true is using 'A' as base
+        #
+        # { append  = '.jpg' },
+        # { prepend = 'file-' },
+
+        # finally, set where we should place the data
+        { header = 'Cookie' }
+    ]
+
+    #
+    # server part of the get-task part
+    #
+
+    server.task-request.headers = [
+        { 'Server'         = 'nginx/1.0.4' },
+        { 'Content-Type'   = 'text/html' },
+        { 'X-Powered-By'   = 'PHP/5.3.8-1~dotdeb.2' },
+    ]
+
+    server.task-request.transform = [
+        { encode = 'xor' },
+        { encode = 'base64' },
+
+        { prepend = '{"netbios-data":"' },
+        { append  = '", "important": "information"}' }
+    ]
+
+    # tell the server that it should not send any kind of
+    # data in the response when there is no task to execute
+    server.task-request.empty-response = true
+
+    ##
+    ## specify how the agent should send the output of the task
+    ##
+
+    agent.task-output.headers = [
+        { 'Cache-Control'         = 'no-cache' },
+        { 'Content-Type'          = 'application/json' },
+        { 'ytrewq-header-[a|b|c]' = 'static-value' }
+    ]
+
+    agent.task-output.uri = [
+        { 'POST' = '/[a|b|c|d]/ytrewq/get.js' },
+        { 'POST' = '/[a|b|c|d]/ytrewq/[post1|post2|post3|post4].js' },
+    ]
+
+    agent.task-output.parameters = [
+        { 'ytrewq-parameter' = 'value-[x|y|z]' },
+        { 'ytrewq-[a|b|c]'   = 'value-[x|y|z]' }
+    ]
+
+    agent.task-output.transform = [
+        { encode = 'base64', url-safe = true },
+        # { prepend = '\x48\x65\x6c\x6c\x6f\x45\xf8' },
+        { header = 'my-output' }
+    ]
+
+    #
+    # server part of the get-task part
+    #
+
+    # heh lets respond like the old zeus malware server did
+    server.task-output.headers = [
+        { 'Server'       = 'nginx/1.0.4' },
+        { 'Content-Type' = 'text/html' },
+        { 'Connection'   = 'close' },
+        { 'X-Powered-By' = 'PHP/5.3.8-1~dotdeb.2' },
+    ]
+
+    server.task-output.body = [
+        'successfully received response!!'
+    ]

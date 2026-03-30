@@ -20,6 +20,7 @@ class ProfileType(str, Enum):
     MYTHIC = "mythic"
     BRUTE_RATEL = "brute_ratel"
     SLIVER = "sliver"
+    HAVOC = "havoc"
 
 
 class ContentBackendType(str, Enum):

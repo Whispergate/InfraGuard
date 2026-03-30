@@ -123,7 +123,7 @@ def profile() -> None:
 @click.option(
     "--type",
     "profile_type",
-    type=click.Choice(["auto", "cobalt_strike", "mythic", "brute_ratel", "sliver"]),
+    type=click.Choice(["auto", "cobalt_strike", "mythic", "brute_ratel", "sliver", "havoc"]),
     default="auto",
     help="Profile type (auto-detected by default).",
 )
@@ -152,7 +152,7 @@ def profile_parse(
 @click.option(
     "--type",
     "profile_type",
-    type=click.Choice(["auto", "cobalt_strike", "mythic", "brute_ratel", "sliver"]),
+    type=click.Choice(["auto", "cobalt_strike", "mythic", "brute_ratel", "sliver", "havoc"]),
     default="auto",
     help="Source profile type.",
 )
@@ -527,12 +527,15 @@ def _load_profile_file(file: Path, profile_type: str, name: str | None = None):
     """Load a C2 profile file, auto-detecting type if needed."""
     from infraguard.profiles.brute_ratel import parse_brute_ratel_file
     from infraguard.profiles.cobalt_strike import parse_cobalt_strike_file
+    from infraguard.profiles.havoc import parse_havoc_file
     from infraguard.profiles.mythic import parse_mythic_file
     from infraguard.profiles.sliver import parse_sliver_file
 
     if profile_type == "auto":
         if file.suffix == ".profile":
             profile_type = "cobalt_strike"
+        elif file.suffix == ".toml":
+            profile_type = "havoc"
         elif file.suffix == ".json":
             import json
             try:
@@ -559,6 +562,8 @@ def _load_profile_file(file: Path, profile_type: str, name: str | None = None):
         return parse_brute_ratel_file(file, name)
     elif profile_type == "sliver":
         return parse_sliver_file(file, name)
+    elif profile_type == "havoc":
+        return parse_havoc_file(file, name)
     else:
         return parse_mythic_file(file, name)
 
