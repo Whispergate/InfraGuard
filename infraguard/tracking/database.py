@@ -23,12 +23,14 @@ CREATE TABLE IF NOT EXISTS requests (
     filter_score REAL DEFAULT 0.0,
     response_status INTEGER DEFAULT 0,
     request_hash TEXT DEFAULT '',
-    duration_ms REAL DEFAULT 0.0
+    duration_ms REAL DEFAULT 0.0,
+    protocol TEXT DEFAULT 'http'
 );
 
 CREATE INDEX IF NOT EXISTS idx_requests_timestamp ON requests(timestamp);
 CREATE INDEX IF NOT EXISTS idx_requests_client_ip ON requests(client_ip);
 CREATE INDEX IF NOT EXISTS idx_requests_domain ON requests(domain);
+CREATE INDEX IF NOT EXISTS idx_requests_protocol ON requests(protocol);
 CREATE INDEX IF NOT EXISTS idx_requests_filter_result ON requests(filter_result);
 
 CREATE TABLE IF NOT EXISTS nodes (

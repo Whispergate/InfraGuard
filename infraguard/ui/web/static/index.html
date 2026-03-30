@@ -129,7 +129,7 @@
             <div class="card full-width">
                 <h3>Recent Requests</h3>
                 <table>
-                    <thead><tr><th>Time</th><th>Domain</th><th>IP</th><th>Method</th><th>URI</th><th>Result</th><th>Reason</th></tr></thead>
+                    <thead><tr><th>Time</th><th>Proto</th><th>Domain</th><th>IP</th><th>Method</th><th>URI</th><th>Result</th><th>Reason</th></tr></thead>
                     <tbody id="recent-requests"></tbody>
                 </table>
             </div>
@@ -259,6 +259,7 @@
                     const badge = r.filter_result === 'allow' ? 'allow' : 'block';
                     return `<tr>
                         <td>${esc(r.timestamp?.substring(11, 19))}</td>
+                        <td>${esc(r.protocol || 'http')}</td>
                         <td>${esc(r.domain)}</td>
                         <td>${esc(r.client_ip)}</td>
                         <td>${esc(r.method)}</td>

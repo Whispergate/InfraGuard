@@ -15,6 +15,7 @@ InfraGuard sits between the internet and your C2 teamserver, validating every in
 
 - **Multi-domain proxying** -- proxy multiple domains simultaneously, each with independent C2 profiles, upstreams, and rules
 - **C2 profile validation** -- parse and enforce Cobalt Strike malleable profiles and Mythic HTTPX profiles as redirector rules
+- **Multi-protocol listeners** -- HTTP/HTTPS, DNS, MQTT, and WebSocket listeners running simultaneously with shared IP intelligence and event tracking
 - **Scoring-based filter pipeline** -- 7 filters (IP, bot, header, DNS, geo, profile, replay) each contribute a 0.0-1.0 score; configurable threshold determines block/allow
 - **Anti-bot / anti-crawling** -- 40+ known scanner/bot User-Agent patterns, header anomaly detection
 - **IP intelligence** -- built-in CIDR blocklists for 19 security vendor ranges (Shodan, Censys, Rapid7, etc.), GeoIP filtering, reverse DNS keyword matching
@@ -63,6 +64,8 @@ pipx inject infraguard textual          # Terminal UI
 pipx inject infraguard fastapi jinja2   # Web dashboard extras
 pipx inject infraguard maxminddb        # GeoIP lookups
 pipx inject infraguard aiodns           # Async DNS resolution
+pipx inject infraguard dnspython        # DNS listener
+pipx inject infraguard aiomqtt          # MQTT listener
 ```
 
 ### With uv
@@ -102,7 +105,9 @@ See [Docker Deployment](#docker-deployment) for full details.
 | `web` | fastapi, jinja2 | Extended web dashboard features |
 | `tui` | textual | Terminal UI |
 | `geoip` | maxminddb | GeoIP lookups via MaxMind databases |
-| `dns` | aiodns | Async DNS resolution |
+| `dns` | aiodns | Async DNS resolution (for rDNS filter) |
+| `dns-listener` | dnspython | DNS protocol listener |
+| `mqtt-listener` | aiomqtt | MQTT protocol listener |
 | `all` | All of the above | Everything |
 
 ### Verify installation
@@ -274,8 +279,12 @@ domains:
 
 ```yaml
 # ── Listeners ─────────────────────────────────────────────────────────
+# Each listener binds a port for one protocol. Multiple listeners run
+# simultaneously in the same process, sharing IP intelligence and tracking.
 listeners:
-  - bind: "0.0.0.0"
+  # HTTPS listener for C2 beacon traffic
+  - protocol: "https"                        # https | http | dns | mqtt | wss | ws
+    bind: "0.0.0.0"
     port: 443
     tls:
       cert: "/path/to/fullchain.pem"
@@ -283,10 +292,44 @@ listeners:
     domains:
       - "cdn.example.com"
       - "static.example.com"
-  - bind: "0.0.0.0"
+
+  # HTTP listener (no TLS)
+  - protocol: "http"
+    bind: "0.0.0.0"
     port: 80
     domains:
       - "cdn.example.com"
+
+  # DNS listener for DNS-based C2 (requires: pip install infraguard[dns-listener])
+  - protocol: "dns"
+    bind: "0.0.0.0"
+    port: 53
+    domains:
+      - "dns.example.com"
+    options:
+      upstream: "8.8.8.8:53"                # Forward allowed queries here
+      allowed_types: ["A", "AAAA", "TXT"]   # Block other query types
+
+  # MQTT listener for MQTT-based C2 (requires: pip install infraguard[mqtt-listener])
+  - protocol: "mqtt"
+    bind: "0.0.0.0"
+    port: 1883
+    options:
+      upstream: "mqtt://10.0.0.5:1883"      # Upstream MQTT broker
+      allowed_topics: ["sensors/#", "data/#"]
+
+  # WebSocket listener for WS-based C2
+  - protocol: "wss"
+    bind: "0.0.0.0"
+    port: 8443
+    tls:
+      cert: "/path/to/fullchain.pem"
+      key: "/path/to/privkey.pem"
+    domains:
+      - "ws.example.com"
+    options:
+      upstream: "wss://10.0.0.5:9443"       # Upstream WebSocket server
+      path: "/ws"                            # WebSocket endpoint path
 
 # ── Domains ───────────────────────────────────────────────────────────
 # Each domain has its own C2 profile, upstream, and filtering rules.
@@ -453,6 +496,98 @@ ALLOW or BLOCK (based on cumulative score)
 ```
 
 Hard blocks (score = 1.0) short-circuit immediately. Soft signals (score < threshold) accumulate.
+
+### Filter pipeline per protocol
+
+Not all filters apply to every protocol. HTTP-specific filters (ProfileFilter, HeaderFilter, BotFilter) are skipped for non-HTTP listeners:
+
+| Filter | HTTP/S | DNS | MQTT | WebSocket |
+|---|---|---|---|---|
+| IP Filter | Yes | Yes | Yes | Yes |
+| Bot Filter | Yes | -- | -- | Yes |
+| Header Filter | Yes | -- | -- | Yes |
+| DNS Filter | Yes | Yes | Yes | Yes |
+| Profile Filter | Yes | -- | -- | -- |
+| Replay Filter | Yes | Yes | Yes | Yes |
+
+DNS and MQTT listeners use protocol-specific filtering (allowed query types, allowed topics) in addition to IP intelligence.
+
+## Multi-Protocol Listeners
+
+InfraGuard can run multiple protocol listeners simultaneously in the same process, all sharing IP intelligence, event tracking, and plugin dispatch.
+
+### Supported protocols
+
+| Protocol | Port | Dependencies | C2 Frameworks |
+|---|---|---|---|
+| HTTP/HTTPS | 80/443 | Core | Cobalt Strike, Mythic, Sliver, Havoc |
+| DNS | 53 | `pip install infraguard[dns-listener]` | Cobalt Strike DNS, Mythic DNS |
+| MQTT | 1883 | `pip install infraguard[mqtt-listener]` | Custom MQTT C2 |
+| WebSocket | 8443 | Core (websockets) | Mythic WebSocket, Sliver |
+
+### DNS listener
+
+The DNS listener intercepts UDP DNS queries, filters by IP intelligence and allowed query types, and forwards allowed queries to an upstream resolver.
+
+```yaml
+listeners:
+  - protocol: "dns"
+    bind: "0.0.0.0"
+    port: 53
+    options:
+      upstream: "8.8.8.8:53"
+      allowed_types: ["A", "AAAA", "TXT"]   # Block MX, NS, etc.
+```
+
+Events are recorded with `protocol: "dns"`, `method: "A"` (query type), and `uri: "example.com"` (query name). Blocked IPs receive a `REFUSED` response.
+
+### MQTT listener
+
+The MQTT listener acts as an MQTT proxy, filtering client connections by IP and forwarding to an upstream broker.
+
+```yaml
+listeners:
+  - protocol: "mqtt"
+    bind: "0.0.0.0"
+    port: 1883
+    options:
+      upstream: "mqtt://broker.internal:1883"
+      allowed_topics: ["sensors/#", "data/#"]
+```
+
+### WebSocket listener
+
+The WebSocket listener provides bidirectional WebSocket proxying with IP filtering from the HTTP upgrade request.
+
+```yaml
+listeners:
+  - protocol: "wss"
+    bind: "0.0.0.0"
+    port: 8443
+    tls:
+      cert: "/path/to/cert.pem"
+      key: "/path/to/key.pem"
+    options:
+      upstream: "wss://10.0.0.5:9443"
+      path: "/ws"
+```
+
+### Running multiple listeners
+
+All listeners in the config start simultaneously. Events from all protocols appear in the same dashboard, database, and plugin dispatch:
+
+```yaml
+listeners:
+  - protocol: "https"
+    port: 443
+    # ...
+  - protocol: "dns"
+    port: 53
+    # ...
+  - protocol: "mqtt"
+    port: 1883
+    # ...
+```
 
 ## Content Delivery Routes
 
@@ -800,6 +935,7 @@ infraguard/
         api/                 REST API + WebSocket (Starlette)
         web/                 SPA dashboard (HTML/JS/CSS)
         tui/                 Terminal UI (Textual) with login screen
+    listeners/               Protocol listeners (HTTP, DNS, MQTT, WebSocket)
     backends/                Config generators (Nginx, Caddy, Apache)
     models/                  Shared types and event models
 ```
@@ -811,6 +947,7 @@ infraguard/
 | Architecture | Single ~99KB file | Modular package |
 | Profile parsing | Regex state machine | Structured parser with full block/transform support |
 | C2 support | Cobalt Strike only | Cobalt Strike + Mythic |
+| Protocols | HTTP only | HTTP, DNS, MQTT, WebSocket |
 | Filter model | Binary pass/fail | Scoring-based (0.0-1.0 threshold) |
 | Operator UI | None | Web dashboard + Terminal UI |
 | Config generation | None | Nginx, Caddy, Apache with full customization |
