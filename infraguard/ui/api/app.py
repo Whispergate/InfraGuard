@@ -2,6 +2,7 @@
 
 from __future__ import annotations
 
+import asyncio
 from contextlib import asynccontextmanager
 from pathlib import Path
 
@@ -70,11 +71,41 @@ def create_api_app(
     stats_query = StatsQuery(db)
     node_registry = NodeRegistry(db)
 
+    async def _poll_and_broadcast() -> None:
+        """Poll the DB for new requests and broadcast them via WebSocket."""
+        last_id = 0
+        # Get the current max ID so we only broadcast genuinely new events
+        try:
+            row = await db.fetchone("SELECT MAX(id) as max_id FROM requests")
+            if row and row["max_id"]:
+                last_id = row["max_id"]
+        except Exception:
+            pass
+
+        while True:
+            await asyncio.sleep(2)
+            try:
+                rows = await db.fetchall(
+                    "SELECT * FROM requests WHERE id > ? ORDER BY id ASC LIMIT 50",
+                    (last_id,),
+                )
+                for row in rows:
+                    await broadcaster.broadcast(dict(row))
+                    last_id = row["id"]
+            except Exception:
+                pass
+
     @asynccontextmanager
     async def lifespan(app: Starlette):
         await db.connect()
+        poll_task = asyncio.create_task(_poll_and_broadcast())
         log.info("api_started", bind=config.api.bind, port=config.api.port)
         yield
+        poll_task.cancel()
+        try:
+            await poll_task
+        except asyncio.CancelledError:
+            pass
         await db.close()
 
     static_dir = Path(__file__).parent.parent / "web" / "static"

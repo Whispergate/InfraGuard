@@ -4,6 +4,8 @@ Red team infrastructure tracker and C2 redirector -- a modern alternative to [Re
 
 InfraGuard sits between the internet and your C2 teamserver, validating every inbound request against your malleable C2 profile and blocking anything that doesn't conform. Scanners, bots, and blue team probes get redirected to a decoy site while legitimate beacon traffic passes through to your teamserver.
 
+![Mythic Callbacks Xenon](/images/xenon_callback.png)
+![InfraGuard Dashboard](/images/infraguard_dashboard.png)
 ## Features
 
 - **Multi-domain proxying** -- proxy multiple domains simultaneously, each with independent C2 profiles, upstreams, and rules
