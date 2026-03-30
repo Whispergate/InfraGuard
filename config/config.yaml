@@ -71,6 +71,7 @@ intel:
   geoip_db: "${INFRAGUARD_GEOIP_DB}"
   geoip_asn_db: "${INFRAGUARD_GEOIP_ASN_DB}"
   geoip_country_db: "${INFRAGUARD_GEOIP_COUNTRY_DB}"
+  banned_ip_file: "${INFRAGUARD_BANNED_IP_FILE}"
   feeds:
     enabled: true
 

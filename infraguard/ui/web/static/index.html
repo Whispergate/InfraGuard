@@ -4,6 +4,7 @@
     <meta charset="UTF-8">
     <meta name="viewport" content="width=device-width, initial-scale=1.0">
     <title>InfraGuard Dashboard</title>
+    <link rel="icon" type="image/svg+xml" href="/static/infraguard_icon.svg">
     <style>
         :root {
             --bg: #0d1117;
@@ -22,6 +23,7 @@
         /* ── Login ──────────────────────────────────────────── */
         #login-page { display: flex; align-items: center; justify-content: center; min-height: 100vh; }
         .login-box { background: var(--surface); border: 1px solid var(--border); border-radius: 8px; padding: 32px; width: 380px; }
+        .login-icon { display: block; width: 64px; height: 64px; margin: 0 auto 12px; }
         .login-box h1 { font-size: 20px; color: var(--accent); text-align: center; margin-bottom: 4px; }
         .login-box p { font-size: 12px; color: var(--text-dim); text-align: center; margin-bottom: 24px; }
         .login-box label { display: block; font-size: 12px; color: var(--text-dim); margin-bottom: 6px; text-transform: uppercase; }
@@ -35,6 +37,8 @@
         /* ── Dashboard ──────────────────────────────────────── */
         #dashboard-page { display: none; }
         .header { background: var(--surface); border-bottom: 1px solid var(--border); padding: 16px 24px; display: flex; justify-content: space-between; align-items: center; }
+        .header-brand { display: flex; align-items: center; gap: 10px; }
+        .header-icon { width: 28px; height: 28px; }
         .header h1 { font-size: 18px; color: var(--accent); }
         .header .status { font-size: 12px; color: var(--green); }
         .header-right { display: flex; gap: 12px; align-items: center; }
@@ -67,6 +71,7 @@
     <!-- ── Login Page ───────────────────────────────────────── -->
     <div id="login-page">
         <div class="login-box">
+            <img src="/static/infraguard_icon.svg" alt="InfraGuard" class="login-icon">
             <h1>InfraGuard</h1>
             <p>Enter your API token to access the dashboard</p>
             <label for="token-input">API Token</label>
@@ -79,7 +84,10 @@
     <!-- ── Dashboard Page ───────────────────────────────────── -->
     <div id="dashboard-page">
         <div class="header">
-            <h1>InfraGuard Dashboard</h1>
+            <div class="header-brand">
+                <img src="/static/infraguard_icon.svg" alt="" class="header-icon">
+                <h1>InfraGuard Dashboard</h1>
+            </div>
             <div class="header-right">
                 <span class="status" id="ws-status">&#9679; Connecting...</span>
                 <button class="btn" onclick="refresh()">Refresh</button>
@@ -129,7 +137,7 @@
             <div class="card full-width">
                 <h3>Recent Requests</h3>
                 <table>
-                    <thead><tr><th>Time</th><th>Domain</th><th>IP</th><th>Method</th><th>URI</th><th>Result</th><th>Reason</th></tr></thead>
+                    <thead><tr><th>Time</th><th>Proto</th><th>Domain</th><th>IP</th><th>Method</th><th>URI</th><th>Result</th><th>Reason</th></tr></thead>
                     <tbody id="recent-requests"></tbody>
                 </table>
             </div>
@@ -259,6 +267,7 @@
                     const badge = r.filter_result === 'allow' ? 'allow' : 'block';
                     return `<tr>
                         <td>${esc(r.timestamp?.substring(11, 19))}</td>
+                        <td>${esc(r.protocol || 'http')}</td>
                         <td>${esc(r.domain)}</td>
                         <td>${esc(r.client_ip)}</td>
                         <td>${esc(r.method)}</td>

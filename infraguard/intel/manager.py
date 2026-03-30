@@ -39,7 +39,11 @@ class IntelManager:
         if config.auto_block_scanners:
             self.blocklist.add_many(SECURITY_VENDOR_CIDRS)
         if config.banned_ip_file:
-            self.blocklist.load_file(config.banned_ip_file)
+            from pathlib import Path
+            if Path(config.banned_ip_file).exists():
+                self.blocklist.load_file(config.banned_ip_file)
+            else:
+                log.info("banned_ip_file_not_found", path=config.banned_ip_file, hint="Run: infraguard ingest rules/.htaccess --format blocklist -o rules/banned_ips.txt")
 
         # Whitelist (operator-defined, per-domain whitelists are separate)
         self.whitelist = CIDRList(name="whitelist")

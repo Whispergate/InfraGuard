@@ -69,10 +69,12 @@ class DomainConfig(BaseModel):
 
 
 class ListenerConfig(BaseModel):
+    protocol: str = "https"  # https | http | dns | mqtt | wss | ws
     bind: str = "0.0.0.0"
     port: int = 443
     tls: TLSConfig | None = None
     domains: list[str] = Field(default_factory=list)
+    options: dict[str, Any] = Field(default_factory=dict)
 
 
 class FeedConfig(BaseModel):

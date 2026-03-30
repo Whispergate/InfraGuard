@@ -96,6 +96,7 @@ class EventRecorder:
                 e.response_status,
                 e.request_hash,
                 e.duration_ms,
+                e.protocol,
             )
             for e in events
         ]
@@ -105,8 +106,8 @@ class EventRecorder:
                 """INSERT INTO requests
                    (timestamp, domain, client_ip, method, uri, user_agent,
                     filter_result, filter_reason, filter_score, response_status,
-                    request_hash, duration_ms)
-                   VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)""",
+                    request_hash, duration_ms, protocol)
+                   VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)""",
                 params,
             )
             log.debug("events_flushed", count=len(events))

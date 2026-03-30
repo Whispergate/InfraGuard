@@ -23,7 +23,9 @@ web = ["fastapi>=0.109", "jinja2>=3.1"]
 tui = ["textual>=0.47"]
 geoip = ["maxminddb>=2.5"]
 dns = ["aiodns>=3.1"]
-all = ["infraguard[web,tui,geoip,dns]"]
+dns-listener = ["dnspython>=2.6"]
+mqtt-listener = ["aiomqtt>=2.0"]
+all = ["infraguard[web,tui,geoip,dns,dns-listener,mqtt-listener]"]
 
 [project.scripts]
 infraguard = "infraguard.main:cli"

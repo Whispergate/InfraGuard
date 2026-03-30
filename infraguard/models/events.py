@@ -22,6 +22,7 @@ class RequestEvent:
     response_status: int
     duration_ms: float
     request_hash: str = ""
+    protocol: str = "http"  # http, dns, mqtt, websocket
 
     @classmethod
     def now(cls, **kwargs) -> RequestEvent:

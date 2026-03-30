@@ -62,6 +62,11 @@ _ALLOW_FROM = re.compile(r"^\s*Allow\s+from\s+(.+)", re.IGNORECASE)
 _REQUIRE_NOT_IP = re.compile(r"^\s*Require\s+not\s+ip\s+(.+)", re.IGNORECASE)
 # Matches: Require ip 192.168.1.0/24
 _REQUIRE_IP = re.compile(r"^\s*Require\s+ip\s+(.+)", re.IGNORECASE)
+# Matches: RewriteCond expr "-R '1.2.3.0/24'" [OR]  (Apache 2.4+ expression)
+_REWRITE_EXPR_IP = re.compile(
+    r"""^\s*RewriteCond\s+expr\s+[\"']-R\s+[\"']([^\"']+)[\"'][\"']""",
+    re.IGNORECASE,
+)
 # Matches: RewriteCond %{HTTP_USER_AGENT} pattern [NC,OR]
 _REWRITE_UA = re.compile(
     r"^\s*RewriteCond\s+%\{HTTP_USER_AGENT\}\s+(.+?)(?:\s+\[.*\])?\s*$",
@@ -146,10 +151,31 @@ def parse_htaccess(content: str) -> IngestResult:
                     result.allowed_ips.append(ip)
             continue
 
+        # RewriteCond expr "-R 'CIDR'" (Apache 2.4+ IP range matching)
+        m = _REWRITE_EXPR_IP.match(line)
+        if m:
+            ip = _clean_ip_token(m.group(1))
+            if ip:
+                result.blocked_ips.append(ip)
+            continue
+
+        # Also try a more lenient pattern for expr lines
+        if "expr" in line.lower() and "-R" in line:
+            # Extract CIDR from: RewriteCond expr "-R '10.0.0.0/8'"
+            ip_match = re.search(r"-R\s+[\"']([^\"']+)[\"']", line)
+            if ip_match:
+                ip = _clean_ip_token(ip_match.group(1))
+                if ip:
+                    result.blocked_ips.append(ip)
+                continue
+
         # RewriteCond User-Agent
         m = _REWRITE_UA.match(line)
         if m:
             raw = m.group(1)
+            # Skip negation patterns (e.g., "!cloudfront")
+            if raw.strip().startswith('"!') or raw.strip().startswith("!"):
+                continue
             # Strip outer regex wrapper like ^.*(pattern).*$
             raw = re.sub(r"^\^?\.\*\(?(.*?)\)?\.\*\$?$", r"\1", raw)
             raw = raw.strip("()")

@@ -1,15 +1,19 @@
 # InfraGuard Full Configuration Example
-# Demonstrates all features: multi-domain, both C2 frameworks, SIEM/webhook
-# plugins, threat feeds, GeoIP, and configurable health endpoint.
+# Demonstrates all features: multi-protocol listeners, multi-domain,
+# both C2 frameworks, content delivery, SIEM/webhook plugins, threat
+# feeds, GeoIP, rule ingestion, and configurable health endpoint.
 #
 # Environment variables (${VAR}) are resolved from .env automatically.
 
 # ── Listeners ─────────────────────────────────────────────────────────
-# Each listener binds a port and maps it to one or more domains.
+# Each listener binds a port for one protocol. Multiple listeners run
+# simultaneously, sharing IP intelligence, event tracking, and plugins.
 # TLS certs are auto-generated (self-signed) if the paths don't exist.
 
 listeners:
-  - bind: "0.0.0.0"
+  # HTTPS listener for C2 beacon traffic
+  - protocol: "https"
+    bind: "0.0.0.0"
     port: 443
     tls:
       cert: "${INFRAGUARD_TLS_CERT}"
@@ -18,14 +22,49 @@ listeners:
       - "cdn.example.com"
       - "static.example.net"
 
-  - bind: "0.0.0.0"
+  # HTTP listener (no TLS, for redirects or staging)
+  - protocol: "http"
+    bind: "0.0.0.0"
     port: 80
     domains:
       - "cdn.example.com"
 
+  # DNS listener for DNS-based C2 channels
+  # Requires: pip install infraguard[dns-listener]
+  # - protocol: "dns"
+  #   bind: "0.0.0.0"
+  #   port: 53
+  #   domains:
+  #     - "dns.example.com"
+  #   options:
+  #     upstream: "8.8.8.8:53"              # forward allowed queries here
+  #     allowed_types: ["A", "AAAA", "TXT"] # block other query types
+
+  # MQTT listener for MQTT-based C2 channels
+  # Requires: pip install infraguard[mqtt-listener]
+  # - protocol: "mqtt"
+  #   bind: "0.0.0.0"
+  #   port: 1883
+  #   options:
+  #     upstream: "mqtt://10.0.0.5:1883"    # upstream MQTT broker
+  #     allowed_topics: ["sensors/#", "data/#"]
+
+  # WebSocket listener for WS-based C2 channels
+  # - protocol: "wss"
+  #   bind: "0.0.0.0"
+  #   port: 8443
+  #   tls:
+  #     cert: "${INFRAGUARD_TLS_CERT}"
+  #     key: "${INFRAGUARD_TLS_KEY}"
+  #   domains:
+  #     - "ws.example.com"
+  #   options:
+  #     upstream: "wss://10.0.0.5:9443"     # upstream WebSocket server
+  #     path: "/ws"                          # WebSocket endpoint path
+
 # ── Domains ───────────────────────────────────────────────────────────
 # Each domain runs independently with its own C2 profile, upstream
-# teamserver, IP whitelist, and drop action.
+# teamserver, IP whitelist, drop action, and content delivery routes.
 
 domains:
 
@@ -44,6 +83,26 @@ domains:
     drop_action:
       type: "redirect"
       target: "https://jquery.com"
+
+    # ── Content delivery routes (optional) ──────────────────────────
+    # Evaluated BEFORE the C2 profile filter. Serve payloads, decoys,
+    # or static files at specific paths without affecting beacon traffic.
+    # content_routes:
+    #   - path: "/downloads/*"
+    #     backend:
+    #       type: "pwndrop"
+    #       target: "http://pwndrop:80"    # Docker internal URL
+    #       auth_token: "${PWNDROP_TOKEN}"
+    #     conditional:
+    #       score_threshold: 0.5           # bots/scanners get decoy instead
+    #       scanner_backend:
+    #         type: "http_proxy"
+    #         target: "https://jquery.com"
+    #     track: true
+    #   - path: "/assets/*"
+    #     backend:
+    #       type: "filesystem"
+    #       target: "/app/decoys"
 
   # ── Mythic domain ───────────────────────────────────────────────────
   # Fronts a Mythic teamserver behind a generic CDN static-assets page.
@@ -68,6 +127,7 @@ intel:
   blocked_asns: []                       # e.g. [14061] for DigitalOcean
   auto_block_scanners: true              # block Shodan, Censys, Rapid7, etc.
   dynamic_whitelist_threshold: 3         # auto-whitelist after 3 valid C2 requests
+  banned_ip_file: "${INFRAGUARD_BANNED_IP_FILE}"  # ingested blocklist from rules/
 
   feeds:
     enabled: true
@@ -76,6 +136,8 @@ intel:
     urls: []                             # empty = use built-in defaults (abuse.ch, ET, etc.)
 
 # ── Filter Pipeline ───────────────────────────────────────────────────
+# Filters are applied per-protocol. HTTP gets all filters; DNS/MQTT
+# only get IP, DNS, and replay filters (no profile/header/bot checks).
 
 pipeline:
   block_score_threshold: 0.7

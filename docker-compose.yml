@@ -11,6 +11,7 @@ services:
     volumes:
       - ./config:/app/config:ro
       - ./examples:/app/examples:ro
+      - ./rules:/app/rules:ro
       - ./data:/app/data
       - certs:/app/certs:ro
       - geoip:/app/geoip:ro
@@ -114,16 +115,15 @@ services:
     volumes:
       - geoip:/geoip
     entrypoint: /bin/sh
-    command: >
-      -c '
-        REPO="https://github.com/P3TERX/GeoLite.mmdb/raw/download"
+    command:
+      - -c
+      - |
         echo "Downloading GeoLite2 databases..."
-        curl -sSL -o /geoip/GeoLite2-City.mmdb    "$REPO/GeoLite2-City.mmdb"    && echo "  City DB downloaded"
-        curl -sSL -o /geoip/GeoLite2-ASN.mmdb     "$REPO/GeoLite2-ASN.mmdb"     && echo "  ASN DB downloaded"
-        curl -sSL -o /geoip/GeoLite2-Country.mmdb  "$REPO/GeoLite2-Country.mmdb"  && echo "  Country DB downloaded"
+        curl -sSL -o /geoip/GeoLite2-City.mmdb https://github.com/P3TERX/GeoLite.mmdb/raw/download/GeoLite2-City.mmdb && echo "  City DB downloaded"
+        curl -sSL -o /geoip/GeoLite2-ASN.mmdb https://github.com/P3TERX/GeoLite.mmdb/raw/download/GeoLite2-ASN.mmdb && echo "  ASN DB downloaded"
+        curl -sSL -o /geoip/GeoLite2-Country.mmdb https://github.com/P3TERX/GeoLite.mmdb/raw/download/GeoLite2-Country.mmdb && echo "  Country DB downloaded"
         ls -lh /geoip/*.mmdb
         echo "Done."
-      '
 
   # ── Additional redirector node (scale with --scale proxy-node=N) ────
   # Uncomment to run extra redirector instances behind a load balancer.
