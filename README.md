@@ -6,6 +6,7 @@ InfraGuard sits between the internet and your C2 teamserver, validating every in
 
 ![Mythic Callbacks Xenon](/images/xenon_callback.png)
 ![InfraGuard Dashboard](/images/infraguard_dashboard.png)
+
 ## Features
 
 - **Multi-domain proxying** -- proxy multiple domains simultaneously, each with independent C2 profiles, upstreams, and rules
