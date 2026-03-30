@@ -38,6 +38,7 @@ try:
                     base_url=self.base_url,
                     headers=headers,
                     timeout=10.0,
+                    verify=False,
                 )
             return self._client
 
@@ -185,15 +186,19 @@ try:
             layout: grid;
             grid-size: 4 4;
             grid-gutter: 1;
-            grid-rows: 3 3 1fr 1fr;
+            grid-rows: 5 1 1fr 1fr;
         }
         .stat-card {
             border: solid $accent;
             padding: 0 1;
-            height: 3;
+            height: 5;
         }
-        .stat-card .stat-value {
+        .stat-label {
+            color: $text-muted;
+        }
+        .stat-value {
             text-style: bold;
+            height: 2;
         }
         #stat-total .stat-value { color: $text; }
         #stat-allowed .stat-value { color: $success; }
