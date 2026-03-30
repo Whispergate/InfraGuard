@@ -1,4 +1,4 @@
-"""Syslog plugin — forwards events as CEF or JSON syslog messages.
+"""Syslog plugin - forwards events as CEF or JSON syslog messages.
 
 Supports UDP, TCP, and TCP+TLS transports. Covers Splunk, QRadar,
 ArcSight, and any syslog-compatible SIEM.
@@ -36,7 +36,7 @@ class Plugin(BatchForwardingPlugin):
         self._sock: socket.socket | None = None
 
     async def on_startup(self) -> None:
-        # Don't call super — syslog doesn't use httpx
+        # Don't call super - syslog doesn't use httpx
         protocol = self._opt("protocol", "udp")
         host = self._opt("host", "127.0.0.1")
         port = int(self._opt("port", 514))

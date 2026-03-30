@@ -1,4 +1,4 @@
-"""Slack webhook plugin — sends alerts using Block Kit formatting."""
+"""Slack webhook plugin - sends alerts using Block Kit formatting."""
 
 from __future__ import annotations
 

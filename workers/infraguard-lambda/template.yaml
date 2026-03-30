@@ -1,0 +1,56 @@
+AWSTemplateFormatVersion: "2010-09-09"
+Transform: AWS::Serverless-2016-10-31
+Description: InfraGuard Edge Lambda - reverse proxy for domain fronting via AWS
+
+Globals:
+  Function:
+    Timeout: 30
+    MemorySize: 128
+
+Parameters:
+  InfraGuardBackend:
+    Type: String
+    Description: InfraGuard server URL (e.g. https://your-server:443)
+  AllowedHosts:
+    Type: String
+    Default: ""
+    Description: Comma-separated allowed Host headers
+  BlockedCountries:
+    Type: String
+    Default: ""
+    Description: Comma-separated ISO country codes to block
+  HostMap:
+    Type: String
+    Default: ""
+    Description: "Host rewriting rules (e.g. cdn.example.com:code.jquery.com)"
+
+Resources:
+  InfraGuardEdgeFunction:
+    Type: AWS::Serverless::Function
+    Properties:
+      Handler: handler.handler
+      Runtime: python3.12
+      CodeUri: .
+      Description: InfraGuard edge reverse proxy
+      Environment:
+        Variables:
+          INFRAGUARD_BACKEND: !Ref InfraGuardBackend
+          ALLOWED_HOSTS: !Ref AllowedHosts
+          BLOCKED_COUNTRIES: !Ref BlockedCountries
+          HOST_MAP: !Ref HostMap
+      FunctionUrlConfig:
+        AuthType: NONE
+      Events:
+        CatchAll:
+          Type: HttpApi
+          Properties:
+            Path: /{proxy+}
+            Method: ANY
+
+Outputs:
+  FunctionUrl:
+    Description: Lambda Function URL (use as CloudFront origin or directly)
+    Value: !GetAtt InfraGuardEdgeFunctionUrl.FunctionUrl
+  ApiEndpoint:
+    Description: API Gateway endpoint
+    Value: !Sub "https://${ServerlessHttpApi}.execute-api.${AWS::Region}.amazonaws.com"

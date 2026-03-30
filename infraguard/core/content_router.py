@@ -1,9 +1,9 @@
-"""Content route resolver — matches request URIs to content delivery backends.
+"""Content route resolver - matches request URIs to content delivery backends.
 
 Supports three pattern types:
-- Exact:  ``/file.exe`` — string equality
-- Prefix: ``/downloads/*`` — startswith, captures remainder after prefix
-- Regex:  ``~^/d/[a-f0-9]+`` — leading ``~`` indicates regex
+- Exact:  ``/file.exe`` - string equality
+- Prefix: ``/downloads/*`` - startswith, captures remainder after prefix
+- Regex:  ``~^/d/[a-f0-9]+`` - leading ``~`` indicates regex
 """
 
 from __future__ import annotations

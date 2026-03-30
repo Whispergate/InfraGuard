@@ -1,4 +1,4 @@
-"""Wazuh SIEM plugin — forwards events to Wazuh-Indexer via _bulk API.
+"""Wazuh SIEM plugin - forwards events to Wazuh-Indexer via _bulk API.
 
 Authenticates against the Wazuh API to get a JWT token, then sends
 events to the Wazuh-Indexer (OpenSearch-compatible) using the same
