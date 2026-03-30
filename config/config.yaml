@@ -64,6 +64,22 @@ domains:
     drop_action:
       type: "proxy"            # serve real content from the target site
       target: "https://example.net"
+    content_routes:
+      - path: "/downloads/*"
+        backend:
+          type: "pwndrop"
+          target: "http://pwndrop:80"    # Docker internal URL
+          auth_token: "${PWNDROP_TOKEN}"
+        conditional:
+          score_threshold: 0.5           # bots/scanners get decoy instead
+          scanner_backend:
+            type: "http_proxy"
+            target: "https://jquery.com"
+        track: true
+      - path: "/assets/*"
+        backend:
+          type: "filesystem"
+          target: "/app/decoys"
 
 intel:
   auto_block_scanners: true

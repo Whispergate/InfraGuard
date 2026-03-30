@@ -123,7 +123,7 @@ def profile() -> None:
 @click.option(
     "--type",
     "profile_type",
-    type=click.Choice(["auto", "cobalt_strike", "mythic"]),
+    type=click.Choice(["auto", "cobalt_strike", "mythic", "brute_ratel", "sliver"]),
     default="auto",
     help="Profile type (auto-detected by default).",
 )
@@ -139,27 +139,7 @@ def profile_parse(
     file: Path, profile_type: str, name: str | None, output_format: str
 ) -> None:
     """Parse a C2 profile and display its contents."""
-    from infraguard.profiles.cobalt_strike import parse_cobalt_strike_file
-    from infraguard.profiles.mythic import parse_mythic_file
-
-    # Auto-detect profile type
-    if profile_type == "auto":
-        if file.suffix == ".profile":
-            profile_type = "cobalt_strike"
-        elif file.suffix == ".json":
-            profile_type = "mythic"
-        else:
-            click.echo(
-                f"Cannot auto-detect profile type for '{file.suffix}'. "
-                "Use --type to specify.",
-                err=True,
-            )
-            sys.exit(1)
-
-    if profile_type == "cobalt_strike":
-        parsed = parse_cobalt_strike_file(file, name)
-    else:
-        parsed = parse_mythic_file(file, name)
+    parsed = _load_profile_file(file, profile_type, name)
 
     if output_format == "json":
         click.echo(parsed.to_json(indent=2))
@@ -172,7 +152,7 @@ def profile_parse(
 @click.option(
     "--type",
     "profile_type",
-    type=click.Choice(["auto", "cobalt_strike", "mythic"]),
+    type=click.Choice(["auto", "cobalt_strike", "mythic", "brute_ratel", "sliver"]),
     default="auto",
     help="Source profile type.",
 )
@@ -188,26 +168,7 @@ def profile_convert(
     file: Path, profile_type: str, name: str | None, output: Path | None
 ) -> None:
     """Convert a C2 profile to InfraGuard JSON format."""
-    from infraguard.profiles.cobalt_strike import parse_cobalt_strike_file
-    from infraguard.profiles.mythic import parse_mythic_file
-
-    if profile_type == "auto":
-        if file.suffix == ".profile":
-            profile_type = "cobalt_strike"
-        elif file.suffix == ".json":
-            profile_type = "mythic"
-        else:
-            click.echo(
-                f"Cannot auto-detect profile type for '{file.suffix}'. "
-                "Use --type to specify.",
-                err=True,
-            )
-            sys.exit(1)
-
-    if profile_type == "cobalt_strike":
-        parsed = parse_cobalt_strike_file(file, name)
-    else:
-        parsed = parse_mythic_file(file, name)
+    parsed = _load_profile_file(file, profile_type, name)
 
     json_output = parsed.to_json(indent=2)
 
@@ -560,6 +521,46 @@ def run_tui(
 
 
 # ── Helpers ───────────────────────────────────────────────────────────
+
+
+def _load_profile_file(file: Path, profile_type: str, name: str | None = None):
+    """Load a C2 profile file, auto-detecting type if needed."""
+    from infraguard.profiles.brute_ratel import parse_brute_ratel_file
+    from infraguard.profiles.cobalt_strike import parse_cobalt_strike_file
+    from infraguard.profiles.mythic import parse_mythic_file
+    from infraguard.profiles.sliver import parse_sliver_file
+
+    if profile_type == "auto":
+        if file.suffix == ".profile":
+            profile_type = "cobalt_strike"
+        elif file.suffix == ".json":
+            import json
+            try:
+                data = json.loads(file.read_text(encoding="utf-8"))
+                if "listeners" in data and "c2_handler" in data:
+                    profile_type = "brute_ratel"
+                elif "implant_config" in data and "server_config" in data:
+                    profile_type = "sliver"
+                else:
+                    profile_type = "mythic"
+            except Exception:
+                profile_type = "mythic"
+        else:
+            click.echo(
+                f"Cannot auto-detect profile type for '{file.suffix}'. "
+                "Use --type to specify.",
+                err=True,
+            )
+            sys.exit(1)
+
+    if profile_type == "cobalt_strike":
+        return parse_cobalt_strike_file(file, name)
+    elif profile_type == "brute_ratel":
+        return parse_brute_ratel_file(file, name)
+    elif profile_type == "sliver":
+        return parse_sliver_file(file, name)
+    else:
+        return parse_mythic_file(file, name)
 
 
 def _print_profile_summary(p: "C2Profile") -> None:  # noqa: F821

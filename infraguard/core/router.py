@@ -161,9 +161,16 @@ class DomainRouter:
 
     @staticmethod
     def _load_profile(config: DomainConfig) -> C2Profile:
+        from infraguard.profiles.brute_ratel import parse_brute_ratel_file
+        from infraguard.profiles.sliver import parse_sliver_file
+
         path = Path(config.profile_path)
         if config.profile_type.value == "cobalt_strike":
             return parse_cobalt_strike_file(path)
+        elif config.profile_type.value == "brute_ratel":
+            return parse_brute_ratel_file(path)
+        elif config.profile_type.value == "sliver":
+            return parse_sliver_file(path)
         else:
             return parse_mythic_file(path)
 

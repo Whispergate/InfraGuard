@@ -1,0 +1,101 @@
+{
+    "implant_config": {
+        "user_agent": "",
+        "url_parameters": null,
+        "headers": null,
+        "max_files": 8,
+        "min_files": 2,
+        "max_paths": 8,
+        "min_paths": 2,
+        "stager_file_ext": ".woff",
+        "poll_file_ext": ".js",
+        "poll_files": [
+            "bootstrap",
+            "bootstrap.min",
+            "jquery.min",
+            "jquery",
+            "route",
+            "app",
+            "app.min",
+            "array",
+            "backbone",
+            "script",
+            "email"
+        ],
+        "poll_paths": [
+            "js",
+            "umd",
+            "assets",
+            "bundle",
+            "bundles",
+            "scripts",
+            "script",
+            "javascripts",
+            "javascript",
+            "jscript"
+        ],
+        "start_session_file_ext": ".html",
+        "session_file_ext": ".php",
+        "session_files": [
+            "login",
+            "signin",
+            "api",
+            "samples",
+            "rpc",
+            "index",
+            "admin",
+            "register",
+            "sign-up"
+        ],
+        "session_paths": [
+            "php",
+            "api",
+            "upload",
+            "actions",
+            "rest",
+            "v1",
+            "auth",
+            "authenticate",
+            "oauth",
+            "oauth2",
+            "oauth2callback",
+            "database",
+            "db",
+            "namespaces"
+        ],
+        "close_file_ext": ".png",
+        "close_files": [
+            "favicon",
+            "sample",
+            "example"
+        ],
+        "close_paths": [
+            "static",
+            "www",
+            "assets",
+            "images",
+            "icons",
+            "image",
+            "icon",
+            "png"
+        ]
+    },
+    "server_config": {
+        "random_version_headers": false,
+        "headers": [
+            {
+                "name": "Cache-Control",
+                "value": "no-store, no-cache, must-revalidate",
+                "probability": 100
+            }
+        ],
+        "cookies": [
+            "PHPSESSID",
+            "SID",
+            "SSID",
+            "APISID",
+            "csrf-state",
+            "AWSALBCORS"
+        ]
+    }
+}
