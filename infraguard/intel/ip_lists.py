@@ -11,6 +11,7 @@ from ipaddress import (
     ip_network,
 )
 from pathlib import Path
+from typing import Any
 
 import structlog
 
@@ -18,12 +19,13 @@ log = structlog.get_logger()
 
 
 class CIDRList:
-    """Efficient CIDR membership tester."""
+    """Efficient CIDR membership tester with optional GeoIP/ASN enrichment."""
 
     def __init__(self, name: str = ""):
         self.name = name
         self._networks_v4: list[IPv4Network] = []
         self._networks_v6: list[IPv6Network] = []
+        self.metadata: dict[str, dict[str, Any]] = {}  # "10.0.0.0/8" → geo info
 
     def add(self, cidr: str) -> None:
         try:
@@ -59,6 +61,47 @@ class CIDRList:
     @property
     def size(self) -> int:
         return len(self._networks_v4) + len(self._networks_v6)
+
+    def enrich(self, geoip: Any) -> int:
+        """Look up ASN/geo for each CIDR's representative IP.
+
+        Uses the first usable host IP in each range for the lookup.
+        Results are stored in ``self.metadata`` keyed by CIDR string.
+        Returns the number of CIDRs that had data.
+        """
+        enriched = 0
+        for net in self._networks_v4 + self._networks_v6:
+            # Use first host IP (network + 1 for ranges, or the address itself for /32)
+            if net.num_addresses > 1:
+                rep_ip = str(net.network_address + 1)
+            else:
+                rep_ip = str(net.network_address)
+
+            info = geoip.lookup(rep_ip)
+            entry = {
+                "country_code": info.country_code,
+                "country_name": info.country_name,
+                "city": info.city,
+                "asn": info.asn,
+                "org": info.org,
+                "continent": info.continent,
+            }
+            self.metadata[str(net)] = entry
+            if info.asn or info.country_code:
+                enriched += 1
+        return enriched
+
+    def get_metadata_for_ip(self, ip: IPv4Address | IPv6Address) -> dict[str, Any] | None:
+        """Return enriched metadata for the CIDR that contains this IP."""
+        if isinstance(ip, IPv4Address):
+            for net in self._networks_v4:
+                if ip in net:
+                    return self.metadata.get(str(net))
+        else:
+            for net in self._networks_v6:
+                if ip in net:
+                    return self.metadata.get(str(net))
+        return None
 
     def remove(self, cidr: str) -> bool:
         try:

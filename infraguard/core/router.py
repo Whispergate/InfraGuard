@@ -84,6 +84,7 @@ class DomainRouter:
             if domain_config.whitelist_cidrs:
                 wl = CIDRList(name=f"whitelist:{domain_name}")
                 wl.add_many(domain_config.whitelist_cidrs)
+                self.intel.enrich_cidr_list(wl)
                 self._domain_whitelists[domain_name] = wl
 
         self._load_routes()

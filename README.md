@@ -22,6 +22,7 @@ InfraGuard sits between the internet and your C2 teamserver, validating every in
 - **Threat intel feeds** -- auto-update blocklists from public sources (abuse.ch, Emerging Threats, Spamhaus DROP, Binary Defense) with configurable refresh interval and disk caching
 - **Rule ingestion** -- import IP blocklists and User-Agent patterns from existing `.htaccess` and `robots.txt` files
 - **Dynamic IP blocking** -- block IPs outside whitelisted ranges; auto-whitelist IPs after N valid C2 requests
+- **Whitelist enrichment** -- whitelisted CIDRs are auto-enriched with ASN, organization, country, and continent data on startup via GeoIP databases
 - **Content delivery routes** -- serve payloads, decoys, and static files at specific paths via PwnDrop, local filesystem, or HTTP proxy backends, with optional conditional delivery (real content to targets, decoys to scanners)
 - **Drop actions** -- redirect, TCP reset, proxy to decoy site, or tarpit (slow-drip response to waste scanner time)
 - **Web dashboard** -- real-time SPA with login page, live request feed, domain stats, top blocked IPs, authenticated WebSocket event streaming
@@ -32,7 +33,7 @@ InfraGuard sits between the internet and your C2 teamserver, validating every in
 - **Backend config generation** -- generate Nginx, Caddy, or Apache configs with full operator customization (TLS, IP filtering, header checks, aliases, custom headers)
 - **Edge proxies** -- lightweight Cloudflare Worker and AWS Lambda for domain fronting through CDN infrastructure, edge country blocking, and host rewriting
 - **Docker deployment** -- Dockerfile + docker-compose with optional Let's Encrypt, GeoIP downloader, and PwnDrop payload server
-- **GeoIP support** -- all three GeoLite2 databases (City, ASN, Country) with Docker auto-download
+- **GeoIP support** -- all three GeoLite2 databases (City, ASN, Country) with Docker auto-download; whitelisted CIDRs auto-enriched on startup
 - **Self-signed TLS fallback** -- auto-generates certificates when configured paths don't exist
 - **Environment variable support** -- `.env` file auto-loaded; `${VAR}` syntax works in all config values and keys
 - **Configurable health endpoint** -- change the health check path to avoid fingerprinting
@@ -228,6 +229,7 @@ infraguard/
 | Plugin system | Basic 4-method interface | Event-driven with on_event hooks + per-plugin config |
 | SIEM integration | None | Elasticsearch, Wazuh, Syslog (CEF/JSON) |
 | Webhook alerts | None | Discord, Slack, generic webhook |
+| Whitelist intelligence | None | Auto-enrich CIDRs with ASN/org/country on startup |
 | Anti-replay | SQLite hash | In-memory with configurable window |
 | Drop actions | redirect, reset, proxy | redirect, reset, proxy, tarpit |
 | TLS management | Manual only | Auto self-signed + Let's Encrypt integration |
