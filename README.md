@@ -14,7 +14,7 @@ InfraGuard sits between the internet and your C2 teamserver, validating every in
 ## Features
 
 - **Multi-domain proxying** -- proxy multiple domains simultaneously, each with independent C2 profiles, upstreams, and rules
-- **C2 profile validation** -- parse and enforce Cobalt Strike malleable profiles and Mythic HTTPX profiles as redirector rules
+- **C2 profile validation** -- parse and enforce Cobalt Strike, Mythic, Brute Ratel C4, and Sliver profiles as redirector rules
 - **Multi-protocol listeners** -- HTTP/HTTPS, DNS, MQTT, and WebSocket listeners running simultaneously with shared IP intelligence and event tracking
 - **Scoring-based filter pipeline** -- 7 filters (IP, bot, header, DNS, geo, profile, replay) each contribute a 0.0-1.0 score; configurable threshold determines block/allow
 - **Anti-bot / anti-crawling** -- 40+ known scanner/bot User-Agent patterns, header anomaly detection
@@ -62,8 +62,11 @@ infraguard tui -c config.yaml                       Read URL/token from config
 
 infraguard profile parse <file>                     Parse and display a C2 profile
 infraguard profile parse <file> --format json        Output as JSON
-infraguard profile parse <file> --type mythic        Force profile type
+infraguard profile parse <file> --type brute_ratel   Force profile type
 infraguard profile convert <file> -o out.json        Convert profile to JSON
+
+# Supported --type values: auto, cobalt_strike, mythic, brute_ratel, sliver
+# Auto-detection: .profile = CS, .json = auto-detect by keys
 
 infraguard ingest <files...>                         Ingest .htaccess/robots.txt rules
 infraguard ingest <files...> --format blocklist      Output as IP blocklist
@@ -194,7 +197,7 @@ infraguard/
     main.py                  Click CLI
     config/                  YAML config loading, .env support, Pydantic validation
     core/                    ASGI proxy engine (app, proxy, router, TLS, drop actions, content delivery)
-    profiles/                C2 profile parsers (Cobalt Strike + Mythic)
+    profiles/                C2 profile parsers (Cobalt Strike, Mythic, Brute Ratel, Sliver)
     pipeline/                Request validation filters (IP, bot, header, DNS, geo, profile, replay)
     intel/                   IP intelligence (blocklists, GeoIP, rDNS, feeds, rule ingestion)
     tracking/                SQLite persistence (request logging, stats, node registry)
@@ -214,7 +217,7 @@ infraguard/
 |---|---|---|
 | Architecture | Single ~99KB file | Modular package |
 | Profile parsing | Regex state machine | Structured parser with full block/transform support |
-| C2 support | Cobalt Strike only | Cobalt Strike + Mythic |
+| C2 support | Cobalt Strike only | Cobalt Strike, Mythic, Brute Ratel C4, Sliver |
 | Protocols | HTTP only | HTTP, DNS, MQTT, WebSocket |
 | Filter model | Binary pass/fail | Scoring-based (0.0-1.0 threshold) |
 | Operator UI | None | Web dashboard + Terminal UI |
@@ -239,6 +242,11 @@ infraguard/
 - curi0usJack - [.htaccess rules](https://gist.github.com/curi0usJack/971385e8334e189d93a6cb4671238b10)
 - Profiles
   - threatexpress - [jquery-c2.3.14.profile](https://github.com/threatexpress/malleable-c2/blob/master/jquery-c2.3.14.profile)
+- C2 Frameworks
+  - [Cobalt Strike](https://www.cobaltstrike.com/) - Malleable C2 profile support
+  - [Mythic](https://github.com/its-a-feature/Mythic) - HTTPX profile support
+  - [Brute Ratel C4](https://bruteratel.com/) - Server config profile support
+  - [Sliver](https://github.com/BishopFox/sliver) - HTTP C2 profile support
 
 ## License
 
