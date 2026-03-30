@@ -6,6 +6,7 @@ InfraGuard sits between the internet and your C2 teamserver, validating every in
 
 ![Mythic Callbacks Xenon](/images/xenon_callback.png)
 ![InfraGuard Dashboard](/images/infraguard_dashboard.png)
+![alt text](image.png)
 
 ## Architecture
 
