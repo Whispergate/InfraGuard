@@ -38,12 +38,15 @@ class IntelManager:
         self.blocklist = CIDRList(name="blocklist")
         if config.auto_block_scanners:
             self.blocklist.add_many(SECURITY_VENDOR_CIDRS)
-        if config.banned_ip_file:
+        if config.banned_ip_file and not config.banned_ip_file.startswith("${"):
             from pathlib import Path
             if Path(config.banned_ip_file).exists():
                 self.blocklist.load_file(config.banned_ip_file)
             else:
-                log.info("banned_ip_file_not_found", path=config.banned_ip_file, hint="Run: infraguard ingest rules/.htaccess --format blocklist -o rules/banned_ips.txt")
+                log.info("banned_ip_file_not_found", path=config.banned_ip_file)
+
+        # Auto-ingest .htaccess and robots.txt from rules directory
+        self._auto_ingest_rules(config)
 
         # Whitelist (operator-defined, per-domain whitelists are separate)
         self.whitelist = CIDRList(name="whitelist")
@@ -76,6 +79,41 @@ class IntelManager:
             blocklist_size=self.blocklist.size,
             blocked_countries=len(config.blocked_countries),
         )
+
+    def _auto_ingest_rules(self, config: IntelConfig) -> None:
+        """Scan the rules directory for .htaccess and robots.txt files and ingest them."""
+        from pathlib import Path
+
+        rules_dir = config.rules_dir
+        if not rules_dir or rules_dir.startswith("${"):
+            return
+
+        rules_path = Path(rules_dir)
+        if not rules_path.is_dir():
+            return
+
+        # Find all ingestable files
+        rule_files: list[Path] = []
+        for pattern in ("*.htaccess", ".htaccess", "htaccess", "robots.txt", "*.txt"):
+            rule_files.extend(rules_path.glob(pattern))
+        # Deduplicate
+        rule_files = list(set(rule_files))
+
+        if not rule_files:
+            return
+
+        from infraguard.intel.rule_ingest import ingest_files
+
+        result = ingest_files([str(f) for f in rule_files])
+        if result.blocked_ips:
+            self.blocklist.add_many(result.blocked_ips)
+            log.info(
+                "rules_auto_ingested",
+                files=len(rule_files),
+                blocked_ips=len(result.blocked_ips),
+                blocked_user_agents=len(result.blocked_user_agents),
+                source_files=[f.name for f in rule_files],
+            )
 
     def _enrich_whitelists(self) -> None:
         """Enrich all whitelisted CIDRs with GeoIP/ASN metadata on startup."""
@@ -171,7 +209,7 @@ class IntelManager:
             result.reason = f"Blocked country: {geo.country_code}"
             return result
 
-        # ASN checks: same logic — allowed_asns whitelist, blocked_asns blocklist
+        # ASN checks: same logic - allowed_asns whitelist, blocked_asns blocklist
         if self.config.allowed_asns and geo.asn:
             if geo.asn not in self.config.allowed_asns:
                 result.is_blocked = True

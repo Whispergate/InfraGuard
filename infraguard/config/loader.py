@@ -42,17 +42,36 @@ def _load_dotenv(*search_paths: Path) -> None:
 _ENV_VAR_PATTERN = re.compile(r"\$\{([^}]+)\}")
 
 
+_UNSET = object()  # sentinel for unresolved env vars
+
+
 def _resolve_env_vars(obj: object) -> object:
-    """Recursively resolve ${ENV_VAR} references in config values."""
+    """Recursively resolve ${ENV_VAR} references in config values.
+
+    If a value is entirely a single ``${VAR}`` that isn't set in the
+    environment, it is removed from the dict so Pydantic uses the
+    field's default value.
+    """
     if isinstance(obj, str):
+        is_sole_var = _ENV_VAR_PATTERN.fullmatch(obj)
         def _replacer(match: re.Match[str]) -> str:
             var_name = match.group(1)
-            return os.environ.get(var_name, match.group(0))
-        return _ENV_VAR_PATTERN.sub(_replacer, obj)
+            return os.environ.get(var_name, "")
+        resolved = _ENV_VAR_PATTERN.sub(_replacer, obj)
+        if is_sole_var and not resolved:
+            return _UNSET
+        return resolved
     elif isinstance(obj, dict):
-        return {_resolve_env_vars(k): _resolve_env_vars(v) for k, v in obj.items()}
+        result = {}
+        for k, v in obj.items():
+            rk = _resolve_env_vars(k)
+            rv = _resolve_env_vars(v)
+            # Drop keys whose values were unresolved env vars
+            if rv is not _UNSET and rk is not _UNSET:
+                result[rk] = rv
+        return result
     elif isinstance(obj, list):
-        return [_resolve_env_vars(item) for item in obj]
+        return [_resolve_env_vars(item) for item in obj if _resolve_env_vars(item) is not _UNSET]
     return obj
 
 

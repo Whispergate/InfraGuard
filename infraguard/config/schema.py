@@ -96,6 +96,7 @@ class IntelConfig(BaseModel):
     dynamic_whitelist_threshold: int = DEFAULT_DYNAMIC_WHITELIST_THRESHOLD
     banned_ip_file: str | None = None
     banned_words_file: str | None = None
+    rules_dir: str | None = None  # auto-ingest .htaccess / robots.txt on startup
     feeds: FeedConfig = Field(default_factory=FeedConfig)
 
 

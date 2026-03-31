@@ -181,15 +181,19 @@ intel:
   geoip_country_db: "${INFRAGUARD_GEOIP_COUNTRY_DB}"  # GeoLite2-Country.mmdb
 
   blocked_countries: []                  # e.g. ["CN", "RU", "KP", "IR"]
-  allowed_countries: []                  # e.g. ["US", "GB", "DE"] — if set, ONLY these pass
+  allowed_countries: []                  # e.g. ["US", "GB", "DE"] - if set, ONLY these pass
   blocked_asns: []                       # e.g. [14061, 16276] for DigitalOcean, OVH
-  allowed_asns: []                       # e.g. [15169, 13335] for Google, Cloudflare — if set, ONLY these pass
+  allowed_asns: []                       # e.g. [15169, 13335] for Google, Cloudflare - if set, ONLY these pass
   auto_block_scanners: true              # block Shodan, Censys, Rapid7, etc.
   dynamic_whitelist_threshold: 3         # auto-whitelist after N valid C2 requests
 
   # Ingested blocklist from rules/ directory
   # Generate with: infraguard ingest rules/.htaccess --format blocklist -o rules/banned_ips.txt
   banned_ip_file: "${INFRAGUARD_BANNED_IP_FILE}"
+
+  # Auto-ingest .htaccess and robots.txt from this directory on startup.
+  # Drop rule files into the rules/ directory and they'll be loaded automatically.
+  rules_dir: "${INFRAGUARD_RULES_DIR}"
 
   # Threat intel feed auto-update
   feeds:

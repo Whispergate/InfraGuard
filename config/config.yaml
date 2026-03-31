@@ -88,6 +88,7 @@ intel:
   geoip_asn_db: "${INFRAGUARD_GEOIP_ASN_DB}"
   geoip_country_db: "${INFRAGUARD_GEOIP_COUNTRY_DB}"
   banned_ip_file: "${INFRAGUARD_BANNED_IP_FILE}"
+  rules_dir: "${INFRAGUARD_RULES_DIR}"    # auto-ingest .htaccess / robots.txt on startup
   feeds:
     enabled: true
 
