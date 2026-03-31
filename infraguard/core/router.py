@@ -7,15 +7,18 @@ content delivery routes.
 
 from __future__ import annotations
 
+import asyncio
 import time
 from ipaddress import IPv4Address, IPv6Address, ip_address
 from pathlib import Path
 
+import httpx
 import structlog
 from starlette.requests import Request
 from starlette.responses import Response
 
 from infraguard.config.schema import DomainConfig, InfraGuardConfig, PipelineConfig
+from infraguard.core.circuit_breaker import CircuitBreaker, CircuitOpenError
 from infraguard.core.content import ContentBackend, RouteMatch, create_backend
 from infraguard.core.content_router import ContentRouteResolver
 from infraguard.core.drop import handle_drop
@@ -71,9 +74,11 @@ class DomainRouter:
         self.config = config
         self.proxy = ProxyHandler()
         self.routes: dict[str, DomainRoute] = {}
+        self._routes_lock = asyncio.Lock()
         self._extra_filters = extra_filters or []
         self._recorder = recorder
         self._content_backends: list[ContentBackend] = []
+        self._breakers: dict[str, CircuitBreaker] = {}
 
         # Initialize shared intel manager
         self.intel = IntelManager(config.intel)
@@ -134,6 +139,14 @@ class DomainRouter:
         filters = self._build_filters()
         fp_filters = self._build_fingerprint_filters()
 
+        # RESL-03: Validate all profile paths before loading any routes
+        for domain_name, domain_config in self.config.domains.items():
+            profile_path = Path(domain_config.profile_path)
+            if not profile_path.exists():
+                raise FileNotFoundError(
+                    f"C2 profile not found for domain '{domain_name}': {profile_path.resolve()}"
+                )
+
         for domain_name, domain_config in self.config.domains.items():
             profile = self._load_profile(domain_config)
             pipeline = FilterPipeline(filters, self.config.pipeline)
@@ -171,6 +184,15 @@ class DomainRouter:
             )
             self.routes[domain_name] = route
 
+            # RESL-01: Create a circuit breaker per unique upstream URL
+            upstream = domain_config.upstream
+            if upstream not in self._breakers:
+                self._breakers[upstream] = CircuitBreaker(
+                    upstream=upstream,
+                    failure_threshold=domain_config.circuit_breaker_threshold,
+                    recovery_timeout=domain_config.circuit_breaker_cooldown,
+                )
+
             content_count = len(domain_config.content_routes)
             log.info(
                 "domain_loaded",
@@ -197,6 +219,98 @@ class DomainRouter:
             return parse_havoc_file(path)
         else:
             return parse_mythic_file(path)
+
+    async def reload(self, new_config: InfraGuardConfig) -> None:
+        """Hot-reload domains, profiles, and blocklists atomically.
+
+        Reloadable: domains, pipeline, intel.feeds, decoy_pages_dir.
+        Restart-required: listeners, tracking.db_path, api.bind/port.
+        """
+        # Validate all profile paths in new config first (RESL-03)
+        for domain_name, domain_config in new_config.domains.items():
+            profile_path = Path(domain_config.profile_path)
+            if not profile_path.exists():
+                raise FileNotFoundError(
+                    f"C2 profile not found for domain '{domain_name}': {profile_path.resolve()}"
+                )
+
+        # Save old state for rollback
+        old_config = self.config
+        old_breakers = self._breakers
+
+        self.config = new_config
+        try:
+            filters = self._build_filters()
+            fp_filters = self._build_fingerprint_filters()
+            new_routes: dict[str, DomainRoute] = {}
+            for domain_name, domain_config in new_config.domains.items():
+                profile = self._load_profile(domain_config)
+                pipeline = FilterPipeline(filters, new_config.pipeline)
+
+                content_routes = list(domain_config.content_routes)
+                if domain_config.drop_action.type.value == "decoy" and domain_config.drop_action.target:
+                    from infraguard.config.schema import ContentBackendConfig, ContentRouteConfig
+                    from infraguard.models.common import ContentBackendType
+                    decoy_site = domain_config.drop_action.target
+                    decoy_path = str(Path(new_config.decoy_pages_dir) / decoy_site)
+                    content_routes.append(ContentRouteConfig(
+                        path="/*",
+                        backend=ContentBackendConfig(
+                            type=ContentBackendType.FILESYSTEM,
+                            target=decoy_path,
+                        ),
+                        track=False,
+                    ))
+
+                content_resolver = None
+                fp_pipeline = None
+                if content_routes:
+                    content_resolver = ContentRouteResolver(content_routes)
+                    fp_pipeline = FilterPipeline(fp_filters, new_config.pipeline)
+
+                new_routes[domain_name] = DomainRoute(
+                    domain=domain_name,
+                    config=domain_config,
+                    profile=profile,
+                    pipeline=pipeline,
+                    content_resolver=content_resolver,
+                    fingerprint_pipeline=fp_pipeline,
+                )
+
+            # Build new circuit breakers, preserving state for unchanged upstreams
+            new_breakers: dict[str, CircuitBreaker] = {}
+            for domain_name, domain_config in new_config.domains.items():
+                upstream = domain_config.upstream
+                if upstream not in new_breakers:
+                    if upstream in old_breakers:
+                        # Preserve existing breaker state if upstream unchanged
+                        new_breakers[upstream] = old_breakers[upstream]
+                    else:
+                        new_breakers[upstream] = CircuitBreaker(
+                            upstream=upstream,
+                            failure_threshold=domain_config.circuit_breaker_threshold,
+                            recovery_timeout=domain_config.circuit_breaker_cooldown,
+                        )
+        except Exception:
+            # Restore old config on build failure
+            self.config = old_config
+            raise
+
+        # Atomic swap under lock
+        async with self._routes_lock:
+            self.routes = new_routes
+            self._breakers = new_breakers
+
+        # Update intel/whitelists for new config
+        self._domain_whitelists.clear()
+        for domain_name, domain_config in new_config.domains.items():
+            if domain_config.whitelist_cidrs:
+                wl = CIDRList(name=f"whitelist:{domain_name}")
+                wl.add_many(domain_config.whitelist_cidrs)
+                self.intel.enrich_cidr_list(wl)
+                self._domain_whitelists[domain_name] = wl
+
+        log.info("routes_swapped", domains=list(new_routes.keys()))
 
     def resolve(self, request: Request) -> DomainRoute | None:
         """Find the DomainRoute for a request based on Host header."""
@@ -313,10 +427,48 @@ class DomainRouter:
                 path=request.url.path,
                 score=round(result.total_score, 2),
             )
-            response = await self.proxy.forward(request, route.config.upstream)
-            filter_result_str = "allow"
-            filter_reason = None
-            status_code = response.status_code
+            try:
+                breaker = self._breakers.get(route.config.upstream)
+                if breaker:
+                    response = await breaker.call(
+                        self.proxy.forward,
+                        request,
+                        route.config.upstream,
+                        domain_config=route.config,
+                        reraise_transport_errors=True,
+                    )
+                else:
+                    response = await self.proxy.forward(
+                        request, route.config.upstream, domain_config=route.config,
+                    )
+                filter_result_str = "allow"
+                filter_reason = None
+                status_code = response.status_code
+            except CircuitOpenError:
+                log.warning(
+                    "circuit_open_drop",
+                    domain=route.domain,
+                    upstream=route.config.upstream,
+                )
+                response = await handle_drop(
+                    request,
+                    route.config.drop_action,
+                    reason="circuit_open",
+                    pages_dir=self.config.decoy_pages_dir,
+                )
+                filter_result_str = "block"
+                filter_reason = "circuit_open"
+                status_code = response.status_code
+            except (httpx.TimeoutException, httpx.ConnectError):
+                response = await handle_drop(
+                    request,
+                    route.config.drop_action,
+                    reason="upstream_error",
+                    pages_dir=self.config.decoy_pages_dir,
+                )
+                filter_result_str = "block"
+                filter_reason = "upstream_error"
+                status_code = response.status_code
         else:
             log.warning(
                 "request_dropped",

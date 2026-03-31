@@ -1,0 +1,16 @@
+# Terraform state (contains plaintext secrets - see RESEARCH.md Pitfall 1)
+*.tfstate
+*.tfstate.backup
+*.tfstate.age
+
+# Terraform working directory
+.terraform/
+.terraform.lock.hcl
+
+# tfvars files may contain secrets (API tokens, SSH keys)
+*.tfvars.json
+*.auto.tfvars
+
+# Crash logs
+crash.log
+crash.*.log

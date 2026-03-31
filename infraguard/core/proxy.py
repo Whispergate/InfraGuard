@@ -28,8 +28,16 @@ class ProxyHandler:
         *,
         timeout: float | None = None,
         domain_config: DomainConfig | None = None,
+        reraise_transport_errors: bool = False,
     ) -> Response:
-        """Proxy a request to the upstream and return the response."""
+        """Proxy a request to the upstream and return the response.
+
+        Args:
+            reraise_transport_errors: When ``True``, ``httpx.TimeoutException``
+                and ``httpx.ConnectError`` are re-raised instead of being
+                converted to 504/502 responses.  Set by the circuit breaker so
+                it can observe and record failures.
+        """
         client = self._get_client(upstream, domain_config)
         timeout = timeout or self.default_timeout
 
@@ -54,9 +62,13 @@ class ProxyHandler:
             )
         except httpx.TimeoutException:
             log.warning("upstream_timeout", upstream=upstream, path=request.url.path)
+            if reraise_transport_errors:
+                raise
             return Response(status_code=504, content=b"Gateway Timeout")
         except httpx.ConnectError:
             log.warning("upstream_connect_error", upstream=upstream)
+            if reraise_transport_errors:
+                raise
             return Response(status_code=502, content=b"Bad Gateway")
         except httpx.RequestError as e:
             log.exception("upstream_error", upstream=upstream, path=request.url.path, error_type=type(e).__name__)

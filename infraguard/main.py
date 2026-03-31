@@ -183,7 +183,12 @@ def profile_convert(
 # ── Config commands ───────────────────────────────────────────────────
 
 
-@cli.command("init")
+@cli.group("config")
+def config_group() -> None:
+    """Configuration management commands."""
+
+
+@config_group.command("init")
 @click.option(
     "-o",
     "--output",
@@ -200,6 +205,68 @@ def init_config(output: Path) -> None:
 
     output.write_text(generate_default_config(), encoding="utf-8")
     click.echo(f"Config written to {output}")
+
+
+@config_group.command("generate")
+@click.option("--domain", required=True, help="Primary domain for the redirector.")
+@click.option(
+    "--c2-profile",
+    required=True,
+    type=click.Path(exists=True, path_type=Path),
+    help="Path to C2 profile file.",
+)
+@click.option(
+    "--upstream",
+    required=True,
+    help="C2 teamserver URL (e.g. https://10.0.0.5:8443).",
+)
+@click.option(
+    "--profile-type",
+    type=click.Choice(["auto", "cobalt_strike", "mythic", "brute_ratel", "sliver", "havoc"]),
+    default="auto",
+    help="Profile type (auto-detected by default).",
+)
+@click.option(
+    "--drop-target",
+    default="https://www.google.com",
+    help="Redirect URL for blocked traffic.",
+)
+@click.option(
+    "-o",
+    "--output",
+    type=click.Path(path_type=Path),
+    default=Path("./infraguard-deploy"),
+    help="Output directory for deployment bundle.",
+)
+def config_generate(
+    domain: str,
+    c2_profile: Path,
+    upstream: str,
+    profile_type: str,
+    drop_target: str,
+    output: Path,
+) -> None:
+    """Generate a deployment-ready config bundle from minimal inputs."""
+    from infraguard.deploy.config_gen import generate_config, write_bundle
+
+    # Use container-relative path for the profile in the generated config
+    container_profile_path = f"/config/profiles/{c2_profile.name}"
+
+    cfg = generate_config(
+        domain=domain,
+        c2_profile_path=container_profile_path,
+        upstream=upstream,
+        profile_type=profile_type,
+        drop_target=drop_target,
+    )
+    write_bundle(cfg, output, profile_source=c2_profile)
+
+    click.echo(f"Deployment bundle written to {output}/")
+    click.echo(f"  config.yaml        - InfraGuard configuration")
+    click.echo(f"  .env               - Environment variables (edit before deploy)")
+    click.echo(f"  docker-compose.yml - Docker Compose deployment")
+    click.echo(f"  profiles/          - C2 profile files")
+    click.echo(f"\nNext: edit .env, then run 'docker-compose up -d' in {output}/")
 
 
 @cli.command("validate")
@@ -614,28 +681,12 @@ def _load_profile_file(file: Path, profile_type: str, name: str | None = None):
     from infraguard.profiles.sliver import parse_sliver_file
 
     if profile_type == "auto":
-        if file.suffix == ".profile":
-            profile_type = "cobalt_strike"
-        elif file.suffix == ".toml":
-            profile_type = "havoc"
-        elif file.suffix == ".json":
-            import json
-            try:
-                data = json.loads(file.read_text(encoding="utf-8"))
-                if "listeners" in data and "c2_handler" in data:
-                    profile_type = "brute_ratel"
-                elif "implant_config" in data and "server_config" in data:
-                    profile_type = "sliver"
-                else:
-                    profile_type = "mythic"
-            except Exception:
-                profile_type = "mythic"
-        else:
-            click.echo(
-                f"Cannot auto-detect profile type for '{file.suffix}'. "
-                "Use --type to specify.",
-                err=True,
-            )
+        from infraguard.deploy.profile_detect import detect_profile_type
+
+        try:
+            profile_type = detect_profile_type(file).value
+        except ValueError as exc:
+            click.echo(str(exc), err=True)
             sys.exit(1)
 
     if profile_type == "cobalt_strike":
@@ -696,6 +747,10 @@ def _print_profile_summary(p: "C2Profile") -> None:  # noqa: F821
                 click.echo(f"      {k}: {v}")
         if txn.server.transforms:
             click.echo(f"    Server Transforms ({len(txn.server.transforms)} steps)")
+
+
+from infraguard.deploy.cli import deploy_group
+cli.add_command(deploy_group)
 
 
 if __name__ == "__main__":

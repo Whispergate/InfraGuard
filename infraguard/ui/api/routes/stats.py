@@ -5,6 +5,7 @@ from __future__ import annotations
 from starlette.requests import Request
 from starlette.responses import JSONResponse
 
+from infraguard.intel.feeds import get_feed_status
 from infraguard.tracking.stats import StatsQuery
 
 
@@ -41,4 +42,5 @@ async def get_stats(request: Request) -> JSONResponse:
         "top_blocked_ips": [
             {"ip": ip, "count": count} for ip, count in stats.top_blocked_ips
         ],
+        "feed_status": get_feed_status(),
     })

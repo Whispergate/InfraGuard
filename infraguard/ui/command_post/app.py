@@ -7,6 +7,7 @@ import hmac
 import json
 from contextlib import asynccontextmanager
 from pathlib import Path
+from types import SimpleNamespace
 
 import structlog
 from starlette.applications import Starlette
@@ -16,6 +17,7 @@ from starlette.responses import FileResponse, JSONResponse, Response
 from starlette.routing import Route, WebSocketRoute
 from starlette.websockets import WebSocket, WebSocketDisconnect
 
+from infraguard.tracking.database import Database
 from infraguard.ui.api.auth import (
     SESSION_COOKIE,
     check_auth,
@@ -41,7 +43,7 @@ class AuthMiddleware(BaseHTTPMiddleware):
         # Note: BaseHTTPMiddleware does not intercept WebSocket routes;
         # WS auth is handled in the ws_events handler directly.
         token = request.app.state.auth_token
-        error = check_auth(request, token)
+        error = await check_auth(request, token)
         if error:
             return error
         return await call_next(request)
@@ -50,6 +52,7 @@ class AuthMiddleware(BaseHTTPMiddleware):
 def create_command_post_app(config: CommandPostConfig) -> Starlette:
     """Create the Command Post aggregation API."""
     aggregator = MultiInstanceAggregator(config.instances)
+    db = Database(db_path=":memory:")
 
     static_dir = Path(__file__).parent / "static"
     index_html = static_dir / "index.html"
@@ -103,7 +106,7 @@ def create_command_post_app(config: CommandPostConfig) -> Starlette:
             token = ws.query_params.get("token", "")
             session_id = ws.cookies.get(SESSION_COOKIE, "")
             token_ok = token and hmac.compare_digest(token, auth_token)
-            session_ok = session_id and validate_session(session_id, auth_token)
+            session_ok = session_id and await validate_session(db, session_id, auth_token)
             if not token_ok and not session_ok:
                 await ws.close(code=4003)
                 return
@@ -142,10 +145,12 @@ def create_command_post_app(config: CommandPostConfig) -> Starlette:
 
     @asynccontextmanager
     async def lifespan(app: Starlette):
+        await db.connect()
         instance_names = [c.name for c in aggregator.clients]
         log.info("command_post_started", instances=instance_names)
         yield
         await aggregator.close()
+        await db.close()
 
     # ── App ───────────────────────────────────────────────────────
 
@@ -170,10 +175,12 @@ def create_command_post_app(config: CommandPostConfig) -> Starlette:
 
     app.add_middleware(AuthMiddleware)
 
-    # Store auth token and config on app state for the auth handlers
+    # Store auth token, db, and config on app state for the auth handlers
     app.state.auth_token = config.auth_token
-    # The login_handler reads from app.state.config.api.auth_token - create a shim
-    from types import SimpleNamespace
-    app.state.config = SimpleNamespace(api=SimpleNamespace(auth_token=config.auth_token))
+    app.state.db = db
+    # The login_handler reads from app.state.config.api.auth_token and session_ttl
+    app.state.config = SimpleNamespace(
+        api=SimpleNamespace(auth_token=config.auth_token, session_ttl=86400)
+    )
 
     return app

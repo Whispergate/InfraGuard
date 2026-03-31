@@ -86,6 +86,8 @@ class DomainConfig(BaseModel):
     ssl_ca_bundle: str | None = None
     extra_allowed_headers: list[str] = Field(default_factory=list)
     content_route_filter: str = "ip_only"  # "ip_only" | "full_pipeline"
+    circuit_breaker_threshold: int = 5  # consecutive failures before OPEN
+    circuit_breaker_cooldown: float = 30.0  # seconds before HALF_OPEN probe
 
 
 class ListenerConfig(BaseModel):
@@ -102,6 +104,8 @@ class FeedConfig(BaseModel):
     refresh_interval_hours: int = 6
     cache_dir: str = ".infraguard/feeds"
     enabled: bool = True
+    require_feeds: bool = False  # if True, startup fails when no feeds fetchable
+    staleness_threshold_hours: int = 24
 
 
 class IntelConfig(BaseModel):
@@ -130,6 +134,7 @@ class APIConfig(BaseModel):
     port: int = DEFAULT_API_PORT
     auth_token: str | None = None
     health_path: str = "/health"
+    session_ttl: int = 86400  # seconds, default 24h
 
 
 class PipelineConfig(BaseModel):
