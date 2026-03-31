@@ -158,12 +158,26 @@ class IntelManager:
         geo = self.geoip.lookup(ip_str)
         result.geo = geo
 
-        if geo.country_code and geo.country_code in self.config.blocked_countries:
+        # Country checks: allowed_countries is a whitelist (only these pass);
+        # blocked_countries is a blocklist (these are denied).
+        # If both are set, allowed takes precedence.
+        if self.config.allowed_countries and geo.country_code:
+            if geo.country_code not in self.config.allowed_countries:
+                result.is_blocked = True
+                result.reason = f"Country {geo.country_code} not in allowed list"
+                return result
+        elif geo.country_code and geo.country_code in self.config.blocked_countries:
             result.is_blocked = True
             result.reason = f"Blocked country: {geo.country_code}"
             return result
 
-        if geo.asn and geo.asn in self.config.blocked_asns:
+        # ASN checks: same logic — allowed_asns whitelist, blocked_asns blocklist
+        if self.config.allowed_asns and geo.asn:
+            if geo.asn not in self.config.allowed_asns:
+                result.is_blocked = True
+                result.reason = f"ASN {geo.asn} not in allowed list"
+                return result
+        elif geo.asn and geo.asn in self.config.blocked_asns:
             result.is_blocked = True
             result.reason = f"Blocked ASN: {geo.asn}"
             return result

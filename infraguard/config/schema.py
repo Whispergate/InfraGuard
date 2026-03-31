@@ -89,7 +89,9 @@ class IntelConfig(BaseModel):
     geoip_asn_db: str | None = None
     geoip_country_db: str | None = None
     blocked_countries: list[str] = Field(default_factory=list)
+    allowed_countries: list[str] = Field(default_factory=list)
     blocked_asns: list[int] = Field(default_factory=list)
+    allowed_asns: list[int] = Field(default_factory=list)
     auto_block_scanners: bool = True
     dynamic_whitelist_threshold: int = DEFAULT_DYNAMIC_WHITELIST_THRESHOLD
     banned_ip_file: str | None = None
