@@ -332,6 +332,8 @@ infraguard/
   - [Sliver](https://github.com/BishopFox/sliver) - HTTP C2 profile support
   - [Havoc](https://www.infinitycurve.org/) - TOML profile support
 
+If you would like to contribute to the project, then please create a new branch with the version name and specify the same version name in the pull request. E.g. branch=v1.2.3 | [v1.2.3] Added blah item.
+
 ## License
 
 BSD 2-Clause License. See [LICENSE](LICENSE) for details.
