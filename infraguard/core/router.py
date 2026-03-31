@@ -84,6 +84,7 @@ class DomainRouter:
             if domain_config.whitelist_cidrs:
                 wl = CIDRList(name=f"whitelist:{domain_name}")
                 wl.add_many(domain_config.whitelist_cidrs)
+                self.intel.enrich_cidr_list(wl)
                 self._domain_whitelists[domain_name] = wl
 
         self._load_routes()
@@ -161,9 +162,19 @@ class DomainRouter:
 
     @staticmethod
     def _load_profile(config: DomainConfig) -> C2Profile:
+        from infraguard.profiles.brute_ratel import parse_brute_ratel_file
+        from infraguard.profiles.havoc import parse_havoc_file
+        from infraguard.profiles.sliver import parse_sliver_file
+
         path = Path(config.profile_path)
         if config.profile_type.value == "cobalt_strike":
             return parse_cobalt_strike_file(path)
+        elif config.profile_type.value == "brute_ratel":
+            return parse_brute_ratel_file(path)
+        elif config.profile_type.value == "sliver":
+            return parse_sliver_file(path)
+        elif config.profile_type.value == "havoc":
+            return parse_havoc_file(path)
         else:
             return parse_mythic_file(path)
 

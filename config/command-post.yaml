@@ -1,0 +1,24 @@
+# InfraGuard Command Post Configuration
+# Aggregates multiple InfraGuard instances into a single dashboard.
+#
+# Each instance needs a name, URL, and API token.
+# Environment variables (${VAR}) are resolved from .env automatically.
+
+instances:
+  # Local proxy (same Docker network)
+  - name: "proxy"
+    url: "https://infraguard-proxy:443"
+    token: "${INFRAGUARD_API_TOKEN}"
+
+  # Add more instances:
+  # - name: "prod-mythic"
+  #   url: "https://ig2.example.com:8080"
+  #   token: "${IG_PROD_MYTHIC_TOKEN}"
+  # - name: "staging"
+  #   url: "https://ig3.example.com:8080"
+  #   token: "${IG_STAGING_TOKEN}"
+
+# Command Post settings
+bind: "0.0.0.0"
+port: 9090
+auth_token: "${COMMAND_POST_TOKEN}"  # Optional: protect the command post itself

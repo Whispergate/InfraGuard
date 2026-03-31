@@ -18,7 +18,7 @@ services:
     command: ["run", "-c", "/app/config/config.yaml", "--port", "443"]
     healthcheck:
       test: ["CMD", "python3", "-c", "import urllib.request,ssl,os; p=os.environ.get('INFRAGUARD_HEALTH_PATH','health'); urllib.request.urlopen(f'https://127.0.0.1:443/{p}', context=ssl._create_unverified_context())"]
-      interval: 300s
+      interval: 30s
       timeout: 10s
       retries: 5
       start_period: 15s
@@ -144,6 +144,26 @@ services:
   #     - infraguard
   #   deploy:
   #     replicas: 2
+
+  # ── Command Post (multi-instance aggregator) ─────────────────────────
+  # Aggregates stats, requests, and live events from multiple InfraGuard
+  # instances into a single dashboard.
+  # Enable with: docker compose --profile command-post up -d command-post
+  # Access at: http://localhost:9090
+  command-post:
+    build: .
+    container_name: infraguard-command-post
+    profiles: ["command-post"]
+    restart: unless-stopped
+    env_file: .env
+    ports:
+      - "9090:9090"
+    volumes:
+      - ./config:/app/config:ro
+      - certs:/app/certs:ro
+    command: ["command-post", "-c", "/app/config/command-post.yaml", "--port", "9090"]
+    networks:
+      - infraguard
 
   # ── PwnDrop payload delivery (optional) ──────────────────────────────
   # Self-hosted file hosting for serving payloads via content routes.

@@ -21,7 +21,7 @@ domains:
   # Requests that don't match the malleable profile are redirected
   # to the real jQuery site so the redirector looks legitimate.
   cdn.example.com:
-    upstream: "https://10.0.0.5:8443"
+    upstream: "${INFRAGUARD_CS_UPSTREAM}"
     profile_path: "examples/jquery-c2.3.14.profile"
     profile_type: "cobalt_strike"
     whitelist_cidrs:
@@ -57,13 +57,29 @@ domains:
   # Uses the Mythic HTTPX JSON profile format. Non-matching requests
   # get proxied to a real site so the redirector returns valid HTML.
   static.example.net:
-    upstream: "https://10.0.0.6:443"
+    upstream: "${INFRAGUARD_MYTHIC_UPSTREAM}"
     profile_path: "examples/mythic-httpx.json"
     profile_type: "mythic"
     whitelist_cidrs: []         # empty = all IPs are allowed (no whitelist)
     drop_action:
       type: "proxy"            # serve real content from the target site
       target: "https://example.net"
+    content_routes:
+      - path: "/downloads/*"
+        backend:
+          type: "pwndrop"
+          target: "http://pwndrop:80"    # Docker internal URL
+          auth_token: "${PWNDROP_TOKEN}"
+        conditional:
+          score_threshold: 0.5           # bots/scanners get decoy instead
+          scanner_backend:
+            type: "http_proxy"
+            target: "https://jquery.com"
+        track: true
+      - path: "/assets/*"
+        backend:
+          type: "filesystem"
+          target: "/app/decoys"
 
 intel:
   auto_block_scanners: true
@@ -79,6 +95,7 @@ tracking:
   db_path: "${INFRAGUARD_DB_PATH}"
 
 pipeline:
+  filter_mode: "${INFRAGUARD_FILTER_MODE}"  # "scoring" or "hard"
   block_score_threshold: 0.7
 
 api:

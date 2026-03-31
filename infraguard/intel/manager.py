@@ -68,11 +68,41 @@ class IntelManager:
 
         self._feed_task: asyncio.Task | None = None
 
+        # Enrich whitelists with GeoIP/ASN data
+        self._enrich_whitelists()
+
         log.info(
             "intel_manager_ready",
             blocklist_size=self.blocklist.size,
             blocked_countries=len(config.blocked_countries),
         )
+
+    def _enrich_whitelists(self) -> None:
+        """Enrich all whitelisted CIDRs with GeoIP/ASN metadata on startup."""
+        enriched = self.whitelist.enrich(self.geoip)
+        for cidr, info in self.whitelist.metadata.items():
+            if info.get("asn") or info.get("country_code"):
+                log.info(
+                    "whitelist_enriched",
+                    cidr=cidr,
+                    asn=info.get("asn"),
+                    org=info.get("org"),
+                    country=info.get("country_code"),
+                )
+
+    def enrich_cidr_list(self, cidr_list: CIDRList) -> None:
+        """Enrich an external CIDRList (e.g., domain whitelists) with GeoIP data."""
+        enriched = cidr_list.enrich(self.geoip)
+        for cidr, info in cidr_list.metadata.items():
+            if info.get("asn") or info.get("country_code"):
+                log.info(
+                    "whitelist_enriched",
+                    list=cidr_list.name,
+                    cidr=cidr,
+                    asn=info.get("asn"),
+                    org=info.get("org"),
+                    country=info.get("country_code"),
+                )
 
     def start_feed_refresh(self) -> None:
         """Start the background feed refresh task."""
@@ -104,11 +134,18 @@ class IntelManager:
         # Check dynamic whitelist first
         if self.dynamic_whitelist.is_whitelisted(ip_str):
             result.is_whitelisted = True
+            result.geo = self.geoip.lookup(ip_str)
             return result
 
         # Check static whitelist
         if self.whitelist.contains(ip):
             result.is_whitelisted = True
+            # Use pre-enriched metadata if available
+            meta = self.whitelist.get_metadata_for_ip(ip)
+            if meta:
+                result.geo = GeoInfo(**{k: v for k, v in meta.items() if k in GeoInfo.__dataclass_fields__})
+            else:
+                result.geo = self.geoip.lookup(ip_str)
             return result
 
         # Check blocklist
@@ -121,12 +158,26 @@ class IntelManager:
         geo = self.geoip.lookup(ip_str)
         result.geo = geo
 
-        if geo.country_code and geo.country_code in self.config.blocked_countries:
+        # Country checks: allowed_countries is a whitelist (only these pass);
+        # blocked_countries is a blocklist (these are denied).
+        # If both are set, allowed takes precedence.
+        if self.config.allowed_countries and geo.country_code:
+            if geo.country_code not in self.config.allowed_countries:
+                result.is_blocked = True
+                result.reason = f"Country {geo.country_code} not in allowed list"
+                return result
+        elif geo.country_code and geo.country_code in self.config.blocked_countries:
             result.is_blocked = True
             result.reason = f"Blocked country: {geo.country_code}"
             return result
 
-        if geo.asn and geo.asn in self.config.blocked_asns:
+        # ASN checks: same logic — allowed_asns whitelist, blocked_asns blocklist
+        if self.config.allowed_asns and geo.asn:
+            if geo.asn not in self.config.allowed_asns:
+                result.is_blocked = True
+                result.reason = f"ASN {geo.asn} not in allowed list"
+                return result
+        elif geo.asn and geo.asn in self.config.blocked_asns:
             result.is_blocked = True
             result.reason = f"Blocked ASN: {geo.asn}"
             return result

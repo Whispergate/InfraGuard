@@ -27,7 +27,7 @@ from infraguard.ui.api.auth import (
 )
 from infraguard.ui.api.routes.config import get_config, get_domains
 from infraguard.ui.api.routes.decoys import get_decoy_file, list_decoys, update_decoy_file
-from infraguard.ui.api.routes.intel import add_blocklist, classify_ip
+from infraguard.ui.api.routes.intel import add_blocklist, add_whitelist, classify_ip, remove_blocklist
 from infraguard.ui.api.routes.nodes import heartbeat_node, list_nodes, register_node
 from infraguard.ui.api.routes.requests import get_requests
 from infraguard.ui.api.routes.stats import get_content_stats, get_stats
@@ -50,9 +50,8 @@ class AuthMiddleware(BaseHTTPMiddleware):
         for prefix in _PUBLIC_PREFIXES:
             if path.startswith(prefix):
                 return await call_next(request)
-        # WebSocket auth is handled in the handler itself (via query param)
-        if path == "/ws/events":
-            return await call_next(request)
+        # Note: BaseHTTPMiddleware does not intercept WebSocket routes;
+        # WS auth is handled in the websocket.py handler directly.
 
         token = request.app.state.config.api.auth_token
         error = check_auth(request, token)
@@ -135,6 +134,8 @@ def create_api_app(
         Route("/api/nodes/{node_id}/heartbeat", heartbeat_node, methods=["POST"]),
         Route("/api/intel/classify", classify_ip, methods=["POST"]),
         Route("/api/intel/blocklist", add_blocklist, methods=["POST"]),
+        Route("/api/intel/blocklist", remove_blocklist, methods=["DELETE"]),
+        Route("/api/intel/whitelist", add_whitelist, methods=["POST"]),
         Route("/api/config", get_config, methods=["GET"]),
         Route("/api/config/domains", get_domains, methods=["GET"]),
         Route("/api/decoys", list_decoys, methods=["GET"]),

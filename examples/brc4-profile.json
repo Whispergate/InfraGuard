@@ -1,0 +1,83 @@
+{
+  "listeners": {
+    "listener-1": {
+      "append": "",
+      "append_response": "",
+      "auth_count": 1,
+      "auth_type": false,
+      "c2_authkeys": [
+        "5tR0nGgWq3Yh6Zp"
+      ],
+      "c2_uri": [
+        "",
+        "rd/uedata",
+        "consumables/cpi/HAUL/widget"
+      ],
+      "die_offline": true,
+      "empty_response": "{}",
+      "request_headers": {
+        "Host": "www.amazon.co.uk",
+        "Cookie": "aws-waf-token=3a975adf-91fa-490b-8d07-0c33ffc0f91a:BQoAdDlzOX8dAAAA:nDFBEteUdne33FRDZjk7teq/C8tkwqBm9dG4upVLVTmP4xeadixAyzA7HymGQaxaBqGwXXuDxT5SZ1sGUYvuDMHcHxtf0VvxxyiA5IdQfrPiTtd+iyz517VbOuVraGnhYsWqjPCU6KFQw9r5r1lKfh1Ms7ciCrr/mClWh70gNhIY5dZI4TupeEzrNCj7HwZ8DCKG; csm-sid=808-2157311-7927744; x-amz-captcha-1=1774895855089753; x-amz-captcha-2=wLSLDs7SQzf38UyoUxKFJw==; session-id=521-1623460-2452048; session-id-time=2082787201l; i18n-prefs=GBP; lc-acbuk=en_GB; sp-cdn=\"L5Z9:OM\"; ubid-acbuk=258-9032500-4910128; session-token=\"WayIVYi0m/PyY5zvy5JQ7OuCJjF/z9gCSp5gbZibpupGQU+GwsEe8fbOIoUEAyFm7dngk26kq2PkGqJ3uCuimUqelLalWXyOH+vQKtIVM/ROqKHXf+NuFfkB36JMPSfZelqPHF3GyaIaUvzXqJjqwQ/Et4JyUhhqo8i7TqFotO8QGBCqp4Vgfj7G49QetK5NnQIGkwTBQQAXHXhozSRQTc/kx1rxLcM1i93R2a36AOQ=\"; rxc=AFJAzR1kdpaY3m07qZA; csm-hit=tb:s-TNBTGDT9HCQJDSM3F5AC|1774888702690&t:1774888703493&adb:adblk_no",
+        "Sec-Ch-Ua-Full-Version-List": "",
+        "Sec-Ch-Ua-Platform": "\"Linux\"",
+        "Viewport-Width": "1688",
+        "Device-Memory": "4",
+        "Sec-Ch-Ua": "\"Chromium\";v=\"145\", \"Not:A-Brand\";v=\"99\"",
+        "Sec-Ch-Dpr": "1",
+        "Sec-Ch-Ua-Mobile": "?0",
+        "Sec-Ch-Viewport-Width": "1688",
+        "Downlink": "10",
+        "Cache-Control": "max-age=0",
+        "Ect": "4g",
+        "Accept-Language": "en-US,en;q=0.9",
+        "Sec-Ch-Device-Memory": "4",
+        "Dpr": "1",
+        "User-Agent": "Mozilla/5.0 (X11; Linux x86_64) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/145.0.0.0 Safari/537.36",
+        "Rtt": "0",
+        "Sec-Ch-Ua-Platform-Version": "\"\"",
+        "Accept": "*/*",
+        "Sec-Fetch-Site": "same-origin",
+        "Sec-Fetch-Mode": "no-cors",
+        "Sec-Fetch-Dest": "empty",
+        "Referer": "https://www.amazon.co.uk/DispenserCotton-Bathroom-StorageContainer-Organizer-Organizers/dp/B0DR8GF41G/?_encoding=UTF8&s=bazaar&psc=1&pd_rd_w=XqxcV&content-id=amzn1.sym.81965c5a-9c44-4b00-b2b4-f2b56be94b5e&pf_rd_p=81965c5a-9c44-4b00-b2b4-f2b56be94b5e&pf_rd_r=1R2C7GS5VFTP0G23MB6R&pd_rd_wg=StfED&pd_rd_r=7732ffce-e001-48df-a857-02e36c83d9a3&ref_=hul_hp_d_esc_reco_cat_nav&pos=ib",
+        "Accept-Encoding": "gzip, deflate, br",
+        "Priority": "u=4, i"
+      },
+      "response_headers": {
+        "Content-Type": "text/html",
+        "Date": "Mon, 30 Mar 2026 16:38:25 GMT",
+        "X-Frame-Options": "SAMEORIGIN",
+        "Server": "Server",
+        "X-Amz-Rid": "676YA44ZGQ4W1DE181C8",
+        "Strict-Transport-Security": "max-age=47474747; includeSubDomains; preload",
+        "Vary": "Content-Type,Accept-Encoding,User-Agent",
+        "Last-Modified": "Sat, 21 Mar 2026 23:40:22 GMT",
+        "Etag": "\"47-64d9153376580-gzip\"",
+        "Accept-Ranges": "bytes",
+        "X-Cache": "Miss from cloudfront",
+        "Via": "1.1 1f900b337ea9504d5ab682a36992a20c.cloudfront.net (CloudFront)",
+        "X-Amz-Cf-Pop": "MCT50-P1",
+        "Alt-Svc": "h3=\":443\"; ma=86400",
+        "X-Amz-Cf-Id": "Vi5rjliLIOPjKInD2Z61eONxa-bi9mvvOCnpT9kt-josYBTlhxk4MQ=="
+      },
+      "host": "127.0.0.1",
+      "is_random": false,
+      "port": "443",
+      "safe_http": false,
+      "prepend": "",
+      "prepend_response": "<!DOCTYPE html><html><head><title>x</title></head><body></body></html>\n",
+      "rotational_host": "",
+      "ssl": true,
+      "disable_http_telemetry": false,
+      "useragent": "Mozilla/5.0 (X11; Linux x86_64) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/145.0.0.0 Safari/537.36",
+      "stomp": "",
+      "sleep": 60,
+      "delay_exec": 200,
+      "jitter": 25,
+      "obfsleep": "",
+      "data_encoding": "Base64",
+      "fallback": "",
+      "fallback_counter": 0
+    }
+  }
+}                                                                                                                                          

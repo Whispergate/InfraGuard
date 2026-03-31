@@ -3,7 +3,7 @@
 <head>
     <meta charset="UTF-8">
     <meta name="viewport" content="width=device-width, initial-scale=1.0">
-    <title>InfraGuard Dashboard</title>
+    <title>InfraGuard Command Post</title>
     <link rel="icon" type="image/svg+xml" href="/static/infraguard_icon.svg">
     <style>
         :root {
@@ -12,35 +12,18 @@
             --border: #30363d;
             --text: #c9d1d9;
             --text-dim: #8b949e;
-            --accent: #58a6ff;
+            --accent: #d2a8ff;
             --green: #3fb950;
             --red: #f85149;
             --yellow: #d29922;
+            --blue: #58a6ff;
         }
         * { margin: 0; padding: 0; box-sizing: border-box; }
         body { font-family: 'SF Mono', 'Cascadia Code', monospace; background: var(--bg); color: var(--text); }
-
-        /* ── Login ──────────────────────────────────────────── */
-        #login-page { display: flex; align-items: center; justify-content: center; min-height: 100vh; }
-        .login-box { background: var(--surface); border: 1px solid var(--border); border-radius: 8px; padding: 32px; width: 380px; }
-        .login-icon { display: block; width: 64px; height: 64px; margin: 0 auto 12px; }
-        .login-box h1 { font-size: 20px; color: var(--accent); text-align: center; margin-bottom: 4px; }
-        .login-box p { font-size: 12px; color: var(--text-dim); text-align: center; margin-bottom: 24px; }
-        .login-box label { display: block; font-size: 12px; color: var(--text-dim); margin-bottom: 6px; text-transform: uppercase; }
-        .login-box input { width: 100%; padding: 10px 12px; background: var(--bg); border: 1px solid var(--border); border-radius: 4px; color: var(--text); font-family: inherit; font-size: 14px; margin-bottom: 16px; }
-        .login-box input:focus { outline: none; border-color: var(--accent); }
-        .login-btn { width: 100%; padding: 10px; background: var(--accent); color: var(--bg); border: none; border-radius: 4px; font-family: inherit; font-size: 14px; font-weight: bold; cursor: pointer; }
-        .login-btn:hover { opacity: 0.85; }
-        .login-btn:disabled { opacity: 0.5; cursor: not-allowed; }
-        .login-error { color: var(--red); font-size: 12px; text-align: center; margin-top: 12px; min-height: 18px; }
-
-        /* ── Dashboard ──────────────────────────────────────── */
-        #dashboard-page { display: none; }
         .header { background: var(--surface); border-bottom: 1px solid var(--border); padding: 16px 24px; display: flex; justify-content: space-between; align-items: center; }
         .header-brand { display: flex; align-items: center; gap: 10px; }
-        .header-icon { width: 28px; height: 28px; }
         .header h1 { font-size: 18px; color: var(--accent); }
-        .header .status { font-size: 12px; color: var(--green); }
+        .header .status { font-size: 12px; }
         .header-right { display: flex; gap: 12px; align-items: center; }
         .grid { display: grid; grid-template-columns: repeat(4, 1fr); gap: 16px; padding: 24px; }
         .card { background: var(--surface); border: 1px solid var(--border); border-radius: 8px; padding: 20px; }
@@ -56,19 +39,43 @@
         .badge { display: inline-block; padding: 2px 8px; border-radius: 4px; font-size: 11px; font-weight: bold; }
         .badge.allow { background: rgba(63,185,80,0.15); color: var(--green); }
         .badge.block { background: rgba(248,81,73,0.15); color: var(--red); }
+        .badge.instance { background: rgba(210,168,255,0.15); color: var(--accent); }
+        .badge.online { background: rgba(63,185,80,0.15); color: var(--green); }
+        .badge.offline { background: rgba(248,81,73,0.15); color: var(--red); }
         #events { max-height: 400px; overflow-y: auto; }
         .event-row { display: flex; gap: 12px; padding: 6px 0; border-bottom: 1px solid var(--border); font-size: 12px; }
         .event-row .time { color: var(--text-dim); min-width: 80px; }
         .event-row .ip { color: var(--yellow); min-width: 120px; }
+        .event-row .inst { color: var(--accent); min-width: 80px; }
         .btn { background: var(--accent); color: var(--bg); border: none; padding: 8px 16px; border-radius: 4px; cursor: pointer; font-family: inherit; font-size: 12px; }
         .btn:hover { opacity: 0.8; }
-        .btn-ghost { background: transparent; color: var(--text-dim); border: 1px solid var(--border); }
         .btn-sm { padding: 2px 8px; font-size: 10px; border-radius: 3px; cursor: pointer; font-family: inherit; border: none; }
         .btn-unblock { background: rgba(63,185,80,0.2); color: var(--green); }
         .btn-unblock:hover { background: rgba(63,185,80,0.4); }
         .btn-block { background: rgba(248,81,73,0.2); color: var(--red); }
         .btn-block:hover { background: rgba(248,81,73,0.4); }
-        .btn-ghost:hover { color: var(--text); border-color: var(--text-dim); }
+        .instance-bar { background: var(--surface); border-bottom: 1px solid var(--border); padding: 8px 24px; display: flex; gap: 8px; align-items: center; font-size: 12px; flex-wrap: wrap; }
+        .instance-bar .label { color: var(--text-dim); margin-right: 4px; }
+        .instance-chip { padding: 4px 10px; border-radius: 12px; border: 1px solid var(--border); cursor: pointer; font-size: 11px; }
+        .instance-chip.active { border-color: var(--accent); color: var(--accent); }
+        .instance-chip .dot { display: inline-block; width: 6px; height: 6px; border-radius: 50%; margin-right: 4px; }
+        .dot-online { background: var(--green); }
+        .dot-offline { background: var(--red); }
+        /* ── Login ──────────────────────────────────────────── */
+        #login-page { display: flex; align-items: center; justify-content: center; min-height: 100vh; }
+        .login-box { background: var(--surface); border: 1px solid var(--border); border-radius: 8px; padding: 32px; width: 380px; }
+        .login-box h1 { font-size: 20px; color: var(--accent); text-align: center; margin-bottom: 4px; }
+        .login-box p { font-size: 12px; color: var(--text-dim); text-align: center; margin-bottom: 24px; }
+        .login-box label { display: block; font-size: 12px; color: var(--text-dim); margin-bottom: 6px; text-transform: uppercase; }
+        .login-box input { width: 100%; padding: 10px 12px; background: var(--bg); border: 1px solid var(--border); border-radius: 4px; color: var(--text); font-family: inherit; font-size: 14px; margin-bottom: 16px; }
+        .login-box input:focus { outline: none; border-color: var(--accent); }
+        .login-btn { width: 100%; padding: 10px; background: var(--accent); color: var(--bg); border: none; border-radius: 4px; font-family: inherit; font-size: 14px; font-weight: bold; cursor: pointer; }
+        .login-btn:hover { opacity: 0.85; }
+        .login-btn:disabled { opacity: 0.5; cursor: not-allowed; }
+        .login-error { color: var(--red); font-size: 12px; text-align: center; margin-top: 12px; min-height: 18px; }
+        #dashboard-page { display: none; }
+        .btn-logout { background: transparent; color: var(--text-dim); border: 1px solid var(--border); }
+        .btn-logout:hover { color: var(--text); border-color: var(--text-dim); }
     </style>
 </head>
 <body>
@@ -76,9 +83,8 @@
     <!-- ── Login Page ───────────────────────────────────────── -->
     <div id="login-page">
         <div class="login-box">
-            <img src="/static/infraguard_icon.svg" alt="InfraGuard" class="login-icon">
-            <h1>InfraGuard</h1>
-            <p>Enter your API token to access the dashboard</p>
+            <h1>Command Post</h1>
+            <p>Enter your token to access the multi-instance dashboard</p>
             <label for="token-input">API Token</label>
             <input type="password" id="token-input" placeholder="Token" autocomplete="off" autofocus>
             <button class="login-btn" id="login-btn" onclick="doLogin()">Sign In</button>
@@ -88,66 +94,70 @@
 
     <!-- ── Dashboard Page ───────────────────────────────────── -->
     <div id="dashboard-page">
-        <div class="header">
-            <div class="header-brand">
-                <img src="/static/infraguard_icon.svg" alt="" class="header-icon">
-                <h1>InfraGuard Dashboard</h1>
-            </div>
-            <div class="header-right">
-                <span class="status" id="ws-status">&#9679; Connecting...</span>
-                <button class="btn" onclick="refresh()">Refresh</button>
-                <button class="btn btn-ghost" onclick="doLogout()">Logout</button>
-            </div>
+    <div class="header">
+        <div class="header-brand">
+            <h1>InfraGuard Command Post</h1>
         </div>
-
-        <div class="grid">
-            <div class="card">
-                <h3>Total Requests</h3>
-                <div class="value" id="total">-</div>
-            </div>
-            <div class="card">
-                <h3>Allowed</h3>
-                <div class="value green" id="allowed">-</div>
-            </div>
-            <div class="card">
-                <h3>Blocked</h3>
-                <div class="value red" id="blocked">-</div>
-            </div>
-            <div class="card">
-                <h3>Unique IPs</h3>
-                <div class="value" id="unique-ips">-</div>
-            </div>
-
-            <div class="card two-col">
-                <h3>Top Blocked IPs</h3>
-                <table>
-                    <thead><tr><th>IP Address</th><th>Count</th><th>Actions</th></tr></thead>
-                    <tbody id="blocked-ips"></tbody>
-                </table>
-            </div>
-
-            <div class="card two-col">
-                <h3>Domain Statistics</h3>
-                <table>
-                    <thead><tr><th>Domain</th><th>Total</th><th>Blocked</th><th>Block Rate</th></tr></thead>
-                    <tbody id="domain-stats"></tbody>
-                </table>
-            </div>
-
-            <div class="card full-width">
-                <h3>Live Request Feed</h3>
-                <div id="events"></div>
-            </div>
-
-            <div class="card full-width">
-                <h3>Recent Requests</h3>
-                <table>
-                    <thead><tr><th>Time</th><th>Proto</th><th>Domain</th><th>IP</th><th>Method</th><th>URI</th><th>Result</th><th>Reason</th><th>Actions</th></tr></thead>
-                    <tbody id="recent-requests"></tbody>
-                </table>
-            </div>
+        <div class="header-right">
+            <span class="status" id="ws-status">Connecting...</span>
+            <button class="btn" onclick="refresh()">Refresh</button>
+            <button class="btn btn-logout" onclick="doLogout()">Logout</button>
         </div>
     </div>
+
+    <div class="instance-bar">
+        <span class="label">Instances:</span>
+        <div id="instance-chips"></div>
+    </div>
+
+    <div class="grid">
+        <div class="card">
+            <h3>Total Requests</h3>
+            <div class="value" id="total">-</div>
+        </div>
+        <div class="card">
+            <h3>Allowed</h3>
+            <div class="value green" id="allowed">-</div>
+        </div>
+        <div class="card">
+            <h3>Blocked</h3>
+            <div class="value red" id="blocked">-</div>
+        </div>
+        <div class="card">
+            <h3>Instances</h3>
+            <div class="value" id="instance-count">-</div>
+        </div>
+
+        <div class="card two-col">
+            <h3>Top Blocked IPs</h3>
+            <table>
+                <thead><tr><th>IP Address</th><th>Count</th><th>Actions</th></tr></thead>
+                <tbody id="blocked-ips"></tbody>
+            </table>
+        </div>
+
+        <div class="card two-col">
+            <h3>Domain Statistics</h3>
+            <table>
+                <thead><tr><th>Domain</th><th>Total</th><th>Blocked</th><th>Block Rate</th></tr></thead>
+                <tbody id="domain-stats"></tbody>
+            </table>
+        </div>
+
+        <div class="card full-width">
+            <h3>Live Request Feed</h3>
+            <div id="events"></div>
+        </div>
+
+        <div class="card full-width">
+            <h3>Recent Requests</h3>
+            <table>
+                <thead><tr><th>Time</th><th>Instance</th><th>Domain</th><th>IP</th><th>Method</th><th>URI</th><th>Result</th><th>Reason</th><th>Actions</th></tr></thead>
+                <tbody id="recent-requests"></tbody>
+            </table>
+        </div>
+    </div>
+    </div> <!-- end #dashboard-page -->
 
     <script>
         const API_BASE = window.location.origin;
@@ -157,14 +167,9 @@
             try {
                 const resp = await fetch(API_BASE + '/api/auth/check', {credentials: 'same-origin'});
                 const data = await resp.json();
-                if (!data.auth_required || data.authenticated) {
-                    showDashboard();
-                } else {
-                    showLogin();
-                }
-            } catch(e) {
-                showLogin();
-            }
+                if (!data.auth_required || data.authenticated) { showDashboard(); }
+                else { showLogin(); }
+            } catch(e) { showLogin(); }
         }
 
         function showLogin() {
@@ -176,7 +181,7 @@
             document.getElementById('login-page').style.display = 'none';
             document.getElementById('dashboard-page').style.display = 'block';
             refresh();
-            startPolling();
+            if (!pollInterval) pollInterval = setInterval(refresh, 10000);
             connectWS();
         }
 
@@ -185,13 +190,8 @@
             const btn = document.getElementById('login-btn');
             const err = document.getElementById('login-error');
             const token = input.value.trim();
-
             if (!token) { err.textContent = 'Token is required'; return; }
-
-            btn.disabled = true;
-            btn.textContent = 'Signing in...';
-            err.textContent = '';
-
+            btn.disabled = true; btn.textContent = 'Signing in...'; err.textContent = '';
             try {
                 const resp = await fetch(API_BASE + '/api/auth/login', {
                     method: 'POST',
@@ -199,33 +199,22 @@
                     body: JSON.stringify({token}),
                     credentials: 'same-origin',
                 });
-                if (resp.ok) {
-                    input.value = '';
-                    showDashboard();
-                } else {
-                    const data = await resp.json();
-                    err.textContent = data.error || 'Authentication failed';
-                }
-            } catch(e) {
-                err.textContent = 'Connection failed';
-            }
-
-            btn.disabled = false;
-            btn.textContent = 'Sign In';
+                if (resp.ok) { input.value = ''; showDashboard(); }
+                else { const data = await resp.json(); err.textContent = data.error || 'Authentication failed'; }
+            } catch(e) { err.textContent = 'Connection failed'; }
+            btn.disabled = false; btn.textContent = 'Sign In';
         }
 
         async function doLogout() {
             await fetch(API_BASE + '/api/auth/logout', {method: 'POST', credentials: 'same-origin'});
-            if (pollInterval) clearInterval(pollInterval);
+            if (pollInterval) { clearInterval(pollInterval); pollInterval = null; }
             showLogin();
         }
 
-        // Enter key submits login
         document.getElementById('token-input').addEventListener('keydown', (e) => {
             if (e.key === 'Enter') doLogin();
         });
 
-        // ── HTML escaping (prevent XSS from stored request data) ──
         function esc(s) {
             if (s == null) return '';
             const d = document.createElement('div');
@@ -233,82 +222,65 @@
             return d.innerHTML.replace(/'/g, '&#39;');
         }
 
-        // ── IP management actions ──────────────────────────────
+        // ── IP actions ────────────────────────────────────────────
         async function whitelistIP(ip) {
-            if (!confirm(`Whitelist ${ip}? This will allow all traffic from this IP.`)) return;
-            try {
-                const resp = await fetch(API_BASE + '/api/intel/whitelist', {
-                    method: 'POST',
-                    headers: {'Content-Type': 'application/json'},
-                    body: JSON.stringify({ip}),
-                    credentials: 'same-origin',
-                });
-                if (resp.ok) { refresh(); }
-                else { alert('Failed to whitelist IP'); }
-            } catch(e) { alert('Error: ' + e.message); }
+            if (!confirm(`Whitelist ${ip} on all instances?`)) return;
+            await fetch(API_BASE + '/api/intel/whitelist', {
+                method: 'POST',
+                headers: {'Content-Type': 'application/json'},
+                body: JSON.stringify({ip}),
+            });
+            refresh();
         }
 
         async function unblockIP(ip) {
-            if (!confirm(`Remove ${ip} from blocklist?`)) return;
-            try {
-                const resp = await fetch(API_BASE + '/api/intel/blocklist', {
-                    method: 'DELETE',
-                    headers: {'Content-Type': 'application/json'},
-                    body: JSON.stringify({ip}),
-                    credentials: 'same-origin',
-                });
-                if (resp.ok) { refresh(); }
-                else { alert('Failed to unblock IP'); }
-            } catch(e) { alert('Error: ' + e.message); }
+            if (!confirm(`Unblock ${ip} on all instances?`)) return;
+            await fetch(API_BASE + '/api/intel/blocklist', {
+                method: 'DELETE',
+                headers: {'Content-Type': 'application/json'},
+                body: JSON.stringify({ip}),
+            });
+            refresh();
         }
 
         async function blockIP(ip) {
-            if (!confirm(`Block ${ip}? This will add it to the blocklist.`)) return;
-            try {
-                const resp = await fetch(API_BASE + '/api/intel/blocklist', {
-                    method: 'POST',
-                    headers: {'Content-Type': 'application/json'},
-                    body: JSON.stringify({cidrs: [ip + '/32']}),
-                    credentials: 'same-origin',
-                });
-                if (resp.ok) { refresh(); }
-                else { alert('Failed to block IP'); }
-            } catch(e) { alert('Error: ' + e.message); }
+            if (!confirm(`Block ${ip} on all instances?`)) return;
+            await fetch(API_BASE + '/api/intel/blocklist', {
+                method: 'POST',
+                headers: {'Content-Type': 'application/json'},
+                body: JSON.stringify({cidrs: [ip + '/32']}),
+            });
+            refresh();
         }
 
-        // ── Dashboard data ─────────────────────────────────────
+        // ── Data fetching ─────────────────────────────────────────
         let pollInterval = null;
-
-        function startPolling() {
-            if (pollInterval) clearInterval(pollInterval);
-            pollInterval = setInterval(refresh, 15000);
-        }
 
         async function fetchJSON(path) {
             const resp = await fetch(API_BASE + path, {credentials: 'same-origin'});
-            if (resp.status === 401 || resp.status === 403) {
-                showLogin();
-                throw new Error('Session expired');
-            }
+            if (resp.status === 401 || resp.status === 403) { showLogin(); throw new Error('Session expired'); }
             return resp.json();
         }
 
         async function refresh() {
             try {
+                // Instances health
+                const instData = await fetchJSON('/api/instances');
+                renderInstances(instData.instances);
+
+                // Stats
                 const stats = await fetchJSON('/api/stats?hours=24');
                 document.getElementById('total').textContent = stats.total_requests;
                 document.getElementById('allowed').textContent = stats.allowed_requests ?? 0;
                 document.getElementById('blocked').textContent = stats.blocked_requests ?? 0;
-                document.getElementById('unique-ips').textContent = stats.unique_ips;
 
-                const blockedIps = document.getElementById('blocked-ips');
-                blockedIps.innerHTML = stats.top_blocked_ips
+                document.getElementById('blocked-ips').innerHTML = stats.top_blocked_ips
                     .map(r => `<tr><td>${esc(r.ip)}</td><td>${esc(r.count)}</td><td><button class="btn-sm btn-unblock" onclick="whitelistIP('${esc(r.ip)}')">Whitelist</button> <button class="btn-sm btn-unblock" onclick="unblockIP('${esc(r.ip)}')">Unblock</button></td></tr>`).join('');
 
-                const domainStats = document.getElementById('domain-stats');
-                domainStats.innerHTML = stats.domains
+                document.getElementById('domain-stats').innerHTML = stats.domains
                     .map(d => `<tr><td>${esc(d.domain)}</td><td>${esc(d.total)}</td><td>${esc(d.blocked)}</td><td>${(d.block_rate * 100).toFixed(1)}%</td></tr>`).join('');
 
+                // Requests
                 const reqs = await fetchJSON('/api/requests?limit=50');
                 const tbody = document.getElementById('recent-requests');
                 tbody.innerHTML = reqs.requests.map(r => {
@@ -319,7 +291,7 @@
                         : `<button class="btn-sm btn-block" onclick="blockIP('${esc(r.client_ip)}')">Block</button>`;
                     return `<tr>
                         <td>${esc(r.timestamp?.substring(11, 19))}</td>
-                        <td>${esc(r.protocol || 'http')}</td>
+                        <td><span class="badge instance">${esc(r._instance || '')}</span></td>
                         <td>${esc(r.domain)}</td>
                         <td>${esc(r.client_ip)}</td>
                         <td>${esc(r.method)}</td>
@@ -330,17 +302,23 @@
                     </tr>`;
                 }).join('');
             } catch(e) {
-                if (e.message !== 'Session expired') console.error('Refresh failed:', e);
+                console.error('Refresh failed:', e);
             }
         }
 
-        // ── WebSocket ──────────────────────────────────────────
-        let ws = null;
+        function renderInstances(instances) {
+            const chips = document.getElementById('instance-chips');
+            document.getElementById('instance-count').textContent = instances.length;
+            chips.innerHTML = instances.map(inst => {
+                const dotClass = inst.status === 'online' ? 'dot-online' : 'dot-offline';
+                return `<span class="instance-chip"><span class="dot ${dotClass}"></span>${esc(inst.name)}</span>`;
+            }).join('');
+        }
 
+        // ── WebSocket ─────────────────────────────────────────────
         function connectWS() {
-            if (ws) { try { ws.close(); } catch(_) {} }
             const wsUrl = `${location.protocol === 'https:' ? 'wss' : 'ws'}://${location.host}/ws/events`;
-            ws = new WebSocket(wsUrl);
+            const ws = new WebSocket(wsUrl);
             const statusEl = document.getElementById('ws-status');
             const eventsEl = document.getElementById('events');
 
@@ -353,6 +331,7 @@
                 const badge = data.filter_result === 'allow' ? 'allow' : 'block';
                 div.innerHTML = `
                     <span class="time">${esc(new Date().toLocaleTimeString())}</span>
+                    <span class="inst">${esc(data._instance || '')}</span>
                     <span class="ip">${esc(data.client_ip)}</span>
                     <span>${esc(data.method)} ${esc(data.uri)}</span>
                     <span class="badge ${badge}">${esc(data.filter_result)}</span>
@@ -363,7 +342,7 @@
             };
         }
 
-        // ── Init ───────────────────────────────────────────────
+        // ── Init ──────────────────────────────────────────────────
         checkAuth();
     </script>
 </body>

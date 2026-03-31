@@ -123,7 +123,7 @@ def profile() -> None:
 @click.option(
     "--type",
     "profile_type",
-    type=click.Choice(["auto", "cobalt_strike", "mythic"]),
+    type=click.Choice(["auto", "cobalt_strike", "mythic", "brute_ratel", "sliver", "havoc"]),
     default="auto",
     help="Profile type (auto-detected by default).",
 )
@@ -139,27 +139,7 @@ def profile_parse(
     file: Path, profile_type: str, name: str | None, output_format: str
 ) -> None:
     """Parse a C2 profile and display its contents."""
-    from infraguard.profiles.cobalt_strike import parse_cobalt_strike_file
-    from infraguard.profiles.mythic import parse_mythic_file
-
-    # Auto-detect profile type
-    if profile_type == "auto":
-        if file.suffix == ".profile":
-            profile_type = "cobalt_strike"
-        elif file.suffix == ".json":
-            profile_type = "mythic"
-        else:
-            click.echo(
-                f"Cannot auto-detect profile type for '{file.suffix}'. "
-                "Use --type to specify.",
-                err=True,
-            )
-            sys.exit(1)
-
-    if profile_type == "cobalt_strike":
-        parsed = parse_cobalt_strike_file(file, name)
-    else:
-        parsed = parse_mythic_file(file, name)
+    parsed = _load_profile_file(file, profile_type, name)
 
     if output_format == "json":
         click.echo(parsed.to_json(indent=2))
@@ -172,7 +152,7 @@ def profile_parse(
 @click.option(
     "--type",
     "profile_type",
-    type=click.Choice(["auto", "cobalt_strike", "mythic"]),
+    type=click.Choice(["auto", "cobalt_strike", "mythic", "brute_ratel", "sliver", "havoc"]),
     default="auto",
     help="Source profile type.",
 )
@@ -188,26 +168,7 @@ def profile_convert(
     file: Path, profile_type: str, name: str | None, output: Path | None
 ) -> None:
     """Convert a C2 profile to InfraGuard JSON format."""
-    from infraguard.profiles.cobalt_strike import parse_cobalt_strike_file
-    from infraguard.profiles.mythic import parse_mythic_file
-
-    if profile_type == "auto":
-        if file.suffix == ".profile":
-            profile_type = "cobalt_strike"
-        elif file.suffix == ".json":
-            profile_type = "mythic"
-        else:
-            click.echo(
-                f"Cannot auto-detect profile type for '{file.suffix}'. "
-                "Use --type to specify.",
-                err=True,
-            )
-            sys.exit(1)
-
-    if profile_type == "cobalt_strike":
-        parsed = parse_cobalt_strike_file(file, name)
-    else:
-        parsed = parse_mythic_file(file, name)
+    parsed = _load_profile_file(file, profile_type, name)
 
     json_output = parsed.to_json(indent=2)
 
@@ -510,6 +471,88 @@ def run_dashboard(
     uvicorn.run(app, **uvicorn_kwargs)
 
 
+# ── Command Post ──────────────────────────────────────────────────────
+
+
+@cli.command("command-post")
+@click.option(
+    "-c",
+    "--config",
+    "config_path",
+    type=click.Path(exists=True, path_type=Path),
+    default=None,
+    help="Path to command-post config YAML.",
+)
+@click.option(
+    "--instance",
+    "instances",
+    multiple=True,
+    help="Instance in 'name:url:token' format (repeatable).",
+)
+@click.option("--host", default=None, help="Override bind address.")
+@click.option("--port", default=None, type=int, help="Override listen port.")
+@click.option("--ssl-cert", default=None, help="Path to SSL certificate.")
+@click.option("--ssl-key", default=None, help="Path to SSL private key.")
+def run_command_post(
+    config_path: Path | None,
+    instances: tuple[str, ...],
+    host: str | None,
+    port: int | None,
+    ssl_cert: str | None,
+    ssl_key: str | None,
+) -> None:
+    """Start the multi-instance Command Post dashboard."""
+    import uvicorn
+
+    from infraguard.ui.command_post.app import create_command_post_app
+    from infraguard.ui.command_post.config import CommandPostConfig
+
+    if config_path:
+        cfg = CommandPostConfig.from_yaml(config_path)
+    elif instances:
+        cfg = CommandPostConfig.from_cli_instances(list(instances))
+    else:
+        click.echo(
+            "Provide a config file (-c) or --instance args.\n\n"
+            "Examples:\n"
+            "  infraguard command-post -c config/command-post.yaml\n"
+            '  infraguard command-post --instance "prod:https://ig1:8080:TOKEN"',
+            err=True,
+        )
+        sys.exit(1)
+
+    bind = host or cfg.bind
+    listen_port = port or cfg.port
+
+    if not cfg.instances:
+        click.echo("No instances configured.", err=True)
+        sys.exit(1)
+
+    app = create_command_post_app(cfg)
+
+    uvicorn_kwargs: dict[str, Any] = {
+        "host": bind,
+        "port": listen_port,
+        "log_level": "info",
+    }
+
+    # TLS - use provided certs, or try to reuse from the infra config
+    if ssl_cert and ssl_key:
+        uvicorn_kwargs["ssl_certfile"] = ssl_cert
+        uvicorn_kwargs["ssl_keyfile"] = ssl_key
+    else:
+        # Try auto-generating a self-signed cert
+        from infraguard.core.tls import generate_self_signed_cert
+        cert, key = generate_self_signed_cert("command-post")
+        uvicorn_kwargs["ssl_certfile"] = str(cert)
+        uvicorn_kwargs["ssl_keyfile"] = str(key)
+
+    scheme = "https" if "ssl_certfile" in uvicorn_kwargs else "http"
+    click.echo(f"InfraGuard Command Post on {scheme}://{bind}:{listen_port}")
+    click.echo(f"Instances: {', '.join(i.name for i in cfg.instances)}")
+    uvicorn.run(app, **uvicorn_kwargs)
+
+
 # ── TUI command ──────────────────────────────────────────────────────
 
 
@@ -560,6 +603,51 @@ def run_tui(
 
 
 # ── Helpers ───────────────────────────────────────────────────────────
+
+
+def _load_profile_file(file: Path, profile_type: str, name: str | None = None):
+    """Load a C2 profile file, auto-detecting type if needed."""
+    from infraguard.profiles.brute_ratel import parse_brute_ratel_file
+    from infraguard.profiles.cobalt_strike import parse_cobalt_strike_file
+    from infraguard.profiles.havoc import parse_havoc_file
+    from infraguard.profiles.mythic import parse_mythic_file
+    from infraguard.profiles.sliver import parse_sliver_file
+
+    if profile_type == "auto":
+        if file.suffix == ".profile":
+            profile_type = "cobalt_strike"
+        elif file.suffix == ".toml":
+            profile_type = "havoc"
+        elif file.suffix == ".json":
+            import json
+            try:
+                data = json.loads(file.read_text(encoding="utf-8"))
+                if "listeners" in data and "c2_handler" in data:
+                    profile_type = "brute_ratel"
+                elif "implant_config" in data and "server_config" in data:
+                    profile_type = "sliver"
+                else:
+                    profile_type = "mythic"
+            except Exception:
+                profile_type = "mythic"
+        else:
+            click.echo(
+                f"Cannot auto-detect profile type for '{file.suffix}'. "
+                "Use --type to specify.",
+                err=True,
+            )
+            sys.exit(1)
+
+    if profile_type == "cobalt_strike":
+        return parse_cobalt_strike_file(file, name)
+    elif profile_type == "brute_ratel":
+        return parse_brute_ratel_file(file, name)
+    elif profile_type == "sliver":
+        return parse_sliver_file(file, name)
+    elif profile_type == "havoc":
+        return parse_havoc_file(file, name)
+    else:
+        return parse_mythic_file(file, name)
 
 
 def _print_profile_summary(p: "C2Profile") -> None:  # noqa: F821

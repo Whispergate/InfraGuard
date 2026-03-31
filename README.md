@@ -14,7 +14,7 @@ InfraGuard sits between the internet and your C2 teamserver, validating every in
 ## Features
 
 - **Multi-domain proxying** -- proxy multiple domains simultaneously, each with independent C2 profiles, upstreams, and rules
-- **C2 profile validation** -- parse and enforce Cobalt Strike malleable profiles and Mythic HTTPX profiles as redirector rules
+- **C2 profile validation** -- parse and enforce Cobalt Strike, Mythic, Brute Ratel C4, Sliver, and Havoc profiles as redirector rules
 - **Multi-protocol listeners** -- HTTP/HTTPS, DNS, MQTT, and WebSocket listeners running simultaneously with shared IP intelligence and event tracking
 - **Scoring-based filter pipeline** -- 7 filters (IP, bot, header, DNS, geo, profile, replay) each contribute a 0.0-1.0 score; configurable threshold determines block/allow
 - **Anti-bot / anti-crawling** -- 40+ known scanner/bot User-Agent patterns, header anomaly detection
@@ -22,9 +22,11 @@ InfraGuard sits between the internet and your C2 teamserver, validating every in
 - **Threat intel feeds** -- auto-update blocklists from public sources (abuse.ch, Emerging Threats, Spamhaus DROP, Binary Defense) with configurable refresh interval and disk caching
 - **Rule ingestion** -- import IP blocklists and User-Agent patterns from existing `.htaccess` and `robots.txt` files
 - **Dynamic IP blocking** -- block IPs outside whitelisted ranges; auto-whitelist IPs after N valid C2 requests
+- **Whitelist enrichment** -- whitelisted CIDRs are auto-enriched with ASN, organization, country, and continent data on startup via GeoIP databases
 - **Content delivery routes** -- serve payloads, decoys, and static files at specific paths via PwnDrop, local filesystem, or HTTP proxy backends, with optional conditional delivery (real content to targets, decoys to scanners)
 - **Drop actions** -- redirect, TCP reset, proxy to decoy site, or tarpit (slow-drip response to waste scanner time)
-- **Web dashboard** -- real-time SPA with login page, live request feed, domain stats, top blocked IPs, authenticated WebSocket event streaming
+- **Web dashboard** -- real-time SPA with login page, live request feed, domain stats, top blocked IPs, authenticated WebSocket event streaming, and inline block/whitelist/unblock actions
+- **Command Post** -- multi-instance aggregation dashboard that merges stats, requests, and live events from multiple InfraGuard nodes into a single view
 - **Terminal UI** -- Textual-based TUI with login screen, live API polling, color-coded request log
 - **SIEM integration** -- built-in plugins for Elasticsearch, Wazuh, and Syslog (CEF/JSON) with batched forwarding
 - **Webhook alerts** -- built-in plugins for Discord (embeds), Slack (Block Kit), and generic webhook (Rocket.Chat, Mattermost, Teams)
@@ -32,7 +34,7 @@ InfraGuard sits between the internet and your C2 teamserver, validating every in
 - **Backend config generation** -- generate Nginx, Caddy, or Apache configs with full operator customization (TLS, IP filtering, header checks, aliases, custom headers)
 - **Edge proxies** -- lightweight Cloudflare Worker and AWS Lambda for domain fronting through CDN infrastructure, edge country blocking, and host rewriting
 - **Docker deployment** -- Dockerfile + docker-compose with optional Let's Encrypt, GeoIP downloader, and PwnDrop payload server
-- **GeoIP support** -- all three GeoLite2 databases (City, ASN, Country) with Docker auto-download
+- **GeoIP support** -- all three GeoLite2 databases (City, ASN, Country) with Docker auto-download; whitelisted CIDRs auto-enriched on startup
 - **Self-signed TLS fallback** -- auto-generates certificates when configured paths don't exist
 - **Environment variable support** -- `.env` file auto-loaded; `${VAR}` syntax works in all config values and keys
 - **Configurable health endpoint** -- change the health check path to avoid fingerprinting
@@ -60,10 +62,16 @@ infraguard tui                                      Launch TUI with login screen
 infraguard tui --url http://host:8080 --token TOK   Auto-connect to dashboard
 infraguard tui -c config.yaml                       Read URL/token from config
 
+infraguard command-post -c command-post.yaml         Start multi-instance dashboard
+infraguard command-post --instance name:url:token    Add instance via CLI (repeatable)
+
 infraguard profile parse <file>                     Parse and display a C2 profile
 infraguard profile parse <file> --format json        Output as JSON
-infraguard profile parse <file> --type mythic        Force profile type
+infraguard profile parse <file> --type brute_ratel   Force profile type
 infraguard profile convert <file> -o out.json        Convert profile to JSON
+
+# Supported --type values: auto, cobalt_strike, mythic, brute_ratel, sliver, havoc
+# Auto-detection: .profile = CS, .toml = Havoc, .json = auto-detect by keys
 
 infraguard ingest <files...>                         Ingest .htaccess/robots.txt rules
 infraguard ingest <files...> --format blocklist      Output as IP blocklist
@@ -93,6 +101,81 @@ The `generate` command accepts additional flags for operator customization:
 | `--no-header-check` | Omit header validation rules |
 | `--alias DOMAIN:ALIAS` | Add server name alias (repeatable) |
 | `--header NAME:VALUE` | Add custom response header (repeatable) |
+
+## Command Post (Multi-Instance Dashboard)
+
+When running multiple InfraGuard instances across different VPSes or cloud providers, the Command Post aggregates stats, requests, and live events from all nodes into a single dashboard.
+
+```
+┌─────────────────────────────┐
+│    Command Post Dashboard   │
+│    http://localhost:9090    │
+└──────────┬──────────────────┘
+           │ parallel fetch
+     ┌─────┼──────┬──────────┐
+     ▼     ▼      ▼          ▼
+   IG-1   IG-2   IG-3   ... IG-N
+```
+
+![InfraGuard Command Post](/images/infraguard_command_post.png)
+
+### Quick start
+
+```bash
+# Via config file
+infraguard command-post -c config/command-post.yaml
+
+# Via CLI args
+infraguard command-post \
+  --instance "prod:https://ig1.example.com:8080:TOKEN1" \
+  --instance "staging:https://ig2.example.com:8080:TOKEN2" \
+  --port 9090
+
+# Via Docker
+docker compose --profile command-post up -d command-post
+```
+
+### Configuration
+
+Create `config/command-post.yaml`:
+
+```yaml
+instances:
+  - name: "prod-cs"
+    url: "https://ig1.example.com:8080"
+    token: "${IG_PROD_TOKEN}"
+  - name: "prod-mythic"
+    url: "https://ig2.example.com:8080"
+    token: "${IG_MYTHIC_TOKEN}"
+  - name: "staging"
+    url: "https://ig3.example.com:8080"
+    token: "${IG_STAGING_TOKEN}"
+
+port: 9090
+# auth_token: "${COMMAND_POST_TOKEN}"
+```
+
+### What it shows
+
+- **Merged stats** -- total requests, allowed, blocked summed across all instances
+- **Instance health bar** -- green/red status for each connected node
+- **Interleaved request log** -- requests from all instances sorted by timestamp, each tagged with its instance name
+- **Merged top blocked IPs** -- aggregated across all instances
+- **Per-domain stats** -- domains from all instances with recalculated block rates
+- **Live event feed** -- multiplexed WebSocket events from all nodes
+- **Block/whitelist actions** -- fan out to all instances or a specific one
+
+### API endpoints
+
+| Endpoint | Method | Description |
+|---|---|---|
+| `/api/instances` | GET | List all instances with health status |
+| `/api/stats` | GET | Merged stats from all instances |
+| `/api/requests` | GET | Interleaved request log from all instances |
+| `/api/intel/whitelist` | POST | Whitelist an IP on all instances |
+| `/api/intel/blocklist` | POST | Block an IP on all instances |
+| `/api/intel/blocklist` | DELETE | Unblock an IP on all instances |
+| `/ws/events` | WS | Multiplexed live events from all instances |
 
 ## Docker Deployment
 
@@ -194,7 +277,7 @@ infraguard/
     main.py                  Click CLI
     config/                  YAML config loading, .env support, Pydantic validation
     core/                    ASGI proxy engine (app, proxy, router, TLS, drop actions, content delivery)
-    profiles/                C2 profile parsers (Cobalt Strike + Mythic)
+    profiles/                C2 profile parsers (Cobalt Strike, Mythic, Brute Ratel, Sliver, Havoc)
     pipeline/                Request validation filters (IP, bot, header, DNS, geo, profile, replay)
     intel/                   IP intelligence (blocklists, GeoIP, rDNS, feeds, rule ingestion)
     tracking/                SQLite persistence (request logging, stats, node registry)
@@ -203,6 +286,7 @@ infraguard/
         api/                 REST API + WebSocket (Starlette)
         web/                 SPA dashboard (HTML/JS/CSS)
         tui/                 Terminal UI (Textual) with login screen
+        command_post/        Multi-instance aggregation dashboard
     listeners/               Protocol listeners (HTTP, DNS, MQTT, WebSocket)
     backends/                Config generators (Nginx, Caddy, Apache)
     models/                  Shared types and event models
@@ -214,10 +298,10 @@ infraguard/
 |---|---|---|
 | Architecture | Single ~99KB file | Modular package |
 | Profile parsing | Regex state machine | Structured parser with full block/transform support |
-| C2 support | Cobalt Strike only | Cobalt Strike + Mythic |
+| C2 support | Cobalt Strike only | Cobalt Strike, Mythic, Brute Ratel C4, Sliver, Havoc |
 | Protocols | HTTP only | HTTP, DNS, MQTT, WebSocket |
 | Filter model | Binary pass/fail | Scoring-based (0.0-1.0 threshold) |
-| Operator UI | None | Web dashboard + Terminal UI |
+| Operator UI | None | Web dashboard + Terminal UI + multi-instance Command Post |
 | Config generation | None | Nginx, Caddy, Apache with full customization |
 | Rule ingestion | None | .htaccess + robots.txt parser |
 | Content delivery | None | PwnDrop, filesystem, HTTP proxy with conditional delivery |
@@ -225,6 +309,7 @@ infraguard/
 | Plugin system | Basic 4-method interface | Event-driven with on_event hooks + per-plugin config |
 | SIEM integration | None | Elasticsearch, Wazuh, Syslog (CEF/JSON) |
 | Webhook alerts | None | Discord, Slack, generic webhook |
+| Whitelist intelligence | None | Auto-enrich CIDRs with ASN/org/country on startup |
 | Anti-replay | SQLite hash | In-memory with configurable window |
 | Drop actions | redirect, reset, proxy | redirect, reset, proxy, tarpit |
 | TLS management | Manual only | Auto self-signed + Let's Encrypt integration |
@@ -239,6 +324,15 @@ infraguard/
 - curi0usJack - [.htaccess rules](https://gist.github.com/curi0usJack/971385e8334e189d93a6cb4671238b10)
 - Profiles
   - threatexpress - [jquery-c2.3.14.profile](https://github.com/threatexpress/malleable-c2/blob/master/jquery-c2.3.14.profile)
+  - InfinityCurve - [Havoc Profile](/examples/kaine.toml)
+- C2 Frameworks
+  - [Cobalt Strike](https://www.cobaltstrike.com/) - Malleable C2 profile support
+  - [Mythic](https://github.com/its-a-feature/Mythic) - HTTPX profile support
+  - [Brute Ratel C4](https://bruteratel.com/) - Server config profile support
+  - [Sliver](https://github.com/BishopFox/sliver) - HTTP C2 profile support
+  - [Havoc](https://www.infinitycurve.org/) - TOML profile support
+
+If you would like to contribute to the project, then please create a new branch with the version name and specify the same version name in the pull request. E.g. branch=v1.2.3 | [v1.2.3] Added blah item.
 
 ## License
 

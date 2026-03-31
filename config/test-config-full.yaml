@@ -1,17 +1,22 @@
-# InfraGuard Full Configuration Example
-# Demonstrates all features: multi-protocol listeners, multi-domain,
-# both C2 frameworks, content delivery, SIEM/webhook plugins, threat
-# feeds, GeoIP, rule ingestion, and configurable health endpoint.
+# ═══════════════════════════════════════════════════════════════════════
+# InfraGuard Full Configuration Reference
+# ═══════════════════════════════════════════════════════════════════════
+#
+# Demonstrates every feature: multi-protocol listeners, 5 C2 frameworks,
+# content delivery routes, SIEM/webhook plugins, threat intel feeds,
+# GeoIP, rule ingestion, and OPSEC options.
 #
 # Environment variables (${VAR}) are resolved from .env automatically.
+# Docs: https://github.com/Whispergate/InfraGuard
 
 # ── Listeners ─────────────────────────────────────────────────────────
 # Each listener binds a port for one protocol. Multiple listeners run
 # simultaneously, sharing IP intelligence, event tracking, and plugins.
-# TLS certs are auto-generated (self-signed) if the paths don't exist.
+# TLS certs are auto-generated (self-signed) if the configured paths
+# don't exist.
 
 listeners:
-  # HTTPS listener for C2 beacon traffic
+  # HTTPS listener for HTTP-based C2 traffic (CS, Mythic, BRC4, Sliver, Havoc)
   - protocol: "https"
     bind: "0.0.0.0"
     port: 443
@@ -21,15 +26,18 @@ listeners:
     domains:
       - "cdn.example.com"
       - "static.example.net"
+      - "api.example.com"
+      - "assets.example.com"
+      - "portal.example.com"
 
-  # HTTP listener (no TLS, for redirects or staging)
+  # HTTP listener (no TLS - for redirects, staging, or port 80 cover)
   - protocol: "http"
     bind: "0.0.0.0"
     port: 80
     domains:
       - "cdn.example.com"
 
-  # DNS listener for DNS-based C2 channels
+  # DNS listener for DNS-based C2 (Cobalt Strike DNS, Mythic DNS)
   # Requires: pip install infraguard[dns-listener]
   # - protocol: "dns"
   #   bind: "0.0.0.0"
@@ -49,7 +57,7 @@ listeners:
   #     upstream: "mqtt://10.0.0.5:1883"    # upstream MQTT broker
   #     allowed_topics: ["sensors/#", "data/#"]
 
-  # WebSocket listener for WS-based C2 channels
+  # WebSocket listener for WS-based C2 (Mythic, Sliver)
   # - protocol: "wss"
   #   bind: "0.0.0.0"
   #   port: 8443
@@ -65,13 +73,19 @@ listeners:
 # ── Domains ───────────────────────────────────────────────────────────
 # Each domain runs independently with its own C2 profile, upstream
 # teamserver, IP whitelist, drop action, and content delivery routes.
+#
+# Supported profile types:
+#   cobalt_strike  - .profile files (Malleable C2 DSL)
+#   mythic         - .json files (Mythic HTTPX profile format)
+#   brute_ratel    - .json files (BRC4 server config with listeners)
+#   sliver         - .json files (Sliver HTTP C2 profile with URI generation)
+#   havoc          - .toml files (Havoc/Kaine profile with URI alternation patterns)
 
 domains:
 
   # ── Cobalt Strike domain ────────────────────────────────────────────
   # Fronts a CS teamserver behind a jQuery CDN lookalike.
-  # Requests that don't match the malleable profile are redirected
-  # to the real jQuery site so the redirector looks legitimate.
+  # Malleable profile defines URIs, headers, transforms, and metadata.
   cdn.example.com:
     upstream: "${INFRAGUARD_CS_UPSTREAM}"
     profile_path: "examples/jquery-c2.3.14.profile"
@@ -79,15 +93,16 @@ domains:
     whitelist_cidrs:
       - "192.168.1.0/24"       # operator subnet
       - "10.0.0.0/8"           # internal range
-    decoy_dir: null             # or path to static site served to blocked visitors
+    decoy_dir: null             # path to static site served to blocked visitors
     drop_action:
-      type: "redirect"
+      type: "redirect"          # redirect | reset | proxy | tarpit
       target: "https://jquery.com"
 
     # ── Content delivery routes (optional) ──────────────────────────
     # Evaluated BEFORE the C2 profile filter. Serve payloads, decoys,
     # or static files at specific paths without affecting beacon traffic.
     # content_routes:
+    #   # PwnDrop payload delivery with conditional scanner detection
     #   - path: "/downloads/*"
     #     backend:
     #       type: "pwndrop"
@@ -99,61 +114,116 @@ domains:
     #         type: "http_proxy"
     #         target: "https://jquery.com"
     #     track: true
+    #   # Static files from local directory
     #   - path: "/assets/*"
     #     backend:
     #       type: "filesystem"
     #       target: "/app/decoys"
+    #   # Generic HTTP proxy (e.g., RedFile conditional delivery)
+    #   - path: "/share/*"
+    #     backend:
+    #       type: "http_proxy"
+    #       target: "https://redfile.internal:9090"
 
   # ── Mythic domain ───────────────────────────────────────────────────
-  # Fronts a Mythic teamserver behind a generic CDN static-assets page.
-  # Uses the Mythic HTTPX JSON profile format. Non-matching requests
-  # get proxied to a real site so the redirector returns valid HTML.
+  # Fronts a Mythic teamserver with the HTTPX JSON profile format.
+  # Non-matching requests get proxied to a real site.
   static.example.net:
     upstream: "${INFRAGUARD_MYTHIC_UPSTREAM}"
     profile_path: "examples/mythic-httpx.json"
     profile_type: "mythic"
-    whitelist_cidrs: []         # empty = all IPs are allowed (no whitelist)
+    whitelist_cidrs: []         # empty = all IPs allowed (no whitelist)
     drop_action:
       type: "proxy"            # serve real content from the target site
       target: "https://example.net"
 
+  # ── Brute Ratel C4 domain ───────────────────────────────────────────
+  # Fronts a BRC4 teamserver. Profile defines listeners with URIs,
+  # headers, prepend/append transforms, and User-Agent.
+  # api.example.com:
+  #   upstream: "https://10.0.0.7:8443"
+  #   profile_path: "examples/brc4-profile.json"
+  #   profile_type: "brute_ratel"
+  #   drop_action:
+  #     type: "redirect"
+  #     target: "https://aws.amazon.com/ec2/pricing/"
+
+  # ── Sliver domain ──────────────────────────────────────────────────
+  # Fronts a Sliver teamserver. Profile generates valid URI combinations
+  # from path/file/extension patterns. Sliver randomizes User-Agent,
+  # so UA validation is skipped (bot filter still catches scanners).
+  # assets.example.com:
+  #   upstream: "https://10.0.0.8:31337"
+  #   profile_path: "examples/sliver.json"
+  #   profile_type: "sliver"
+  #   drop_action:
+  #     type: "tarpit"         # slow-drip response to waste scanner time
+  #     target: ""
+
+  # ── Havoc domain ───────────────────────────────────────────────────
+  # Fronts a Havoc teamserver. TOML profile defines URI patterns with
+  # [a|b|c] alternation syntax that expands into all valid combinations.
+  # Supports Kaine agent task-request (GET) and task-output (POST).
+  # portal.example.com:
+  #   upstream: "https://10.0.0.9:40056"
+  #   profile_path: "examples/kaine.toml"
+  #   profile_type: "havoc"
+  #   drop_action:
+  #     type: "proxy"
+  #     target: "https://portal.azure.com"
+
 # ── IP Intelligence ───────────────────────────────────────────────────
 
 intel:
-  geoip_db: "${INFRAGUARD_GEOIP_DB}"
-  geoip_asn_db: "${INFRAGUARD_GEOIP_ASN_DB}"
-  geoip_country_db: "${INFRAGUARD_GEOIP_COUNTRY_DB}"
-  blocked_countries: []                  # e.g. ["CN", "RU", "KP"]
-  blocked_asns: []                       # e.g. [14061] for DigitalOcean
-  auto_block_scanners: true              # block Shodan, Censys, Rapid7, etc.
-  dynamic_whitelist_threshold: 3         # auto-whitelist after 3 valid C2 requests
-  banned_ip_file: "${INFRAGUARD_BANNED_IP_FILE}"  # ingested blocklist from rules/
+  # GeoIP databases (all optional, download with: docker compose --profile geoip up geoip-update)
+  geoip_db: "${INFRAGUARD_GEOIP_DB}"                  # GeoLite2-City.mmdb
+  geoip_asn_db: "${INFRAGUARD_GEOIP_ASN_DB}"          # GeoLite2-ASN.mmdb
+  geoip_country_db: "${INFRAGUARD_GEOIP_COUNTRY_DB}"  # GeoLite2-Country.mmdb
 
+  blocked_countries: []                  # e.g. ["CN", "RU", "KP", "IR"]
+  allowed_countries: []                  # e.g. ["US", "GB", "DE"] — if set, ONLY these pass
+  blocked_asns: []                       # e.g. [14061, 16276] for DigitalOcean, OVH
+  allowed_asns: []                       # e.g. [15169, 13335] for Google, Cloudflare — if set, ONLY these pass
+  auto_block_scanners: true              # block Shodan, Censys, Rapid7, etc.
+  dynamic_whitelist_threshold: 3         # auto-whitelist after N valid C2 requests
+
+  # Ingested blocklist from rules/ directory
+  # Generate with: infraguard ingest rules/.htaccess --format blocklist -o rules/banned_ips.txt
+  banned_ip_file: "${INFRAGUARD_BANNED_IP_FILE}"
+
+  # Threat intel feed auto-update
   feeds:
     enabled: true
     refresh_interval_hours: 12
     cache_dir: ".infraguard/feeds"
-    urls: []                             # empty = use built-in defaults (abuse.ch, ET, etc.)
+    urls: []                             # empty = built-in defaults (abuse.ch, ET, Spamhaus, etc.)
+    # Custom feeds (plain-text IP/CIDR lists):
+    # urls:
+    #   - "https://example.com/custom-blocklist.txt"
 
 # ── Filter Pipeline ───────────────────────────────────────────────────
-# Filters are applied per-protocol. HTTP gets all filters; DNS/MQTT
-# only get IP, DNS, and replay filters (no profile/header/bot checks).
+# Filters applied per-protocol:
+#   HTTP:      IP → Bot → Header → DNS → Profile → Replay (all filters)
+#   DNS:       IP → DNS → Replay (no profile/header/bot)
+#   MQTT:      IP → DNS → Replay (no profile/header/bot)
+#   WebSocket: IP → Bot → Header → DNS → Replay (no profile)
 
 pipeline:
-  block_score_threshold: 0.7
-  enable_ip_filter: true
-  enable_bot_filter: true
-  enable_header_filter: true
-  enable_geo_filter: true
-  enable_dns_filter: true
-  enable_replay_filter: true
-  enable_profile_filter: true
+  filter_mode: "scoring"         # "scoring" = accumulate scores; "hard" = any block = immediate reject
+  block_score_threshold: 0.7     # cumulative score above this = blocked (scoring mode only)
+  enable_ip_filter: true         # IP whitelist/blacklist + GeoIP + ASN
+  enable_bot_filter: true        # 40+ scanner/bot User-Agent patterns
+  enable_header_filter: true     # banned keywords in header names/values
+  enable_geo_filter: true        # GeoIP country/ASN blocking
+  enable_dns_filter: true        # reverse DNS hostname checks
+  enable_replay_filter: true     # reject duplicate requests
+  enable_profile_filter: true    # C2 profile conformance (URI, headers, transforms)
 
 # ── Tracking ──────────────────────────────────────────────────────────
 
 tracking:
-  db_path: "${INFRAGUARD_DB_PATH}"
-  retention_days: 30
+  db_path: "${INFRAGUARD_DB_PATH}"       # SQLite with WAL mode
+  retention_days: 30                     # auto-prune old request logs
 
 # ── Dashboard API ─────────────────────────────────────────────────────
 
@@ -161,17 +231,17 @@ api:
   bind: "127.0.0.1"
   port: 8080
   auth_token: "${INFRAGUARD_API_TOKEN}"
-  health_path: "/${INFRAGUARD_HEALTH_PATH}"  # customizable to avoid fingerprinting
+  health_path: "/${INFRAGUARD_HEALTH_PATH}"  # change to avoid fingerprinting
 
 # ── Logging ───────────────────────────────────────────────────────────
 
 logging:
-  level: "${INFRAGUARD_LOG_LEVEL}"
-  format: "json"
+  level: "${INFRAGUARD_LOG_LEVEL}"       # DEBUG | INFO | WARNING | ERROR
+  format: "json"                         # json | console
 
 # ── Plugins ───────────────────────────────────────────────────────────
-# List of plugin module paths to load. Each plugin can be configured
-# independently via plugin_settings below.
+# Module paths to load. Plugins hook into the event pipeline and receive
+# every request event (allow, block, content_served, content_blocked).
 
 plugins:
   # SIEM integrations (batch-based, high throughput)
@@ -188,105 +258,91 @@ plugins:
   - infraguard.plugins.builtin.example
 
 # ── Plugin Settings ───────────────────────────────────────────────────
-# Per-plugin configuration. The key matches the plugin's `name` attribute.
-# Each plugin supports:
-#   enabled: bool          -- set false to skip loading
-#   event_filter:          -- control which events are forwarded
-#     only_blocked: bool   -- only forward blocked requests
-#     only_allowed: bool   -- only forward allowed requests
-#     min_score: float     -- only forward events with score >= this
-#     include_domains: []  -- only forward events for these domains
-#     exclude_domains: []  -- skip events for these domains
-#   options: {}            -- plugin-specific key/value pairs
+# Per-plugin config keyed by plugin name. Each plugin supports:
+#   enabled: bool          - set false to skip loading
+#   event_filter:          - control which events are forwarded
+#     only_blocked: bool   - only forward blocked requests
+#     only_allowed: bool   - only forward allowed requests
+#     min_score: float     - only forward events with score >= this
+#     include_domains: []  - only forward events for these domains
+#     exclude_domains: []  - skip events for these domains
+#   options: {}            - plugin-specific key/value pairs
 
 plugin_settings:
 
   # ── Elasticsearch ─────────────────────────────────────────────────
-  # Forwards events to Elasticsearch via the _bulk API.
-  # Supports API key auth or basic auth (username/password).
   # elasticsearch:
   #   enabled: true
   #   event_filter:
-  #     min_score: 0.0          # forward all events (0.0 = everything)
+  #     min_score: 0.0                         # 0.0 = forward everything
   #   options:
-  #     url: "${ELASTICSEARCH_URL}"             # e.g. https://es.example.com:9200
+  #     url: "${ELASTICSEARCH_URL}"
   #     index: "infraguard-events"
-  #     api_key: "${ELASTICSEARCH_API_KEY}"     # or use username/password below
+  #     api_key: "${ELASTICSEARCH_API_KEY}"
   #     # username: "elastic"
   #     # password: "${ELASTICSEARCH_PASSWORD}"
   #     batch_size: 50
   #     flush_interval: 10
 
   # ── Wazuh ─────────────────────────────────────────────────────────
-  # Forwards events to Wazuh-Indexer (OpenSearch) via _bulk API.
-  # Authenticates via Wazuh API JWT token (auto-refreshed).
   # wazuh:
   #   enabled: true
   #   event_filter:
   #     min_score: 0.0
   #   options:
-  #     url: "${WAZUH_API_URL}"                 # e.g. https://wazuh.example.com:55000
-  #     indexer_url: "${WAZUH_INDEXER_URL}"      # e.g. https://wazuh.example.com:9200
+  #     url: "${WAZUH_API_URL}"
+  #     indexer_url: "${WAZUH_INDEXER_URL}"
   #     username: "wazuh-wui"
   #     password: "${WAZUH_PASSWORD}"
   #     index: "infraguard-events"
   #     batch_size: 50
   #     flush_interval: 10
 
-  # ── Syslog ────────────────────────────────────────────────────────
-  # Forwards events as CEF or JSON syslog messages.
-  # Supports UDP, TCP, and TCP+TLS transports.
-  # Covers Splunk, QRadar, ArcSight, and any syslog-compatible SIEM.
+  # ── Syslog (Splunk, QRadar, ArcSight) ─────────────────────────────
   # syslog:
   #   enabled: true
   #   event_filter:
   #     only_blocked: true
   #   options:
   #     host: "syslog.example.com"
-  #     port: 514                               # 514=UDP, 6514=TLS
-  #     protocol: "udp"                          # udp | tcp | tcp+tls
-  #     format: "cef"                            # cef | json
-  #     facility: 1                              # syslog facility (1=user)
-  #     # ca_cert: "/path/to/ca.pem"             # for tcp+tls
+  #     port: 514                              # 514=UDP, 6514=TLS
+  #     protocol: "udp"                        # udp | tcp | tcp+tls
+  #     format: "cef"                          # cef | json
+  #     facility: 1
   #     batch_size: 100
   #     flush_interval: 5
 
   # ── Discord ───────────────────────────────────────────────────────
-  # Sends alerts to a Discord channel via webhook with rich embeds.
-  # Color-coded: red for blocked, green for allowed.
   # discord:
   #   enabled: true
   #   event_filter:
-  #     only_blocked: true                       # only alert on blocked requests
+  #     only_blocked: true
   #   options:
   #     webhook_url: "${DISCORD_WEBHOOK_URL}"
   #     username: "InfraGuard"
-  #     # avatar_url: "https://example.com/logo.png"
-  #     # mention_role: "123456789"              # Discord role ID to @mention
+  #     # avatar_url: "https://example.com/infraguard.png"
+  #     # mention_role: "123456789"
 
   # ── Slack ─────────────────────────────────────────────────────────
-  # Sends alerts to Slack via incoming webhook with Block Kit formatting.
   # slack:
   #   enabled: true
   #   event_filter:
   #     only_blocked: true
   #   options:
   #     webhook_url: "${SLACK_WEBHOOK_URL}"
-  #     # channel: "#infraguard-alerts"          # override webhook default
+  #     # channel: "#infraguard-alerts"
   #     username: "InfraGuard"
   #     icon_emoji: ":shield:"
 
-  # ── Generic Webhook ───────────────────────────────────────────────
-  # POST JSON events to any URL. Covers Rocket.Chat, Mattermost,
-  # Microsoft Teams, and custom endpoints.
+  # ── Generic Webhook (Rocket.Chat, Mattermost, Teams) ──────────────
   # generic_webhook:
   #   enabled: true
   #   event_filter:
   #     only_blocked: true
   #   options:
   #     url: "${WEBHOOK_URL}"
-  #     method: "POST"                           # HTTP method
+  #     method: "POST"
   #     content_type: "application/json"
-  #     headers:                                 # extra HTTP headers
+  #     headers:
   #       Authorization: "Bearer ${WEBHOOK_TOKEN}"
   #     # body_template: '{"text": "Blocked {client_ip} on {domain}: {uri}"}'

@@ -18,6 +18,9 @@ class DropActionType(str, Enum):
 class ProfileType(str, Enum):
     COBALT_STRIKE = "cobalt_strike"
     MYTHIC = "mythic"
+    BRUTE_RATEL = "brute_ratel"
+    SLIVER = "sliver"
+    HAVOC = "havoc"
 
 
 class ContentBackendType(str, Enum):
