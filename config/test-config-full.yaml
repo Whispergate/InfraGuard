@@ -207,7 +207,8 @@ intel:
 #   WebSocket: IP → Bot → Header → DNS → Replay (no profile)
 
 pipeline:
-  block_score_threshold: 0.7     # cumulative score above this = blocked
+  filter_mode: "scoring"         # "scoring" = accumulate scores; "hard" = any block = immediate reject
+  block_score_threshold: 0.7     # cumulative score above this = blocked (scoring mode only)
   enable_ip_filter: true         # IP whitelist/blacklist + GeoIP + ASN
   enable_bot_filter: true        # 40+ scanner/bot User-Agent patterns
   enable_header_filter: true     # banned keywords in header names/values

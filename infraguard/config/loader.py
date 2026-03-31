@@ -73,7 +73,7 @@ def load_config(path: str | Path) -> InfraGuardConfig:
 
     resolved = _resolve_env_vars(raw)
 
-    # Coerce None values to empty containers — YAML produces None for
+    # Coerce None values to empty containers - YAML produces None for
     # keys with no value (e.g., "plugin_settings:" with all entries commented out)
     if isinstance(resolved, dict):
         for key, value in resolved.items():

@@ -110,6 +110,7 @@ class APIConfig(BaseModel):
 
 
 class PipelineConfig(BaseModel):
+    filter_mode: str = "scoring"  # "scoring" | "hard"
     block_score_threshold: float = DEFAULT_BLOCK_SCORE_THRESHOLD
     enable_ip_filter: bool = True
     enable_bot_filter: bool = True

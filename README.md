@@ -25,7 +25,8 @@ InfraGuard sits between the internet and your C2 teamserver, validating every in
 - **Whitelist enrichment** -- whitelisted CIDRs are auto-enriched with ASN, organization, country, and continent data on startup via GeoIP databases
 - **Content delivery routes** -- serve payloads, decoys, and static files at specific paths via PwnDrop, local filesystem, or HTTP proxy backends, with optional conditional delivery (real content to targets, decoys to scanners)
 - **Drop actions** -- redirect, TCP reset, proxy to decoy site, or tarpit (slow-drip response to waste scanner time)
-- **Web dashboard** -- real-time SPA with login page, live request feed, domain stats, top blocked IPs, authenticated WebSocket event streaming
+- **Web dashboard** -- real-time SPA with login page, live request feed, domain stats, top blocked IPs, authenticated WebSocket event streaming, and inline block/whitelist/unblock actions
+- **Command Post** -- multi-instance aggregation dashboard that merges stats, requests, and live events from multiple InfraGuard nodes into a single view
 - **Terminal UI** -- Textual-based TUI with login screen, live API polling, color-coded request log
 - **SIEM integration** -- built-in plugins for Elasticsearch, Wazuh, and Syslog (CEF/JSON) with batched forwarding
 - **Webhook alerts** -- built-in plugins for Discord (embeds), Slack (Block Kit), and generic webhook (Rocket.Chat, Mattermost, Teams)
@@ -60,6 +61,9 @@ infraguard dashboard -c config.yaml --port 9090     Override dashboard port
 infraguard tui                                      Launch TUI with login screen
 infraguard tui --url http://host:8080 --token TOK   Auto-connect to dashboard
 infraguard tui -c config.yaml                       Read URL/token from config
+
+infraguard command-post -c command-post.yaml         Start multi-instance dashboard
+infraguard command-post --instance name:url:token    Add instance via CLI (repeatable)
 
 infraguard profile parse <file>                     Parse and display a C2 profile
 infraguard profile parse <file> --format json        Output as JSON
@@ -97,6 +101,81 @@ The `generate` command accepts additional flags for operator customization:
 | `--no-header-check` | Omit header validation rules |
 | `--alias DOMAIN:ALIAS` | Add server name alias (repeatable) |
 | `--header NAME:VALUE` | Add custom response header (repeatable) |
+
+## Command Post (Multi-Instance Dashboard)
+
+When running multiple InfraGuard instances across different VPSes or cloud providers, the Command Post aggregates stats, requests, and live events from all nodes into a single dashboard.
+
+```
+┌─────────────────────────────┐
+│    Command Post Dashboard   │
+│    http://localhost:9090    │
+└──────────┬──────────────────┘
+           │ parallel fetch
+     ┌─────┼──────┬──────────┐
+     ▼     ▼      ▼          ▼
+   IG-1   IG-2   IG-3   ... IG-N
+```
+
+![InfraGuard Command Post](/images/infraguard_command_post.png)
+
+### Quick start
+
+```bash
+# Via config file
+infraguard command-post -c config/command-post.yaml
+
+# Via CLI args
+infraguard command-post \
+  --instance "prod:https://ig1.example.com:8080:TOKEN1" \
+  --instance "staging:https://ig2.example.com:8080:TOKEN2" \
+  --port 9090
+
+# Via Docker
+docker compose --profile command-post up -d command-post
+```
+
+### Configuration
+
+Create `config/command-post.yaml`:
+
+```yaml
+instances:
+  - name: "prod-cs"
+    url: "https://ig1.example.com:8080"
+    token: "${IG_PROD_TOKEN}"
+  - name: "prod-mythic"
+    url: "https://ig2.example.com:8080"
+    token: "${IG_MYTHIC_TOKEN}"
+  - name: "staging"
+    url: "https://ig3.example.com:8080"
+    token: "${IG_STAGING_TOKEN}"
+
+port: 9090
+# auth_token: "${COMMAND_POST_TOKEN}"
+```
+
+### What it shows
+
+- **Merged stats** -- total requests, allowed, blocked summed across all instances
+- **Instance health bar** -- green/red status for each connected node
+- **Interleaved request log** -- requests from all instances sorted by timestamp, each tagged with its instance name
+- **Merged top blocked IPs** -- aggregated across all instances
+- **Per-domain stats** -- domains from all instances with recalculated block rates
+- **Live event feed** -- multiplexed WebSocket events from all nodes
+- **Block/whitelist actions** -- fan out to all instances or a specific one
+
+### API endpoints
+
+| Endpoint | Method | Description |
+|---|---|---|
+| `/api/instances` | GET | List all instances with health status |
+| `/api/stats` | GET | Merged stats from all instances |
+| `/api/requests` | GET | Interleaved request log from all instances |
+| `/api/intel/whitelist` | POST | Whitelist an IP on all instances |
+| `/api/intel/blocklist` | POST | Block an IP on all instances |
+| `/api/intel/blocklist` | DELETE | Unblock an IP on all instances |
+| `/ws/events` | WS | Multiplexed live events from all instances |
 
 ## Docker Deployment
 
@@ -207,6 +286,7 @@ infraguard/
         api/                 REST API + WebSocket (Starlette)
         web/                 SPA dashboard (HTML/JS/CSS)
         tui/                 Terminal UI (Textual) with login screen
+        command_post/        Multi-instance aggregation dashboard
     listeners/               Protocol listeners (HTTP, DNS, MQTT, WebSocket)
     backends/                Config generators (Nginx, Caddy, Apache)
     models/                  Shared types and event models
@@ -221,7 +301,7 @@ infraguard/
 | C2 support | Cobalt Strike only | Cobalt Strike, Mythic, Brute Ratel C4, Sliver, Havoc |
 | Protocols | HTTP only | HTTP, DNS, MQTT, WebSocket |
 | Filter model | Binary pass/fail | Scoring-based (0.0-1.0 threshold) |
-| Operator UI | None | Web dashboard + Terminal UI |
+| Operator UI | None | Web dashboard + Terminal UI + multi-instance Command Post |
 | Config generation | None | Nginx, Caddy, Apache with full customization |
 | Rule ingestion | None | .htaccess + robots.txt parser |
 | Content delivery | None | PwnDrop, filesystem, HTTP proxy with conditional delivery |

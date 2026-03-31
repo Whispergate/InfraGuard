@@ -58,7 +58,7 @@ class HeaderFilter:
                     score=0.9,
                 )
 
-            # Only check values of non-standard headers — standard headers
+            # Only check values of non-standard headers - standard headers
             # carry opaque data (base64, encoded cookies) that will false-
             # positive on short keywords like "nmap", "zap", etc.
             if lower_name not in self._SKIP_VALUE_CHECK:

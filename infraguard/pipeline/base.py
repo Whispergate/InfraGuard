@@ -83,6 +83,7 @@ class FilterPipeline:
         start = time.perf_counter()
         results: list[FilterResult] = []
         total_score = 0.0
+        hard_mode = self.config.filter_mode == "hard"
 
         for f in self.filters:
             try:
@@ -90,24 +91,31 @@ class FilterPipeline:
                 result.filter_name = f.name
                 results.append(result)
 
-                if result.action == FilterAction.BLOCK:
-                    # Hard block - short-circuit immediately
-                    total_score = max(total_score + result.score, 1.0)
-                    break
+                if hard_mode:
+                    # Hard mode: any BLOCK or SUSPECT = immediate reject
+                    if result.action in (FilterAction.BLOCK, FilterAction.SUSPECT):
+                        total_score = 1.0
+                        break
                 else:
-                    total_score += result.score
+                    # Scoring mode: accumulate scores, check threshold
+                    if result.action == FilterAction.BLOCK:
+                        total_score = max(total_score + result.score, 1.0)
+                        break
+                    else:
+                        total_score += result.score
 
-                # Early exit if score already exceeds threshold
-                if total_score >= self.config.block_score_threshold:
-                    break
+                    if total_score >= self.config.block_score_threshold:
+                        break
 
             except Exception:
                 log.exception("filter_error", filter=f.name)
-                # Filter errors don't block - fail open
                 continue
 
         duration_ms = (time.perf_counter() - start) * 1000
-        allowed = total_score < self.config.block_score_threshold
+        if hard_mode:
+            allowed = total_score == 0.0  # Only allow if no filter flagged it
+        else:
+            allowed = total_score < self.config.block_score_threshold
 
         return PipelineResult(
             allowed=allowed,
