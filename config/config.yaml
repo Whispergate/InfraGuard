@@ -20,17 +20,17 @@ domains:
   # Fronts a CS teamserver behind a jQuery CDN lookalike.
   # Requests that don't match the malleable profile are redirected
   # to the real jQuery site so the redirector looks legitimate.
-  cdn.example.com:
-    upstream: "${INFRAGUARD_CS_UPSTREAM}"
-    profile_path: "examples/jquery-c2.3.14.profile"
-    profile_type: "cobalt_strike"
-    whitelist_cidrs:
-      - "192.168.1.0/24"       # operator subnet
-      - "10.0.0.0/8"           # internal range
-    decoy_dir: null             # or path to static site served to blocked visitors
-    drop_action:
-      type: "redirect"
-      target: "https://jquery.com"
+  # cdn.example.com:
+  #   upstream: "${INFRAGUARD_CS_UPSTREAM}"
+  #   profile_path: "examples/jquery-c2.3.14.profile"
+  #   profile_type: "cobalt_strike"
+  #   whitelist_cidrs:
+  #     - "192.168.1.0/24"       # operator subnet
+  #     - "10.0.0.0/8"           # internal range
+  #   decoy_dir: null             # or path to static site served to blocked visitors
+  #   drop_action:
+  #     type: "redirect"
+  #     target: "https://jquery.com"
 
     # ── Content delivery routes (optional) ──────────────────────────
     # Evaluated BEFORE the C2 profile filter. Serve payloads, decoys,
@@ -56,14 +56,14 @@ domains:
   # Fronts a Mythic teamserver behind a generic CDN static-assets page.
   # Uses the Mythic HTTPX JSON profile format. Non-matching requests
   # get proxied to a real site so the redirector returns valid HTML.
-  static.example.net:
+  code.jquery.com:
     upstream: "${INFRAGUARD_MYTHIC_UPSTREAM}"
-    profile_path: "examples/mythic-httpx.json"
+    profile_path: "examples/jquery-c2.3.14.profile.json"
     profile_type: "mythic"
-    whitelist_cidrs: []         # empty = all IPs are allowed (no whitelist)
+    whitelist_cidrs: []      # empty = all IPs are allowed (no whitelist)
     drop_action:
-      type: "proxy"            # serve real content from the target site
-      target: "https://example.net"
+      type: "decoy"
+      target: "${IG_DECOY_SITE}"
     content_routes:
       - path: "/downloads/*"
         backend:
@@ -105,6 +105,9 @@ api:
   auth_token: "${INFRAGUARD_API_TOKEN}"
   health_path: "/${INFRAGUARD_HEALTH_PATH}"
 
+decoy_pages_dir: "${IG_DECOY_PAGES_DIR}"  # base directory for decoy SPA sites
+
 logging:
   level: "${INFRAGUARD_LOG_LEVEL}"
   format: "json"
+

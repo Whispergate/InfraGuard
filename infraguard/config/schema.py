@@ -25,9 +25,23 @@ class TLSConfig(BaseModel):
     key: Path
 
 
+class PersonaConfig(BaseModel):
+    """Persona settings - controls how InfraGuard presents itself to blocked clients."""
+
+    server_header: str = "nginx"
+    error_body_404: str = (
+        "<html><head><title>404 Not Found</title></head>"
+        "<body><center><h1>404 Not Found</h1></center>"
+        "<hr><center>nginx</center></body></html>"
+    )
+    error_content_type: str = "text/html; charset=utf-8"
+    extra_headers: dict[str, str] = Field(default_factory=dict)
+
+
 class DropActionConfig(BaseModel):
     type: DropActionType = DropActionType.REDIRECT
     target: str = "https://www.google.com"
+    persona: PersonaConfig = Field(default_factory=PersonaConfig)
 
 
 class ContentBackendConfig(BaseModel):
@@ -37,6 +51,8 @@ class ContentBackendConfig(BaseModel):
     target: str = ""
     auth_token: str | None = None
     headers: dict[str, str] = Field(default_factory=dict)
+    ssl_verify: bool = False
+    ssl_ca_bundle: str | None = None
 
 
 class ConditionalDeliveryConfig(BaseModel):
@@ -66,6 +82,10 @@ class DomainConfig(BaseModel):
     drop_action: DropActionConfig = Field(default_factory=DropActionConfig)
     rules: list[str] = Field(default_factory=list)
     content_routes: list[ContentRouteConfig] = Field(default_factory=list)
+    ssl_verify: bool = False
+    ssl_ca_bundle: str | None = None
+    extra_allowed_headers: list[str] = Field(default_factory=list)
+    content_route_filter: str = "ip_only"  # "ip_only" | "full_pipeline"
 
 
 class ListenerConfig(BaseModel):
@@ -158,5 +178,7 @@ class InfraGuardConfig(BaseModel):
     api: APIConfig = Field(default_factory=APIConfig)
     pipeline: PipelineConfig = Field(default_factory=PipelineConfig)
     logging: LoggingConfig = Field(default_factory=LoggingConfig)
+    decoy_pages_dir: str = "pages"
     plugins: list[str] = Field(default_factory=list)
     plugin_settings: dict[str, PluginSettings] = Field(default_factory=dict)
+    default_persona: PersonaConfig = Field(default_factory=PersonaConfig)

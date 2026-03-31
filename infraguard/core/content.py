@@ -18,6 +18,8 @@ from starlette.requests import Request
 from starlette.responses import FileResponse, RedirectResponse, Response
 
 from infraguard.config.schema import ContentBackendConfig, ContentRouteConfig
+from infraguard.core.headers import sanitize_response_headers
+from infraguard.core.ssl_context import build_ssl_context
 
 log = structlog.get_logger()
 
@@ -49,12 +51,16 @@ class PwnDropBackend:
         self._target = config.target.rstrip("/")
         self._auth_token = config.auth_token
         self._extra_headers = config.headers
+        self._ssl_verify = config.ssl_verify
+        self._ssl_ca_bundle = config.ssl_ca_bundle
         self._client: httpx.AsyncClient | None = None
 
     async def serve(self, request: Request, match: RouteMatch) -> Response:
         if not self._client:
             self._client = httpx.AsyncClient(
-                timeout=30.0, verify=False, follow_redirects=True
+                timeout=30.0,
+                verify=build_ssl_context(self._ssl_verify, self._ssl_ca_bundle),
+                follow_redirects=True,
             )
 
         upstream_url = f"{self._target}/{match.path_remainder.lstrip('/')}"
@@ -76,18 +82,14 @@ class PwnDropBackend:
                 headers=headers,
                 content=await request.body() or None,
             )
-            resp_headers = {
-                k: v
-                for k, v in resp.headers.items()
-                if k.lower() not in ("transfer-encoding", "content-encoding", "content-length", "connection")
-            }
+            resp_headers = sanitize_response_headers(dict(resp.headers))
             return Response(
                 content=resp.content,
                 status_code=resp.status_code,
                 headers=resp_headers,
             )
-        except Exception:
-            log.exception("pwndrop_backend_error", target=self._target)
+        except (httpx.RequestError, httpx.TimeoutException):
+            log.warning("pwndrop_backend_error", target=self._target)
             return Response(status_code=502, content=b"Bad Gateway")
 
     async def close(self) -> None:
@@ -134,12 +136,16 @@ class HttpProxyBackend:
     def __init__(self, config: ContentBackendConfig):
         self._target = config.target.rstrip("/")
         self._extra_headers = config.headers
+        self._ssl_verify = config.ssl_verify
+        self._ssl_ca_bundle = config.ssl_ca_bundle
         self._client: httpx.AsyncClient | None = None
 
     async def serve(self, request: Request, match: RouteMatch) -> Response:
         if not self._client:
             self._client = httpx.AsyncClient(
-                timeout=30.0, verify=False, follow_redirects=True
+                timeout=30.0,
+                verify=build_ssl_context(self._ssl_verify, self._ssl_ca_bundle),
+                follow_redirects=True,
             )
 
         upstream_url = f"{self._target}/{match.path_remainder.lstrip('/')}"
@@ -158,18 +164,14 @@ class HttpProxyBackend:
                 headers=headers,
                 content=await request.body() or None,
             )
-            resp_headers = {
-                k: v
-                for k, v in resp.headers.items()
-                if k.lower() not in ("transfer-encoding", "content-encoding", "content-length", "connection")
-            }
+            resp_headers = sanitize_response_headers(dict(resp.headers))
             return Response(
                 content=resp.content,
                 status_code=resp.status_code,
                 headers=resp_headers,
             )
-        except Exception:
-            log.exception("http_proxy_backend_error", target=self._target)
+        except (httpx.RequestError, httpx.TimeoutException):
+            log.warning("http_proxy_backend_error", target=self._target)
             return Response(status_code=502, content=b"Bad Gateway")
 
     async def close(self) -> None:

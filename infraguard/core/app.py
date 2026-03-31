@@ -11,6 +11,7 @@ from starlette.responses import Response
 from starlette.routing import Route
 
 from infraguard.config.schema import InfraGuardConfig
+from infraguard.core.log_sanitizer import redact_sensitive_fields
 from infraguard.core.middleware import RequestLoggingMiddleware
 from infraguard.core.router import DomainRouter
 from infraguard.plugins.loader import load_plugins
@@ -22,6 +23,25 @@ log = structlog.get_logger()
 
 def create_app(config: InfraGuardConfig) -> Starlette:
     """Create the ASGI application from configuration."""
+    # Configure structlog with redaction processor before renderer
+    structlog.configure(
+        processors=[
+            structlog.contextvars.merge_contextvars,
+            structlog.stdlib.add_log_level,
+            structlog.processors.TimeStamper(fmt="iso"),
+            structlog.processors.StackInfoRenderer(),
+            structlog.processors.format_exc_info,
+            redact_sensitive_fields,
+            structlog.dev.ConsoleRenderer()
+            if config.logging.format == "console"
+            else structlog.processors.JSONRenderer(),
+        ],
+        wrapper_class=structlog.stdlib.BoundLogger,
+        context_class=dict,
+        logger_factory=structlog.PrintLoggerFactory(),
+        cache_logger_on_first_use=True,
+    )
+
     # Load plugins
     plugins = load_plugins(config.plugins, config.plugin_settings)
 

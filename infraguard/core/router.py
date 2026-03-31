@@ -138,11 +138,31 @@ class DomainRouter:
             profile = self._load_profile(domain_config)
             pipeline = FilterPipeline(filters, self.config.pipeline)
 
-            # Build content route resolver if the domain has content routes
+            # Build content route resolver
+            content_routes = list(domain_config.content_routes)
+
+            # If the drop action is "decoy", auto-register a catch-all content
+            # route so the decoy site's assets (CSS, JS, images) are served
+            # directly without going through the C2 filter pipeline.
+            if domain_config.drop_action.type.value == "decoy" and domain_config.drop_action.target:
+                from infraguard.config.schema import ContentBackendConfig, ContentRouteConfig
+                from infraguard.models.common import ContentBackendType
+                decoy_site = domain_config.drop_action.target
+                decoy_path = str(Path(self.config.decoy_pages_dir) / decoy_site)
+                # Add as lowest-priority catch-all (appended last)
+                content_routes.append(ContentRouteConfig(
+                    path="/*",
+                    backend=ContentBackendConfig(
+                        type=ContentBackendType.FILESYSTEM,
+                        target=decoy_path,
+                    ),
+                    track=False,
+                ))
+
             content_resolver = None
             fp_pipeline = None
-            if domain_config.content_routes:
-                content_resolver = ContentRouteResolver(domain_config.content_routes)
+            if content_routes:
+                content_resolver = ContentRouteResolver(content_routes)
                 fp_pipeline = FilterPipeline(fp_filters, self.config.pipeline)
 
             route = DomainRoute(
@@ -203,6 +223,15 @@ class DomainRouter:
                 host=request.headers.get("host", ""),
                 path=request.url.path,
             )
+            # Use the first domain's drop action so unmatched hosts see
+            # the decoy site instead of a suspicious bare 404
+            if self.routes:
+                first_route = next(iter(self.routes.values()))
+                return await handle_drop(
+                    request, first_route.config.drop_action,
+                    reason="no matching domain",
+                    pages_dir=self.config.decoy_pages_dir,
+                )
             return Response(status_code=404, content=b"Not Found")
 
         # Parse client IP
@@ -215,8 +244,48 @@ class DomainRouter:
         else:
             client_ip = ip_address("0.0.0.0")
 
-        # ── Content route check (before C2 pipeline) ─────────────
+        # ── IP check before content routes (OPSEC-06) ────────────
         if route.content_resolver:
+            if route.config.content_route_filter == "full_pipeline":
+                # Full pipeline evaluation before content routes
+                body = await request.body()
+                ctx = RequestContext(
+                    request=request,
+                    client_ip=client_ip,
+                    domain_config=route.config,
+                    profile=route.profile,
+                    metadata={"body": body},
+                )
+                pre_result = await route.pipeline.evaluate(ctx)
+                if not pre_result.allowed:
+                    log.warning(
+                        "request_dropped_before_content",
+                        domain=route.domain,
+                        client=str(client_ip),
+                        path=request.url.path,
+                        reasons=pre_result.blocking_reasons,
+                    )
+                    return await handle_drop(
+                        request, route.config.drop_action,
+                        reason="full_pipeline_block_before_content",
+                        pages_dir=self.config.decoy_pages_dir,
+                    )
+            else:
+                # Default "ip_only": fast blocklist check only
+                if self.intel and self.intel.is_blocked(client_ip):
+                    log.warning(
+                        "ip_blocked_before_content_route",
+                        domain=route.domain,
+                        client=str(client_ip),
+                        path=request.url.path,
+                    )
+                    return await handle_drop(
+                        request, route.config.drop_action,
+                        reason="ip_blocked_before_content_route",
+                        pages_dir=self.config.decoy_pages_dir,
+                    )
+
+            # Now safe to check content routes
             content_match = route.content_resolver.match(request)
             if content_match is not None:
                 content_match.domain = route.domain
@@ -261,6 +330,7 @@ class DomainRouter:
                 request,
                 route.config.drop_action,
                 reason=result.summary,
+                pages_dir=self.config.decoy_pages_dir,
             )
             filter_result_str = "block"
             filter_reason = "; ".join(result.blocking_reasons) or result.summary

@@ -42,36 +42,21 @@ def _load_dotenv(*search_paths: Path) -> None:
 _ENV_VAR_PATTERN = re.compile(r"\$\{([^}]+)\}")
 
 
-_UNSET = object()  # sentinel for unresolved env vars
-
-
 def _resolve_env_vars(obj: object) -> object:
     """Recursively resolve ${ENV_VAR} references in config values.
 
-    If a value is entirely a single ``${VAR}`` that isn't set in the
-    environment, it is removed from the dict so Pydantic uses the
-    field's default value.
+    Unset env vars resolve to empty string. The None-coercion for
+    top-level keys is handled separately in ``load_config``.
     """
     if isinstance(obj, str):
-        is_sole_var = _ENV_VAR_PATTERN.fullmatch(obj)
         def _replacer(match: re.Match[str]) -> str:
             var_name = match.group(1)
             return os.environ.get(var_name, "")
-        resolved = _ENV_VAR_PATTERN.sub(_replacer, obj)
-        if is_sole_var and not resolved:
-            return _UNSET
-        return resolved
+        return _ENV_VAR_PATTERN.sub(_replacer, obj)
     elif isinstance(obj, dict):
-        result = {}
-        for k, v in obj.items():
-            rk = _resolve_env_vars(k)
-            rv = _resolve_env_vars(v)
-            # Drop keys whose values were unresolved env vars
-            if rv is not _UNSET and rk is not _UNSET:
-                result[rk] = rv
-        return result
+        return {_resolve_env_vars(k): _resolve_env_vars(v) for k, v in obj.items()}
     elif isinstance(obj, list):
-        return [_resolve_env_vars(item) for item in obj if _resolve_env_vars(item) is not _UNSET]
+        return [_resolve_env_vars(item) for item in obj]
     return obj
 
 
@@ -92,12 +77,28 @@ def load_config(path: str | Path) -> InfraGuardConfig:
 
     resolved = _resolve_env_vars(raw)
 
-    # Coerce None values to empty containers - YAML produces None for
-    # keys with no value (e.g., "plugin_settings:" with all entries commented out)
+    # Post-processing for Pydantic compatibility
     if isinstance(resolved, dict):
         for key, value in resolved.items():
+            # YAML produces None for keys with no value (all entries commented out)
             if value is None:
                 resolved[key] = {}
+
+    # Remove keys with empty string values from nested dicts so Pydantic
+    # uses the field's default. This handles unset env vars that resolved
+    # to "" (e.g., ${INFRAGUARD_GEOIP_DB} when not set).
+    def _drop_empty_strings(obj):
+        if isinstance(obj, dict):
+            return {
+                k: _drop_empty_strings(v)
+                for k, v in obj.items()
+                if v != ""
+            }
+        elif isinstance(obj, list):
+            return [_drop_empty_strings(i) for i in obj if i != ""]
+        return obj
+
+    resolved = _drop_empty_strings(resolved)
 
     return InfraGuardConfig.model_validate(resolved)
 

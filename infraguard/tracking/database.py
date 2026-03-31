@@ -68,6 +68,11 @@ class Database:
         self._conn: aiosqlite.Connection | None = None
 
     async def connect(self) -> None:
+        # Ensure the parent directory exists
+        from pathlib import Path
+        db_dir = Path(self.db_path).parent
+        db_dir.mkdir(parents=True, exist_ok=True)
+
         self._conn = await aiosqlite.connect(self.db_path)
         # Enable WAL mode for better concurrent read/write performance
         await self._conn.execute("PRAGMA journal_mode=WAL")

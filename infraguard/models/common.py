@@ -13,6 +13,7 @@ class DropActionType(str, Enum):
     RESET = "reset"
     PROXY = "proxy"
     TARPIT = "tarpit"
+    DECOY = "decoy"
 
 
 class ProfileType(str, Enum):

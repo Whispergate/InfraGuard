@@ -57,8 +57,8 @@ async def fetch_feed(url: str, timeout: float = 30.0) -> list[str]:
             entries = _parse_feed_lines(resp.text)
             log.info("feed_fetched", url=url, entries=len(entries))
             return entries
-    except Exception:
-        log.warning("feed_fetch_failed", url=url)
+    except (httpx.RequestError, httpx.TimeoutException, OSError) as e:
+        log.warning("feed_fetch_failed", url=url, error_type=type(e).__name__, error=str(e))
         return []
 
 
@@ -131,6 +131,6 @@ async def feed_refresh_loop(
     while True:
         try:
             await update_feeds(blocklist, urls, cache_dir)
-        except Exception:
-            log.exception("feed_refresh_error")
+        except (httpx.RequestError, httpx.TimeoutException, OSError) as e:
+            log.exception("feed_refresh_error", error_type=type(e).__name__)
         await asyncio.sleep(interval_seconds)

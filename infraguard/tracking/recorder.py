@@ -3,6 +3,7 @@
 from __future__ import annotations
 
 import asyncio
+import sqlite3
 from collections import deque
 from typing import Any
 
@@ -65,9 +66,9 @@ class EventRecorder:
     async def _safe_on_event(plugin: Any, event: RequestEvent) -> None:
         try:
             await plugin.on_event(event)
-        except Exception:
+        except Exception as e:
             name = getattr(plugin, "name", "unknown")
-            log.exception("plugin_on_event_error", plugin=name)
+            log.exception("plugin_on_event_error", plugin=name, error_type=type(e).__name__)
 
     async def _flush_loop(self) -> None:
         while True:
@@ -111,5 +112,5 @@ class EventRecorder:
                 params,
             )
             log.debug("events_flushed", count=len(events))
-        except Exception:
-            log.exception("flush_error", count=len(events))
+        except (OSError, sqlite3.Error) as e:
+            log.exception("flush_error", count=len(events), error_type=type(e).__name__)

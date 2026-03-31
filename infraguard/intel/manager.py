@@ -225,6 +225,20 @@ class IntelManager:
 
         return result
 
+    def is_blocked(self, ip: IPv4Address | IPv6Address) -> bool:
+        """Fast synchronous blocklist check (ip_only mode).
+
+        Returns True if the IP is in the blocklist AND not in the whitelist
+        or dynamic whitelist. Does NOT perform GeoIP/ASN/DNS lookups.
+        """
+        ip_str = str(ip)
+        # Whitelisted IPs are never blocked
+        if self.dynamic_whitelist.is_whitelisted(ip_str):
+            return False
+        if self.whitelist.contains(ip):
+            return False
+        return self.blocklist.contains(ip)
+
     def record_valid_request(self, ip: str) -> None:
         """Record a valid C2 request for dynamic whitelisting."""
         self.dynamic_whitelist.record_valid_request(ip)

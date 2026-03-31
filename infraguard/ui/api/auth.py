@@ -11,12 +11,35 @@ import hashlib
 import hmac
 import secrets
 import time
+from collections import defaultdict
 
+import structlog
 from starlette.requests import Request
 from starlette.responses import JSONResponse
 
+log = structlog.get_logger()
+
 # Session tokens mapped to (token_hash, created_at)
 _sessions: dict[str, tuple[str, float]] = {}
+
+# ── Per-IP rate limiting for failed login attempts ────────────────────
+_rate_limit: dict[str, list[float]] = defaultdict(list)
+_RATE_WINDOW = 60.0  # seconds
+_MAX_ATTEMPTS = 5
+
+
+def _check_rate_limit(ip: str) -> bool:
+    """Return True if the IP is rate-limited (should be blocked)."""
+    now = time.monotonic()
+    # Prune expired attempts
+    _rate_limit[ip] = [t for t in _rate_limit[ip] if now - t < _RATE_WINDOW]
+    return len(_rate_limit[ip]) >= _MAX_ATTEMPTS
+
+
+def _record_failed_attempt(ip: str) -> int:
+    """Record a failed attempt and return current count in window."""
+    _rate_limit[ip].append(time.monotonic())
+    return len(_rate_limit[ip])
 
 SESSION_COOKIE = "ig_session"
 _SESSION_TTL = 86400  # 24 hours
@@ -89,13 +112,26 @@ async def login_handler(request: Request) -> JSONResponse:
         # Auth disabled, just return success
         return JSONResponse({"status": "ok", "message": "Auth disabled"})
 
+    client_ip = request.client.host if request.client else "unknown"
+
+    # Rate limit check before token validation
+    if _check_rate_limit(client_ip):
+        log.warning("auth_locked", client_ip=client_ip)
+        return JSONResponse(
+            {"error": "Too many attempts. Try again later."},
+            status_code=429,
+        )
+
     body = await request.json()
     token = body.get("token", "")
 
     if not token or not hmac.compare_digest(token, expected_token):
+        attempt_count = _record_failed_attempt(client_ip)
+        log.warning("auth_failed", client_ip=client_ip, attempts=attempt_count)
         return JSONResponse({"error": "Invalid token"}, status_code=403)
 
     session_id = create_session(expected_token)
+    log.info("auth_success", client_ip=client_ip, session_created=True)
     response = JSONResponse({"status": "ok"})
     # Set Secure flag based on whether the request arrived over HTTPS
     is_secure = request.url.scheme == "https" or request.headers.get("x-forwarded-proto") == "https"

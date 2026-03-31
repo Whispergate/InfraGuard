@@ -12,6 +12,7 @@ services:
       - ./config:/app/config:ro
       - ./examples:/app/examples:ro
       - ./rules:/app/rules:ro
+      - ./pages:/app/pages:ro
       - ./data:/app/data
       - certs:/app/certs:ro
       - geoip:/app/geoip:ro
