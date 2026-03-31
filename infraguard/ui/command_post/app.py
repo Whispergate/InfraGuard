@@ -36,8 +36,10 @@ _PUBLIC_PATHS = frozenset({"/", "", "/api/auth/login", "/api/auth/check"})
 class AuthMiddleware(BaseHTTPMiddleware):
     async def dispatch(self, request: Request, call_next: RequestResponseEndpoint) -> Response:
         path = request.url.path
-        if path in _PUBLIC_PATHS or path == "/ws/events":
+        if path in _PUBLIC_PATHS:
             return await call_next(request)
+        # Note: BaseHTTPMiddleware does not intercept WebSocket routes;
+        # WS auth is handled in the ws_events handler directly.
         token = request.app.state.auth_token
         error = check_auth(request, token)
         if error:

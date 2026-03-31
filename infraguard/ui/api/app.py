@@ -50,9 +50,8 @@ class AuthMiddleware(BaseHTTPMiddleware):
         for prefix in _PUBLIC_PREFIXES:
             if path.startswith(prefix):
                 return await call_next(request)
-        # WebSocket auth is handled in the handler itself (via query param)
-        if path == "/ws/events":
-            return await call_next(request)
+        # Note: BaseHTTPMiddleware does not intercept WebSocket routes;
+        # WS auth is handled in the websocket.py handler directly.
 
         token = request.app.state.config.api.auth_token
         error = check_auth(request, token)

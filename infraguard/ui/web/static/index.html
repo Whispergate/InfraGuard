@@ -230,7 +230,7 @@
             if (s == null) return '';
             const d = document.createElement('div');
             d.textContent = String(s);
-            return d.innerHTML;
+            return d.innerHTML.replace(/'/g, '&#39;');
         }
 
         // ── IP management actions ──────────────────────────────
