@@ -61,6 +61,7 @@ services:
   #   /etc/letsencrypt/live/${INFRAGUARD_DOMAIN}/privkey.pem
   #
   # After first run, restart the proxy to pick up the new certs.
+  # docker compose --profile letsencrypt up certbot
   certbot:
     image: certbot/certbot:latest
     container_name: infraguard-certbot
