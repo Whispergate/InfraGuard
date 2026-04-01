@@ -2,7 +2,7 @@
 
 Deploys a dumb HTTP relay Worker that forwards traffic to a backend VPS
 running the full InfraGuard stack.  The Worker has no filtering, scoring,
-or persistence — it adds a CDN/edge layer for infrastructure obfuscation.
+or persistence - it adds a CDN/edge layer for infrastructure obfuscation.
 """
 
 from __future__ import annotations

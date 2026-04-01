@@ -9,8 +9,8 @@ output "instance_id" {
 }
 
 output "ssh_command" {
-  value       = "# N/A — Cloudflare Workers have no SSH access. Connect to your backend VPS instead."
-  description = "Not applicable for Workers — relay front only"
+  value       = "# N/A - Cloudflare Workers have no SSH access. Connect to your backend VPS instead."
+  description = "Not applicable for Workers - relay front only"
 }
 
 output "worker_route" {

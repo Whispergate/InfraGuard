@@ -1,8 +1,8 @@
-# Cloudflare Workers — dumb HTTP relay front
+# Cloudflare Workers - dumb HTTP relay front
 #
 # This module deploys a Cloudflare Worker that relays all matching requests
 # to a backend VPS running the full InfraGuard stack.  The Worker itself
-# has NO filtering, scoring, or persistence — it is a transparent relay
+# has NO filtering, scoring, or persistence - it is a transparent relay
 # that adds a CDN/edge layer for infrastructure obfuscation.
 #
 # Limitations:
@@ -33,7 +33,7 @@ locals {
   zone_id = data.cloudflare_zones.this.zones[0].id
 }
 
-# Worker script — transparent HTTP relay
+# Worker script - transparent HTTP relay
 resource "cloudflare_workers_script" "relay" {
   account_id = data.cloudflare_zones.this.zones[0].account_id
   name       = var.worker_name

@@ -221,7 +221,7 @@ resource "azurerm_linux_virtual_machine" "this" {
       docker pull "$DOCKER_IMAGE"
     else
       apt-get install -y -qq git
-      git clone https://github.com/Lavender-exe/InfraGuard.git /opt/infraguard
+      git clone https://github.com/Whispergate/InfraGuard.git /opt/infraguard
       docker build -t "$DOCKER_IMAGE" /opt/infraguard
     fi
 
