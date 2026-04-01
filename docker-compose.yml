@@ -70,19 +70,19 @@ services:
       - certs:/etc/letsencrypt
       - certbot-www:/var/www/certbot
     entrypoint: /bin/sh
-    command: >
-      -c '
-        if [ "${INFRAGUARD_LETSENCRYPT}" = "true" ]; then
-          certbot certonly --standalone
-            --non-interactive --agree-tos
-            --email ${INFRAGUARD_DOMAIN_EMAIL}
-            -d ${INFRAGUARD_DOMAIN}
-            --preferred-challenges http
-          && echo "Certificate obtained for ${INFRAGUARD_DOMAIN}"
+    command:
+      - -c
+      - |
+        if [ "$${INFRAGUARD_LETSENCRYPT}" = "true" ]; then
+          certbot certonly --standalone \
+            --non-interactive --agree-tos \
+            --email $${INFRAGUARD_DOMAIN_EMAIL} \
+            -d $${INFRAGUARD_DOMAIN} \
+            --preferred-challenges http \
+          && echo "Certificate obtained for $${INFRAGUARD_DOMAIN}"
         else
-          echo "Let'\''s Encrypt disabled (INFRAGUARD_LETSENCRYPT != true)"
+          echo "Let's Encrypt disabled (INFRAGUARD_LETSENCRYPT != true)"
         fi
-      '
     ports:
       - "80:80"
     networks:
