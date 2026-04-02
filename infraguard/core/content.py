@@ -109,6 +109,10 @@ class FilesystemBackend:
     async def serve(self, request: Request, match: RouteMatch) -> Response:
         remainder = match.path_remainder.lstrip("/")
         if not remainder:
+            # Serve index.html for root/empty path (SPA decoy fallback)
+            index = self._root / "index.html"
+            if index.is_file():
+                return FileResponse(str(index), media_type="text/html")
             return Response(status_code=404, content=b"Not Found")
 
         file_path = (self._root / remainder).resolve()
@@ -121,6 +125,10 @@ class FilesystemBackend:
             return Response(status_code=403, content=b"Forbidden")
 
         if not file_path.is_file():
+            # SPA fallback: serve index.html for unknown paths
+            index = self._root / "index.html"
+            if index.is_file():
+                return FileResponse(str(index), media_type="text/html")
             return Response(status_code=404, content=b"Not Found")
 
         content_type, _ = mimetypes.guess_type(str(file_path))
