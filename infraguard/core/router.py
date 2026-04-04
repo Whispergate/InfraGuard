@@ -94,8 +94,12 @@ class DomainRouter:
 
         self._load_routes()
 
-    def _build_filters(self) -> list:
-        """Build the full filter chain based on pipeline config."""
+    def _build_filters(self, phishing_filter=None) -> list:
+        """Build the full filter chain based on pipeline config.
+
+        Args:
+            phishing_filter: If provided, replaces ProfileFilter for phishing domains.
+        """
         pc = self.config.pipeline
         filters: list = []
 
@@ -108,8 +112,10 @@ class DomainRouter:
         if pc.enable_dns_filter:
             filters.append(DNSFilter())
 
-        # Profile filter is always present
-        filters.append(ProfileFilter())
+        if phishing_filter:
+            filters.append(phishing_filter)
+        else:
+            filters.append(ProfileFilter())
 
         if pc.enable_replay_filter:
             filters.append(ReplayFilter())
@@ -136,19 +142,38 @@ class DomainRouter:
         return filters
 
     def _load_routes(self) -> None:
-        filters = self._build_filters()
         fp_filters = self._build_fingerprint_filters()
 
-        # RESL-03: Validate all profile paths before loading any routes
+        from infraguard.models.common import PHISHING_PROFILE_TYPES
+        from infraguard.pipeline.phishing_filter import PhishingFilter
+        from infraguard.profiles.phishing import build_phishing_profile
+
+        # RESL-03: Validate all C2 profile paths before loading any routes
+        # (phishing domains don't need profile files)
         for domain_name, domain_config in self.config.domains.items():
-            profile_path = Path(domain_config.profile_path)
-            if not profile_path.exists():
-                raise FileNotFoundError(
-                    f"C2 profile not found for domain '{domain_name}': {profile_path.resolve()}"
-                )
+            if domain_config.profile_type not in PHISHING_PROFILE_TYPES:
+                profile_path = Path(domain_config.profile_path)
+                if not profile_path.exists():
+                    raise FileNotFoundError(
+                        f"C2 profile not found for domain '{domain_name}': {profile_path.resolve()}"
+                    )
 
         for domain_name, domain_config in self.config.domains.items():
-            profile = self._load_profile(domain_config)
+            is_phishing = domain_config.profile_type in PHISHING_PROFILE_TYPES
+
+            if is_phishing:
+                phishing_prof = build_phishing_profile(
+                    domain_config.profile_type,
+                    operator_paths=domain_config.allowed_paths or None,
+                    phishlet_path=domain_config.profile_path or None,
+                )
+                pf = PhishingFilter(phishing_prof)
+                filters = self._build_filters(phishing_filter=pf)
+                profile = C2Profile(name=phishing_prof.name)
+            else:
+                filters = self._build_filters()
+                profile = self._load_profile(domain_config)
+
             pipeline = FilterPipeline(filters, self.config.pipeline)
 
             # Build content route resolver
@@ -198,7 +223,8 @@ class DomainRouter:
                 "domain_loaded",
                 domain=domain_name,
                 profile=profile.name,
-                uris=profile.all_uris(),
+                mode="phishing" if is_phishing else "c2",
+                uris=profile.all_uris() if not is_phishing else [],
                 content_routes=content_count,
             )
 
@@ -226,13 +252,18 @@ class DomainRouter:
         Reloadable: domains, pipeline, intel.feeds, decoy_pages_dir.
         Restart-required: listeners, tracking.db_path, api.bind/port.
         """
-        # Validate all profile paths in new config first (RESL-03)
+        from infraguard.models.common import PHISHING_PROFILE_TYPES
+        from infraguard.pipeline.phishing_filter import PhishingFilter
+        from infraguard.profiles.phishing import build_phishing_profile
+
+        # Validate all C2 profile paths in new config first (RESL-03)
         for domain_name, domain_config in new_config.domains.items():
-            profile_path = Path(domain_config.profile_path)
-            if not profile_path.exists():
-                raise FileNotFoundError(
-                    f"C2 profile not found for domain '{domain_name}': {profile_path.resolve()}"
-                )
+            if domain_config.profile_type not in PHISHING_PROFILE_TYPES:
+                profile_path = Path(domain_config.profile_path)
+                if not profile_path.exists():
+                    raise FileNotFoundError(
+                        f"C2 profile not found for domain '{domain_name}': {profile_path.resolve()}"
+                    )
 
         # Save old state for rollback
         old_config = self.config
@@ -240,11 +271,24 @@ class DomainRouter:
 
         self.config = new_config
         try:
-            filters = self._build_filters()
             fp_filters = self._build_fingerprint_filters()
             new_routes: dict[str, DomainRoute] = {}
             for domain_name, domain_config in new_config.domains.items():
-                profile = self._load_profile(domain_config)
+                is_phishing = domain_config.profile_type in PHISHING_PROFILE_TYPES
+
+                if is_phishing:
+                    phishing_prof = build_phishing_profile(
+                        domain_config.profile_type,
+                        operator_paths=domain_config.allowed_paths or None,
+                        phishlet_path=domain_config.profile_path or None,
+                    )
+                    pf = PhishingFilter(phishing_prof)
+                    filters = self._build_filters(phishing_filter=pf)
+                    profile = C2Profile(name=phishing_prof.name)
+                else:
+                    filters = self._build_filters()
+                    profile = self._load_profile(domain_config)
+
                 pipeline = FilterPipeline(filters, new_config.pipeline)
 
                 content_routes = list(domain_config.content_routes)

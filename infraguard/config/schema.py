@@ -75,8 +75,9 @@ class ContentRouteConfig(BaseModel):
 
 class DomainConfig(BaseModel):
     upstream: str
-    profile_path: str
+    profile_path: str = ""
     profile_type: ProfileType = ProfileType.COBALT_STRIKE
+    allowed_paths: list[str] = Field(default_factory=list)  # operator-defined path patterns for phishing domains
     whitelist_cidrs: list[str] = Field(default_factory=list)
     decoy_dir: str | None = None
     drop_action: DropActionConfig = Field(default_factory=DropActionConfig)

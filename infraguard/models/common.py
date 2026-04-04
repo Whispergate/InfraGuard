@@ -22,6 +22,19 @@ class ProfileType(str, Enum):
     BRUTE_RATEL = "brute_ratel"
     SLIVER = "sliver"
     HAVOC = "havoc"
+    GOPHISH = "gophish"
+    EVILGINX = "evilginx"
+    CUDDLEPHISH = "cuddlephish"
+    PASSTHROUGH = "passthrough"
+
+
+# Profile types that represent phishing frameworks (no C2 profile file needed)
+PHISHING_PROFILE_TYPES = frozenset({
+    ProfileType.GOPHISH,
+    ProfileType.EVILGINX,
+    ProfileType.CUDDLEPHISH,
+    ProfileType.PASSTHROUGH,
+})
 
 
 class ContentBackendType(str, Enum):

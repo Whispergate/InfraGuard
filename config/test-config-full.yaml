@@ -75,11 +75,19 @@ listeners:
 # teamserver, IP whitelist, drop action, and content delivery routes.
 #
 # Supported profile types:
-#   cobalt_strike  - .profile files (Malleable C2 DSL)
-#   mythic         - .json files (Mythic HTTPX profile format)
-#   brute_ratel    - .json files (BRC4 server config with listeners)
-#   sliver         - .json files (Sliver HTTP C2 profile with URI generation)
-#   havoc          - .toml files (Havoc/Kaine profile with URI alternation patterns)
+#
+#   C2 frameworks (require profile_path):
+#     cobalt_strike  - .profile files (Malleable C2 DSL)
+#     mythic         - .json files (Mythic HTTPX profile format)
+#     brute_ratel    - .json files (BRC4 server config with listeners)
+#     sliver         - .json files (Sliver HTTP C2 profile with URI generation)
+#     havoc          - .toml files (Havoc/Kaine profile with URI alternation patterns)
+#
+#   Phishing frameworks (no profile_path needed):
+#     gophish        - GoPhish landing pages, tracking, and report endpoints
+#     evilginx       - Evilginx reverse proxy phishlets (proxies all paths)
+#     cuddlephish    - CuddlePhish OAuth/device-code phishing flows
+#     passthrough    - Generic proxy mode - all paths forwarded, no profile matching
 
 domains:
 
@@ -171,6 +179,79 @@ domains:
   #   drop_action:
   #     type: "proxy"
   #     target: "https://portal.azure.com"
+
+  # ── GoPhish domain ─────────────────────────────────────────────────
+  # Fronts a GoPhish instance. No C2 profile needed - path-based
+  # filtering allows tracking pixels (/track/*), report endpoint
+  # (/report), static assets (/static/*), and landing pages.
+  # IP/bot/geo filters still run to block scanners.
+  #
+  # Use allowed_paths to override the built-in GoPhish patterns:
+  # phish.example.com:
+  #   upstream: "https://10.0.0.10:3333"
+  #   profile_type: "gophish"
+  #   # allowed_paths:                       # optional - overrides built-in patterns
+  #   #   - "/custom-landing"                # exact path
+  #   #   - "/campaigns/*"                   # prefix glob
+  #   #   - "~^/t/[a-f0-9]+"                # regex (prefix with ~)
+  #   drop_action:
+  #     type: "redirect"
+  #     target: "https://example.com"
+
+  # ── Evilginx domain ────────────────────────────────────────────────
+  # Fronts an Evilginx reverse proxy. Two modes:
+  #
+  # 1. With phishlet file (recommended): InfraGuard parses the phishlet
+  #    to extract login paths and auth_urls for filtering.
+  #    Set profile_path to the phishlet YAML file.
+  #
+  # 2. Without phishlet: all paths are forwarded (Evilginx default).
+  #    Use allowed_paths to restrict if needed.
+  #
+  # IP/bot/geo filters protect against scanners discovering the phishlet.
+  # login.example.com:
+  #   upstream: "https://10.0.0.11:443"
+  #   profile_type: "evilginx"
+  #   profile_path: "examples/wordpress-phishlet.yaml"  # optional phishlet file
+  #   # allowed_paths:                       # optional - replaces defaults
+  #   #   - "/wp-login.php"
+  #   #   - "/wp-admin/*"
+  #   drop_action:
+  #     type: "proxy"
+  #     target: "https://login.microsoftonline.com"
+
+  # ── CuddlePhish domain ─────────────────────────────────────────────
+  # Fronts a CuddlePhish OAuth/device-code phishing server. All paths
+  # forwarded - CuddlePhish handles OAuth flow routing internally.
+  # Use allowed_paths to restrict to specific OAuth endpoints.
+  # auth.example.com:
+  #   upstream: "https://10.0.0.12:8443"
+  #   profile_type: "cuddlephish"
+  #   # allowed_paths:
+  #   #   - "/devicelogin"
+  #   #   - "/common/oauth2/*"
+  #   #   - "/common/login"
+  #   drop_action:
+  #     type: "redirect"
+  #     target: "https://login.microsoftonline.com"
+
+  # ── Generic passthrough domain ──────────────────────────────────────
+  # Pure reverse proxy with IP/bot/geo filtering. All requests that
+  # pass the filter pipeline are forwarded to upstream. No profile
+  # matching at all. Use for custom phishing frameworks, payload
+  # delivery servers, or any HTTP service that needs scanner protection.
+  #
+  # If allowed_paths is set, only those paths are proxied (converts
+  # passthrough into path-filtered mode).
+  # proxy.example.com:
+  #   upstream: "https://10.0.0.13:8080"
+  #   profile_type: "passthrough"
+  #   # allowed_paths:                       # optional - restricts passthrough
+  #   #   - "/api/*"
+  #   #   - "/webhook"
+  #   drop_action:
+  #     type: "reset"
+  #     target: ""
 
 # ── IP Intelligence ───────────────────────────────────────────────────
 

@@ -56,7 +56,7 @@ domains:
   # Fronts a Mythic teamserver behind a generic CDN static-assets page.
   # Uses the Mythic HTTPX JSON profile format. Non-matching requests
   # get proxied to a real site so the redirector returns valid HTML.
-  code.jquery.com:
+  ${INFRAGUARD_DOMAIN}:
     upstream: "${INFRAGUARD_MYTHIC_UPSTREAM}"
     profile_path: "examples/jquery-c2.3.14.profile.json"
     profile_type: "mythic"
