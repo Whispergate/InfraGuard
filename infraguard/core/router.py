@@ -7,15 +7,19 @@ content delivery routes.
 
 from __future__ import annotations
 
+import asyncio
+import random
 import time
 from ipaddress import IPv4Address, IPv6Address, ip_address
 from pathlib import Path
 
+import httpx
 import structlog
 from starlette.requests import Request
 from starlette.responses import Response
 
 from infraguard.config.schema import DomainConfig, InfraGuardConfig, PipelineConfig
+from infraguard.core.circuit_breaker import CircuitBreaker, CircuitOpenError
 from infraguard.core.content import ContentBackend, RouteMatch, create_backend
 from infraguard.core.content_router import ContentRouteResolver
 from infraguard.core.drop import handle_drop
@@ -30,6 +34,7 @@ from infraguard.pipeline.dns_filter import DNSFilter
 from infraguard.pipeline.header_filter import HeaderFilter
 from infraguard.pipeline.ip_filter import IPFilter
 from infraguard.pipeline.profile_filter import ProfileFilter
+from infraguard.pipeline.fingerprint_filter import FingerprintFilter
 from infraguard.pipeline.replay_filter import ReplayFilter
 from infraguard.profiles.cobalt_strike import parse_cobalt_strike_file
 from infraguard.profiles.models import C2Profile
@@ -71,9 +76,11 @@ class DomainRouter:
         self.config = config
         self.proxy = ProxyHandler()
         self.routes: dict[str, DomainRoute] = {}
+        self._routes_lock = asyncio.Lock()
         self._extra_filters = extra_filters or []
         self._recorder = recorder
         self._content_backends: list[ContentBackend] = []
+        self._breakers: dict[str, CircuitBreaker] = {}
 
         # Initialize shared intel manager
         self.intel = IntelManager(config.intel)
@@ -89,8 +96,12 @@ class DomainRouter:
 
         self._load_routes()
 
-    def _build_filters(self) -> list:
-        """Build the full filter chain based on pipeline config."""
+    def _build_filters(self, phishing_filter=None) -> list:
+        """Build the full filter chain based on pipeline config.
+
+        Args:
+            phishing_filter: If provided, replaces ProfileFilter for phishing domains.
+        """
         pc = self.config.pipeline
         filters: list = []
 
@@ -103,8 +114,16 @@ class DomainRouter:
         if pc.enable_dns_filter:
             filters.append(DNSFilter())
 
-        # Profile filter is always present
-        filters.append(ProfileFilter())
+        if pc.enable_fingerprint_filter:
+            filters.append(FingerprintFilter(
+                allowed_fingerprints=set(pc.allowed_fingerprints) if pc.allowed_fingerprints else None,
+                blocked_fingerprints=set(pc.blocked_fingerprints) if pc.blocked_fingerprints else None,
+            ))
+
+        if phishing_filter:
+            filters.append(phishing_filter)
+        else:
+            filters.append(ProfileFilter())
 
         if pc.enable_replay_filter:
             filters.append(ReplayFilter())
@@ -131,18 +150,65 @@ class DomainRouter:
         return filters
 
     def _load_routes(self) -> None:
-        filters = self._build_filters()
         fp_filters = self._build_fingerprint_filters()
 
+        from infraguard.models.common import PHISHING_PROFILE_TYPES
+        from infraguard.pipeline.phishing_filter import PhishingFilter
+        from infraguard.profiles.phishing import build_phishing_profile
+
+        # RESL-03: Validate all C2 profile paths before loading any routes
+        # (phishing domains don't need profile files)
         for domain_name, domain_config in self.config.domains.items():
-            profile = self._load_profile(domain_config)
+            if domain_config.profile_type not in PHISHING_PROFILE_TYPES:
+                profile_path = Path(domain_config.profile_path)
+                if not profile_path.exists():
+                    raise FileNotFoundError(
+                        f"C2 profile not found for domain '{domain_name}': {profile_path.resolve()}"
+                    )
+
+        for domain_name, domain_config in self.config.domains.items():
+            is_phishing = domain_config.profile_type in PHISHING_PROFILE_TYPES
+
+            if is_phishing:
+                phishing_prof = build_phishing_profile(
+                    domain_config.profile_type,
+                    operator_paths=domain_config.allowed_paths or None,
+                    phishlet_path=domain_config.profile_path or None,
+                )
+                pf = PhishingFilter(phishing_prof)
+                filters = self._build_filters(phishing_filter=pf)
+                profile = C2Profile(name=phishing_prof.name)
+            else:
+                filters = self._build_filters()
+                profile = self._load_profile(domain_config)
+
             pipeline = FilterPipeline(filters, self.config.pipeline)
 
-            # Build content route resolver if the domain has content routes
+            # Build content route resolver
+            content_routes = list(domain_config.content_routes)
+
+            # If the drop action is "decoy", auto-register a catch-all content
+            # route so the decoy site's assets (CSS, JS, images) are served
+            # directly without going through the C2 filter pipeline.
+            if domain_config.drop_action.type.value == "decoy" and domain_config.drop_action.target:
+                from infraguard.config.schema import ContentBackendConfig, ContentRouteConfig
+                from infraguard.models.common import ContentBackendType
+                decoy_site = domain_config.drop_action.target
+                decoy_path = str(Path(self.config.decoy_pages_dir) / decoy_site)
+                # Add as lowest-priority catch-all (appended last)
+                content_routes.append(ContentRouteConfig(
+                    path="/*",
+                    backend=ContentBackendConfig(
+                        type=ContentBackendType.FILESYSTEM,
+                        target=decoy_path,
+                    ),
+                    track=False,
+                ))
+
             content_resolver = None
             fp_pipeline = None
-            if domain_config.content_routes:
-                content_resolver = ContentRouteResolver(domain_config.content_routes)
+            if content_routes:
+                content_resolver = ContentRouteResolver(content_routes)
                 fp_pipeline = FilterPipeline(fp_filters, self.config.pipeline)
 
             route = DomainRoute(
@@ -151,12 +217,24 @@ class DomainRouter:
             )
             self.routes[domain_name] = route
 
+            # RESL-01: Create a circuit breaker per unique upstream URL
+            # (includes backup upstreams for failover support)
+            all_upstreams = [domain_config.upstream] + list(domain_config.backup_upstreams)
+            for upstream in all_upstreams:
+                if upstream not in self._breakers:
+                    self._breakers[upstream] = CircuitBreaker(
+                        upstream=upstream,
+                        failure_threshold=domain_config.circuit_breaker_threshold,
+                        recovery_timeout=domain_config.circuit_breaker_cooldown,
+                    )
+
             content_count = len(domain_config.content_routes)
             log.info(
                 "domain_loaded",
                 domain=domain_name,
                 profile=profile.name,
-                uris=profile.all_uris(),
+                mode="phishing" if is_phishing else "c2",
+                uris=profile.all_uris() if not is_phishing else [],
                 content_routes=content_count,
             )
 
@@ -177,6 +255,117 @@ class DomainRouter:
             return parse_havoc_file(path)
         else:
             return parse_mythic_file(path)
+
+    async def reload(self, new_config: InfraGuardConfig) -> None:
+        """Hot-reload domains, profiles, and blocklists atomically.
+
+        Reloadable: domains, pipeline, intel.feeds, decoy_pages_dir.
+        Restart-required: listeners, tracking.db_path, api.bind/port.
+        """
+        from infraguard.models.common import PHISHING_PROFILE_TYPES
+        from infraguard.pipeline.phishing_filter import PhishingFilter
+        from infraguard.profiles.phishing import build_phishing_profile
+
+        # Validate all C2 profile paths in new config first (RESL-03)
+        for domain_name, domain_config in new_config.domains.items():
+            if domain_config.profile_type not in PHISHING_PROFILE_TYPES:
+                profile_path = Path(domain_config.profile_path)
+                if not profile_path.exists():
+                    raise FileNotFoundError(
+                        f"C2 profile not found for domain '{domain_name}': {profile_path.resolve()}"
+                    )
+
+        # Save old state for rollback
+        old_config = self.config
+        old_breakers = self._breakers
+
+        self.config = new_config
+        try:
+            fp_filters = self._build_fingerprint_filters()
+            new_routes: dict[str, DomainRoute] = {}
+            for domain_name, domain_config in new_config.domains.items():
+                is_phishing = domain_config.profile_type in PHISHING_PROFILE_TYPES
+
+                if is_phishing:
+                    phishing_prof = build_phishing_profile(
+                        domain_config.profile_type,
+                        operator_paths=domain_config.allowed_paths or None,
+                        phishlet_path=domain_config.profile_path or None,
+                    )
+                    pf = PhishingFilter(phishing_prof)
+                    filters = self._build_filters(phishing_filter=pf)
+                    profile = C2Profile(name=phishing_prof.name)
+                else:
+                    filters = self._build_filters()
+                    profile = self._load_profile(domain_config)
+
+                pipeline = FilterPipeline(filters, new_config.pipeline)
+
+                content_routes = list(domain_config.content_routes)
+                if domain_config.drop_action.type.value == "decoy" and domain_config.drop_action.target:
+                    from infraguard.config.schema import ContentBackendConfig, ContentRouteConfig
+                    from infraguard.models.common import ContentBackendType
+                    decoy_site = domain_config.drop_action.target
+                    decoy_path = str(Path(new_config.decoy_pages_dir) / decoy_site)
+                    content_routes.append(ContentRouteConfig(
+                        path="/*",
+                        backend=ContentBackendConfig(
+                            type=ContentBackendType.FILESYSTEM,
+                            target=decoy_path,
+                        ),
+                        track=False,
+                    ))
+
+                content_resolver = None
+                fp_pipeline = None
+                if content_routes:
+                    content_resolver = ContentRouteResolver(content_routes)
+                    fp_pipeline = FilterPipeline(fp_filters, new_config.pipeline)
+
+                new_routes[domain_name] = DomainRoute(
+                    domain=domain_name,
+                    config=domain_config,
+                    profile=profile,
+                    pipeline=pipeline,
+                    content_resolver=content_resolver,
+                    fingerprint_pipeline=fp_pipeline,
+                )
+
+            # Build new circuit breakers, preserving state for unchanged upstreams
+            new_breakers: dict[str, CircuitBreaker] = {}
+            for domain_name, domain_config in new_config.domains.items():
+                all_upstreams = [domain_config.upstream] + list(domain_config.backup_upstreams)
+                for upstream in all_upstreams:
+                    if upstream not in new_breakers:
+                        if upstream in old_breakers:
+                            # Preserve existing breaker state if upstream unchanged
+                            new_breakers[upstream] = old_breakers[upstream]
+                        else:
+                            new_breakers[upstream] = CircuitBreaker(
+                                upstream=upstream,
+                                failure_threshold=domain_config.circuit_breaker_threshold,
+                                recovery_timeout=domain_config.circuit_breaker_cooldown,
+                            )
+        except Exception:
+            # Restore old config on build failure
+            self.config = old_config
+            raise
+
+        # Atomic swap under lock
+        async with self._routes_lock:
+            self.routes = new_routes
+            self._breakers = new_breakers
+
+        # Update intel/whitelists for new config
+        self._domain_whitelists.clear()
+        for domain_name, domain_config in new_config.domains.items():
+            if domain_config.whitelist_cidrs:
+                wl = CIDRList(name=f"whitelist:{domain_name}")
+                wl.add_many(domain_config.whitelist_cidrs)
+                self.intel.enrich_cidr_list(wl)
+                self._domain_whitelists[domain_name] = wl
+
+        log.info("routes_swapped", domains=list(new_routes.keys()))
 
     def resolve(self, request: Request) -> DomainRoute | None:
         """Find the DomainRoute for a request based on Host header."""
@@ -203,6 +392,15 @@ class DomainRouter:
                 host=request.headers.get("host", ""),
                 path=request.url.path,
             )
+            # Use the first domain's drop action so unmatched hosts see
+            # the decoy site instead of a suspicious bare 404
+            if self.routes:
+                first_route = next(iter(self.routes.values()))
+                return await handle_drop(
+                    request, first_route.config.drop_action,
+                    reason="no matching domain",
+                    pages_dir=self.config.decoy_pages_dir,
+                )
             return Response(status_code=404, content=b"Not Found")
 
         # Parse client IP
@@ -215,8 +413,48 @@ class DomainRouter:
         else:
             client_ip = ip_address("0.0.0.0")
 
-        # ── Content route check (before C2 pipeline) ─────────────
+        # ── IP check before content routes (OPSEC-06) ────────────
         if route.content_resolver:
+            if route.config.content_route_filter == "full_pipeline":
+                # Full pipeline evaluation before content routes
+                body = await request.body()
+                ctx = RequestContext(
+                    request=request,
+                    client_ip=client_ip,
+                    domain_config=route.config,
+                    profile=route.profile,
+                    metadata={"body": body},
+                )
+                pre_result = await route.pipeline.evaluate(ctx)
+                if not pre_result.allowed:
+                    log.warning(
+                        "request_dropped_before_content",
+                        domain=route.domain,
+                        client=str(client_ip),
+                        path=request.url.path,
+                        reasons=pre_result.blocking_reasons,
+                    )
+                    return await handle_drop(
+                        request, route.config.drop_action,
+                        reason="full_pipeline_block_before_content",
+                        pages_dir=self.config.decoy_pages_dir,
+                    )
+            else:
+                # Default "ip_only": fast blocklist check only
+                if self.intel and self.intel.is_blocked(client_ip):
+                    log.warning(
+                        "ip_blocked_before_content_route",
+                        domain=route.domain,
+                        client=str(client_ip),
+                        path=request.url.path,
+                    )
+                    return await handle_drop(
+                        request, route.config.drop_action,
+                        reason="ip_blocked_before_content_route",
+                        pages_dir=self.config.decoy_pages_dir,
+                    )
+
+            # Now safe to check content routes
             content_match = route.content_resolver.match(request)
             if content_match is not None:
                 content_match.domain = route.domain
@@ -244,9 +482,61 @@ class DomainRouter:
                 path=request.url.path,
                 score=round(result.total_score, 2),
             )
-            response = await self.proxy.forward(request, route.config.upstream)
+            # Build ordered upstream list: primary + backups
+            upstreams = [route.config.upstream] + list(route.config.backup_upstreams)
+            response = None
             filter_result_str = "allow"
             filter_reason = None
+
+            for i, upstream in enumerate(upstreams):
+                try:
+                    breaker = self._breakers.get(upstream)
+                    if breaker:
+                        response = await breaker.call(
+                            self.proxy.forward,
+                            request,
+                            upstream,
+                            domain_config=route.config,
+                            reraise_transport_errors=True,
+                        )
+                    else:
+                        response = await self.proxy.forward(
+                            request, upstream, domain_config=route.config,
+                        )
+                    break  # Success — stop trying upstreams
+                except CircuitOpenError:
+                    log.warning(
+                        "upstream_circuit_open",
+                        domain=route.domain,
+                        upstream=upstream,
+                        backup_index=i,
+                    )
+                    continue  # Try next upstream
+                except (httpx.TimeoutException, httpx.ConnectError):
+                    log.warning(
+                        "upstream_failover",
+                        domain=route.domain,
+                        upstream=upstream,
+                        backup_index=i,
+                    )
+                    continue  # Try next upstream
+
+            if response is None:
+                # All upstreams exhausted
+                log.error(
+                    "all_upstreams_failed",
+                    domain=route.domain,
+                    upstreams=upstreams,
+                )
+                response = await handle_drop(
+                    request,
+                    route.config.drop_action,
+                    reason="all_upstreams_failed",
+                    pages_dir=self.config.decoy_pages_dir,
+                )
+                filter_result_str = "block"
+                filter_reason = "all_upstreams_failed"
+
             status_code = response.status_code
         else:
             log.warning(
@@ -261,10 +551,20 @@ class DomainRouter:
                 request,
                 route.config.drop_action,
                 reason=result.summary,
+                pages_dir=self.config.decoy_pages_dir,
             )
             filter_result_str = "block"
             filter_reason = "; ".join(result.blocking_reasons) or result.summary
             status_code = response.status_code
+
+        # Timing normalization: add random jitter to prevent side-channel
+        # analysis that could distinguish proxied vs locally-generated responses.
+        if self.config.timing.enabled:
+            jitter_ms = random.randint(
+                self.config.timing.min_delay_ms,
+                self.config.timing.max_delay_ms,
+            )
+            await asyncio.sleep(jitter_ms / 1000.0)
 
         # Record the request to the tracking database
         duration_ms = (time.perf_counter() - start) * 1000

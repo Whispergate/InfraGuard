@@ -54,24 +54,24 @@ class GeoIPLookup:
             try:
                 self._city_reader = maxminddb.open_database(city_db)
                 log.info("geoip_loaded", type="city", path=city_db)
-            except Exception:
-                log.exception("geoip_load_error", type="city", path=city_db)
+            except Exception as e:
+                log.exception("geoip_load_error", type="city", path=city_db, error_type=type(e).__name__)
 
         # Country DB (fallback if no City DB)
         if country_db and Path(country_db).exists():
             try:
                 self._country_reader = maxminddb.open_database(country_db)
                 log.info("geoip_loaded", type="country", path=country_db)
-            except Exception:
-                log.exception("geoip_load_error", type="country", path=country_db)
+            except Exception as e:
+                log.exception("geoip_load_error", type="country", path=country_db, error_type=type(e).__name__)
 
         # ASN DB (separate - provides ASN + org)
         if asn_db and Path(asn_db).exists():
             try:
                 self._asn_reader = maxminddb.open_database(asn_db)
                 log.info("geoip_loaded", type="asn", path=asn_db)
-            except Exception:
-                log.exception("geoip_load_error", type="asn", path=asn_db)
+            except Exception as e:
+                log.exception("geoip_load_error", type="asn", path=asn_db, error_type=type(e).__name__)
 
     def lookup(self, ip: str) -> GeoInfo:
         info = GeoInfo()
@@ -89,8 +89,8 @@ class GeoIPLookup:
                     # City is only in the City DB
                     if self._city_reader:
                         info.city = data.get("city", {}).get("names", {}).get("en")
-            except Exception:
-                pass
+            except (ValueError, TypeError, KeyError) as e:
+                log.warning("geoip_lookup_error", ip=str(ip), error_type=type(e).__name__, error=str(e))
 
         # ASN from ASN DB
         if self._asn_reader:
@@ -99,8 +99,8 @@ class GeoIPLookup:
                 if data:
                     info.asn = data.get("autonomous_system_number")
                     info.org = data.get("autonomous_system_organization")
-            except Exception:
-                pass
+            except (ValueError, TypeError, KeyError) as e:
+                log.warning("geoip_lookup_error", ip=str(ip), error_type=type(e).__name__, error=str(e))
 
         return info
 

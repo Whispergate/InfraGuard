@@ -10,6 +10,7 @@ import structlog
 
 from infraguard.config.schema import IntelConfig
 from infraguard.intel.dns import reverse_dns
+from infraguard.intel.cloud_ranges import cloud_range_refresh_loop, update_cloud_ranges
 from infraguard.intel.feeds import feed_refresh_loop, load_feed_cache, update_feeds
 from infraguard.intel.geoip import GeoIPLookup, GeoInfo
 from infraguard.intel.ip_lists import CIDRList, DynamicWhitelist
@@ -38,12 +39,15 @@ class IntelManager:
         self.blocklist = CIDRList(name="blocklist")
         if config.auto_block_scanners:
             self.blocklist.add_many(SECURITY_VENDOR_CIDRS)
-        if config.banned_ip_file:
+        if config.banned_ip_file and not config.banned_ip_file.startswith("${"):
             from pathlib import Path
             if Path(config.banned_ip_file).exists():
                 self.blocklist.load_file(config.banned_ip_file)
             else:
-                log.info("banned_ip_file_not_found", path=config.banned_ip_file, hint="Run: infraguard ingest rules/.htaccess --format blocklist -o rules/banned_ips.txt")
+                log.info("banned_ip_file_not_found", path=config.banned_ip_file)
+
+        # Auto-ingest .htaccess and robots.txt from rules directory
+        self._auto_ingest_rules(config)
 
         # Whitelist (operator-defined, per-domain whitelists are separate)
         self.whitelist = CIDRList(name="whitelist")
@@ -67,6 +71,10 @@ class IntelManager:
         )
 
         self._feed_task: asyncio.Task | None = None
+        self._cloud_range_task: asyncio.Task | None = None
+
+        # Enrich whitelists with GeoIP/ASN data
+        self._enrich_whitelists()
 
         # Enrich whitelists with GeoIP/ASN data
         self._enrich_whitelists()
@@ -76,6 +84,41 @@ class IntelManager:
             blocklist_size=self.blocklist.size,
             blocked_countries=len(config.blocked_countries),
         )
+
+    def _auto_ingest_rules(self, config: IntelConfig) -> None:
+        """Scan the rules directory for .htaccess and robots.txt files and ingest them."""
+        from pathlib import Path
+
+        rules_dir = config.rules_dir
+        if not rules_dir or rules_dir.startswith("${"):
+            return
+
+        rules_path = Path(rules_dir)
+        if not rules_path.is_dir():
+            return
+
+        # Find all ingestable files
+        rule_files: list[Path] = []
+        for pattern in ("*.htaccess", ".htaccess", "htaccess", "robots.txt", "*.txt"):
+            rule_files.extend(rules_path.glob(pattern))
+        # Deduplicate
+        rule_files = list(set(rule_files))
+
+        if not rule_files:
+            return
+
+        from infraguard.intel.rule_ingest import ingest_files
+
+        result = ingest_files([str(f) for f in rule_files])
+        if result.blocked_ips:
+            self.blocklist.add_many(result.blocked_ips)
+            log.info(
+                "rules_auto_ingested",
+                files=len(rule_files),
+                blocked_ips=len(result.blocked_ips),
+                blocked_user_agents=len(result.blocked_user_agents),
+                source_files=[f.name for f in rule_files],
+            )
 
     def _enrich_whitelists(self) -> None:
         """Enrich all whitelisted CIDRs with GeoIP/ASN metadata on startup."""
@@ -118,14 +161,30 @@ class IntelManager:
             )
             log.info("feed_refresh_started", interval_hours=self.config.feeds.refresh_interval_hours)
 
+        # Cloud provider IP range blocking
+        if self.config.cloud_ranges.enabled:
+            self._cloud_range_task = asyncio.create_task(
+                cloud_range_refresh_loop(
+                    self.blocklist,
+                    providers=self.config.cloud_ranges.providers,
+                    interval_hours=self.config.cloud_ranges.refresh_interval_hours,
+                )
+            )
+            log.info(
+                "cloud_range_refresh_started",
+                providers=self.config.cloud_ranges.providers,
+                interval_hours=self.config.cloud_ranges.refresh_interval_hours,
+            )
+
     async def stop_feed_refresh(self) -> None:
-        """Stop the background feed refresh task."""
-        if self._feed_task:
-            self._feed_task.cancel()
-            try:
-                await self._feed_task
-            except asyncio.CancelledError:
-                pass
+        """Stop the background feed and cloud range refresh tasks."""
+        for task in (self._feed_task, self._cloud_range_task):
+            if task:
+                task.cancel()
+                try:
+                    await task
+                except asyncio.CancelledError:
+                    pass
 
     async def classify(self, ip: IPv4Address | IPv6Address) -> IPClassification:
         ip_str = str(ip)
@@ -171,7 +230,7 @@ class IntelManager:
             result.reason = f"Blocked country: {geo.country_code}"
             return result
 
-        # ASN checks: same logic — allowed_asns whitelist, blocked_asns blocklist
+        # ASN checks: same logic - allowed_asns whitelist, blocked_asns blocklist
         if self.config.allowed_asns and geo.asn:
             if geo.asn not in self.config.allowed_asns:
                 result.is_blocked = True
@@ -186,6 +245,20 @@ class IntelManager:
         result.rdns = await reverse_dns(ip_str)
 
         return result
+
+    def is_blocked(self, ip: IPv4Address | IPv6Address) -> bool:
+        """Fast synchronous blocklist check (ip_only mode).
+
+        Returns True if the IP is in the blocklist AND not in the whitelist
+        or dynamic whitelist. Does NOT perform GeoIP/ASN/DNS lookups.
+        """
+        ip_str = str(ip)
+        # Whitelisted IPs are never blocked
+        if self.dynamic_whitelist.is_whitelisted(ip_str):
+            return False
+        if self.whitelist.contains(ip):
+            return False
+        return self.blocklist.contains(ip)
 
     def record_valid_request(self, ip: str) -> None:
         """Record a valid C2 request for dynamic whitelisting."""

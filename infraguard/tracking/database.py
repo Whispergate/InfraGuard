@@ -2,6 +2,8 @@
 
 from __future__ import annotations
 
+import asyncio
+from datetime import datetime, timedelta, timezone
 from pathlib import Path
 
 import aiosqlite
@@ -57,6 +59,29 @@ CREATE TABLE IF NOT EXISTS dynamic_whitelist (
     last_seen TEXT,
     whitelisted_at TEXT
 );
+
+CREATE TABLE IF NOT EXISTS sessions (
+    session_id TEXT PRIMARY KEY,
+    token_hash TEXT NOT NULL,
+    created_at TEXT NOT NULL,
+    expires_at TEXT NOT NULL,
+    client_ip TEXT NOT NULL DEFAULT ''
+);
+
+CREATE INDEX IF NOT EXISTS idx_sessions_expires_at ON sessions(expires_at);
+
+CREATE TABLE IF NOT EXISTS audit_log (
+    id INTEGER PRIMARY KEY AUTOINCREMENT,
+    timestamp TEXT NOT NULL,
+    action TEXT NOT NULL,
+    operator TEXT DEFAULT '',
+    client_ip TEXT DEFAULT '',
+    details TEXT DEFAULT '',
+    resource TEXT DEFAULT ''
+);
+
+CREATE INDEX IF NOT EXISTS idx_audit_log_timestamp ON audit_log(timestamp);
+CREATE INDEX IF NOT EXISTS idx_audit_log_action ON audit_log(action);
 """
 
 
@@ -66,8 +91,13 @@ class Database:
     def __init__(self, db_path: str = "infraguard.db"):
         self.db_path = db_path
         self._conn: aiosqlite.Connection | None = None
+        self._write_lock = asyncio.Lock()
 
     async def connect(self) -> None:
+        # Ensure the parent directory exists
+        db_dir = Path(self.db_path).parent
+        db_dir.mkdir(parents=True, exist_ok=True)
+
         self._conn = await aiosqlite.connect(self.db_path)
         # Enable WAL mode for better concurrent read/write performance
         await self._conn.execute("PRAGMA journal_mode=WAL")
@@ -90,6 +120,17 @@ class Database:
             )
             log.info("migration_applied", column="protocol")
 
+        # Ensure sessions table has expected columns (migration for older DBs)
+        cursor = await self._conn.execute("PRAGMA table_info(sessions)")
+        rows = await cursor.fetchall()
+        session_cols = {row[1] for row in rows}
+
+        if "client_ip" not in session_cols and session_cols:
+            await self._conn.execute(
+                "ALTER TABLE sessions ADD COLUMN client_ip TEXT NOT NULL DEFAULT ''"
+            )
+            log.info("migration_applied", column="sessions.client_ip")
+
     async def close(self) -> None:
         if self._conn:
             await self._conn.close()
@@ -101,12 +142,24 @@ class Database:
             raise RuntimeError("Database not connected. Call connect() first.")
         return self._conn
 
+    @staticmethod
+    def _is_write(sql: str) -> bool:
+        """Return True if the SQL statement is a write operation."""
+        first_word = sql.strip().split()[0].upper() if sql.strip() else ""
+        return first_word in {"INSERT", "UPDATE", "DELETE", "CREATE", "ALTER", "DROP", "REPLACE"}
+
     async def execute(self, sql: str, params: tuple = ()) -> aiosqlite.Cursor:
+        if self._is_write(sql):
+            async with self._write_lock:
+                cursor = await self.conn.execute(sql, params)
+                await self.conn.commit()
+                return cursor
         return await self.conn.execute(sql, params)
 
     async def executemany(self, sql: str, params_list: list[tuple]) -> None:
-        await self.conn.executemany(sql, params_list)
-        await self.conn.commit()
+        async with self._write_lock:
+            await self.conn.executemany(sql, params_list)
+            await self.conn.commit()
 
     async def fetchone(self, sql: str, params: tuple = ()) -> dict | None:
         self.conn.row_factory = aiosqlite.Row
@@ -121,3 +174,74 @@ class Database:
         cursor = await self.conn.execute(sql, params)
         rows = await cursor.fetchall()
         return [dict(r) for r in rows]
+
+    # ── Session helpers ────────────────────────────────────────────────
+
+    async def create_session(self, session_id: str, token_hash: str, ttl: int, client_ip: str = "") -> None:
+        """Insert a new session row."""
+        now = datetime.now(timezone.utc)
+        expires = now + timedelta(seconds=ttl)
+        await self.execute(
+            "INSERT INTO sessions (session_id, token_hash, created_at, expires_at, client_ip) VALUES (?, ?, ?, ?, ?)",
+            (session_id, token_hash, now.isoformat(), expires.isoformat(), client_ip),
+        )
+
+    async def get_session(self, session_id: str) -> dict | None:
+        """Fetch a session row by session_id."""
+        return await self.fetchone(
+            "SELECT * FROM sessions WHERE session_id = ?", (session_id,)
+        )
+
+    async def delete_session(self, session_id: str) -> None:
+        """Delete a single session by session_id."""
+        await self.execute("DELETE FROM sessions WHERE session_id = ?", (session_id,))
+
+    async def delete_expired_sessions(self) -> int:
+        """Delete all sessions where expires_at < now. Returns count deleted."""
+        now = datetime.now(timezone.utc).isoformat()
+        cursor = await self.execute("DELETE FROM sessions WHERE expires_at < ?", (now,))
+        return cursor.rowcount
+
+    # ── Audit log helpers ─────────────────────────────────────────────
+
+    async def audit(
+        self,
+        action: str,
+        operator: str = "",
+        client_ip: str = "",
+        details: str = "",
+        resource: str = "",
+    ) -> None:
+        """Record an operator action in the audit log.
+
+        Args:
+            action: Action type (e.g. "login", "block_ip", "unblock_ip",
+                    "config_reload", "whitelist_add").
+            operator: Identifier for the operator (token prefix or session).
+            client_ip: IP address of the operator's client.
+            details: Free-form description of what changed.
+            resource: The resource acted upon (IP, domain, etc.).
+        """
+        now = datetime.now(timezone.utc).isoformat()
+        await self.execute(
+            "INSERT INTO audit_log (timestamp, action, operator, client_ip, details, resource) "
+            "VALUES (?, ?, ?, ?, ?, ?)",
+            (now, action, operator, client_ip, details, resource),
+        )
+
+    async def get_audit_log(
+        self,
+        limit: int = 100,
+        offset: int = 0,
+        action: str | None = None,
+    ) -> list[dict]:
+        """Retrieve audit log entries, newest first."""
+        if action:
+            return await self.fetchall(
+                "SELECT * FROM audit_log WHERE action = ? ORDER BY timestamp DESC LIMIT ? OFFSET ?",
+                (action, limit, offset),
+            )
+        return await self.fetchall(
+            "SELECT * FROM audit_log ORDER BY timestamp DESC LIMIT ? OFFSET ?",
+            (limit, offset),
+        )

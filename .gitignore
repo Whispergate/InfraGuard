@@ -223,3 +223,6 @@ __marimo__/
 # Vendor source (cloned at build time, not tracked)
 vendor/pwndrop/pwndrop/
 images/.$InfraGuard Infrastructure Diagram.drawio.bkp
+.planning/*
+.claude
+.infraguard-deploy
