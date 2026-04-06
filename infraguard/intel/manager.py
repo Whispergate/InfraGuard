@@ -76,6 +76,9 @@ class IntelManager:
         # Enrich whitelists with GeoIP/ASN data
         self._enrich_whitelists()
 
+        # Enrich whitelists with GeoIP/ASN data
+        self._enrich_whitelists()
+
         log.info(
             "intel_manager_ready",
             blocklist_size=self.blocklist.size,

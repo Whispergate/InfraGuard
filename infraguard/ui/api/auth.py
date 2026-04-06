@@ -43,6 +43,8 @@ def _record_failed_attempt(ip: str) -> int:
 
 
 SESSION_COOKIE = "ig_session"
+_SESSION_TTL = 86400  # 24 hours
+_MAX_SESSIONS = 1000
 
 
 def _token_hash(token: str) -> str:
