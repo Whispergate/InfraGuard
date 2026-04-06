@@ -74,13 +74,21 @@ class ProxyHandler:
             log.exception("upstream_error", upstream=upstream, path=request.url.path, error_type=type(e).__name__)
             return Response(status_code=502, content=b"Bad Gateway")
 
-        # Sanitize response headers using the whitelist sanitizer
+        # Sanitize response headers using the whitelist sanitizer.
+        # Pass the persona's Server header to maintain cover identity.
         extra = (
             frozenset(domain_config.extra_allowed_headers)
             if domain_config and domain_config.extra_allowed_headers
             else None
         )
-        resp_headers = sanitize_response_headers(dict(resp.headers), extra_allowed=extra)
+        persona_server = None
+        if domain_config and domain_config.drop_action.persona:
+            persona_server = domain_config.drop_action.persona.server_header
+        resp_headers = sanitize_response_headers(
+            dict(resp.headers),
+            extra_allowed=extra,
+            server_header=persona_server,
+        )
 
         return Response(
             content=resp.content,

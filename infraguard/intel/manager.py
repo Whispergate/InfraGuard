@@ -10,6 +10,7 @@ import structlog
 
 from infraguard.config.schema import IntelConfig
 from infraguard.intel.dns import reverse_dns
+from infraguard.intel.cloud_ranges import cloud_range_refresh_loop, update_cloud_ranges
 from infraguard.intel.feeds import feed_refresh_loop, load_feed_cache, update_feeds
 from infraguard.intel.geoip import GeoIPLookup, GeoInfo
 from infraguard.intel.ip_lists import CIDRList, DynamicWhitelist
@@ -70,6 +71,7 @@ class IntelManager:
         )
 
         self._feed_task: asyncio.Task | None = None
+        self._cloud_range_task: asyncio.Task | None = None
 
         # Enrich whitelists with GeoIP/ASN data
         self._enrich_whitelists()
@@ -156,14 +158,30 @@ class IntelManager:
             )
             log.info("feed_refresh_started", interval_hours=self.config.feeds.refresh_interval_hours)
 
+        # Cloud provider IP range blocking
+        if self.config.cloud_ranges.enabled:
+            self._cloud_range_task = asyncio.create_task(
+                cloud_range_refresh_loop(
+                    self.blocklist,
+                    providers=self.config.cloud_ranges.providers,
+                    interval_hours=self.config.cloud_ranges.refresh_interval_hours,
+                )
+            )
+            log.info(
+                "cloud_range_refresh_started",
+                providers=self.config.cloud_ranges.providers,
+                interval_hours=self.config.cloud_ranges.refresh_interval_hours,
+            )
+
     async def stop_feed_refresh(self) -> None:
-        """Stop the background feed refresh task."""
-        if self._feed_task:
-            self._feed_task.cancel()
-            try:
-                await self._feed_task
-            except asyncio.CancelledError:
-                pass
+        """Stop the background feed and cloud range refresh tasks."""
+        for task in (self._feed_task, self._cloud_range_task):
+            if task:
+                task.cancel()
+                try:
+                    await task
+                except asyncio.CancelledError:
+                    pass
 
     async def classify(self, ip: IPv4Address | IPv6Address) -> IPClassification:
         ip_str = str(ip)

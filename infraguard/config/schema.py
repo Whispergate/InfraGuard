@@ -38,10 +38,22 @@ class PersonaConfig(BaseModel):
     extra_headers: dict[str, str] = Field(default_factory=dict)
 
 
+class CanaryConfig(BaseModel):
+    """Honeypot token injection for decoy pages."""
+
+    enabled: bool = False
+    tracking_pixel: bool = True
+    honeypot_link: bool = True
+    honeypot_form: bool = False
+
+
 class DropActionConfig(BaseModel):
     type: DropActionType = DropActionType.REDIRECT
     target: str = "https://www.google.com"
+    rotation_targets: list[str] = Field(default_factory=list)
+    rotation_strategy: str = "random"  # "random" | "round_robin"
     persona: PersonaConfig = Field(default_factory=PersonaConfig)
+    canary: CanaryConfig = Field(default_factory=CanaryConfig)
 
 
 class ContentBackendConfig(BaseModel):
@@ -75,6 +87,7 @@ class ContentRouteConfig(BaseModel):
 
 class DomainConfig(BaseModel):
     upstream: str
+    backup_upstreams: list[str] = Field(default_factory=list)
     profile_path: str = ""
     profile_type: ProfileType = ProfileType.COBALT_STRIKE
     allowed_paths: list[str] = Field(default_factory=list)  # operator-defined path patterns for phishing domains
@@ -96,6 +109,7 @@ class ListenerConfig(BaseModel):
     bind: str = "0.0.0.0"
     port: int = 443
     tls: TLSConfig | None = None
+    http2: bool = False
     domains: list[str] = Field(default_factory=list)
     options: dict[str, Any] = Field(default_factory=dict)
 
@@ -107,6 +121,19 @@ class FeedConfig(BaseModel):
     enabled: bool = True
     require_feeds: bool = False  # if True, startup fails when no feeds fetchable
     staleness_threshold_hours: int = 24
+
+
+class CloudRangeConfig(BaseModel):
+    """Block requests originating from cloud provider IP ranges.
+
+    Useful for blocking sandbox/analysis environments that run in AWS,
+    Azure, or GCP.  Operators whose beacons legitimately run in cloud
+    should either disable this or add those IPs to a whitelist.
+    """
+
+    enabled: bool = False
+    providers: list[str] = Field(default_factory=lambda: ["aws", "azure", "gcp"])
+    refresh_interval_hours: int = 24
 
 
 class IntelConfig(BaseModel):
@@ -123,6 +150,7 @@ class IntelConfig(BaseModel):
     banned_words_file: str | None = None
     rules_dir: str | None = None  # auto-ingest .htaccess / robots.txt on startup
     feeds: FeedConfig = Field(default_factory=FeedConfig)
+    cloud_ranges: CloudRangeConfig = Field(default_factory=CloudRangeConfig)
 
 
 class TrackingConfig(BaseModel):
@@ -148,6 +176,9 @@ class PipelineConfig(BaseModel):
     enable_dns_filter: bool = True
     enable_replay_filter: bool = True
     enable_profile_filter: bool = True
+    enable_fingerprint_filter: bool = False
+    allowed_fingerprints: list[str] = Field(default_factory=list)
+    blocked_fingerprints: list[str] = Field(default_factory=list)
 
 
 class LoggingConfig(BaseModel):
@@ -174,6 +205,26 @@ class PluginSettings(BaseModel):
     options: dict[str, Any] = Field(default_factory=dict)
 
 
+class DeadManConfig(BaseModel):
+    """Dead man's switch - auto-shutdown if operator stops checking in."""
+
+    enabled: bool = False
+    ttl_seconds: int = 86400  # 24 hours
+
+
+class TimingConfig(BaseModel):
+    """Response timing normalization to prevent side-channel analysis.
+
+    When enabled, all responses (both allowed and blocked) are delayed by a
+    random duration within [min_delay_ms, max_delay_ms] to eliminate the
+    timing difference between proxied and locally-generated responses.
+    """
+
+    enabled: bool = False
+    min_delay_ms: int = 50
+    max_delay_ms: int = 200
+
+
 class InfraGuardConfig(BaseModel):
     """Root configuration model for InfraGuard."""
 
@@ -184,6 +235,8 @@ class InfraGuardConfig(BaseModel):
     api: APIConfig = Field(default_factory=APIConfig)
     pipeline: PipelineConfig = Field(default_factory=PipelineConfig)
     logging: LoggingConfig = Field(default_factory=LoggingConfig)
+    timing: TimingConfig = Field(default_factory=TimingConfig)
+    deadman: DeadManConfig = Field(default_factory=DeadManConfig)
     decoy_pages_dir: str = "pages"
     plugins: list[str] = Field(default_factory=list)
     plugin_settings: dict[str, PluginSettings] = Field(default_factory=dict)

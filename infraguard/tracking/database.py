@@ -69,6 +69,19 @@ CREATE TABLE IF NOT EXISTS sessions (
 );
 
 CREATE INDEX IF NOT EXISTS idx_sessions_expires_at ON sessions(expires_at);
+
+CREATE TABLE IF NOT EXISTS audit_log (
+    id INTEGER PRIMARY KEY AUTOINCREMENT,
+    timestamp TEXT NOT NULL,
+    action TEXT NOT NULL,
+    operator TEXT DEFAULT '',
+    client_ip TEXT DEFAULT '',
+    details TEXT DEFAULT '',
+    resource TEXT DEFAULT ''
+);
+
+CREATE INDEX IF NOT EXISTS idx_audit_log_timestamp ON audit_log(timestamp);
+CREATE INDEX IF NOT EXISTS idx_audit_log_action ON audit_log(action);
 """
 
 
@@ -188,3 +201,47 @@ class Database:
         now = datetime.now(timezone.utc).isoformat()
         cursor = await self.execute("DELETE FROM sessions WHERE expires_at < ?", (now,))
         return cursor.rowcount
+
+    # ── Audit log helpers ─────────────────────────────────────────────
+
+    async def audit(
+        self,
+        action: str,
+        operator: str = "",
+        client_ip: str = "",
+        details: str = "",
+        resource: str = "",
+    ) -> None:
+        """Record an operator action in the audit log.
+
+        Args:
+            action: Action type (e.g. "login", "block_ip", "unblock_ip",
+                    "config_reload", "whitelist_add").
+            operator: Identifier for the operator (token prefix or session).
+            client_ip: IP address of the operator's client.
+            details: Free-form description of what changed.
+            resource: The resource acted upon (IP, domain, etc.).
+        """
+        now = datetime.now(timezone.utc).isoformat()
+        await self.execute(
+            "INSERT INTO audit_log (timestamp, action, operator, client_ip, details, resource) "
+            "VALUES (?, ?, ?, ?, ?, ?)",
+            (now, action, operator, client_ip, details, resource),
+        )
+
+    async def get_audit_log(
+        self,
+        limit: int = 100,
+        offset: int = 0,
+        action: str | None = None,
+    ) -> list[dict]:
+        """Retrieve audit log entries, newest first."""
+        if action:
+            return await self.fetchall(
+                "SELECT * FROM audit_log WHERE action = ? ORDER BY timestamp DESC LIMIT ? OFFSET ?",
+                (action, limit, offset),
+            )
+        return await self.fetchall(
+            "SELECT * FROM audit_log ORDER BY timestamp DESC LIMIT ? OFFSET ?",
+            (limit, offset),
+        )

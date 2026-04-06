@@ -3,7 +3,9 @@
 from __future__ import annotations
 
 import asyncio
+import itertools
 import mimetypes
+import random
 from pathlib import Path
 
 import httpx
@@ -11,12 +13,33 @@ import structlog
 from starlette.requests import Request
 from starlette.responses import FileResponse, RedirectResponse, Response, StreamingResponse
 
-from infraguard.config.schema import DropActionConfig, PersonaConfig
+from infraguard.config.schema import CanaryConfig, DropActionConfig, PersonaConfig
 from infraguard.core.headers import sanitize_response_headers
 from infraguard.core.ssl_context import build_ssl_context
+from infraguard.intel.canary import inject_all_canaries
 from infraguard.models.common import DropActionType
 
 log = structlog.get_logger()
+
+# Per-config round-robin state (maps config id to cycle iterator)
+_round_robin_cycles: dict[int, itertools.cycle] = {}
+
+
+def _select_target(config: DropActionConfig) -> str:
+    """Select the effective target, applying rotation if configured."""
+    if not config.rotation_targets:
+        return config.target
+
+    all_targets = [config.target] + config.rotation_targets
+
+    if config.rotation_strategy == "round_robin":
+        cfg_id = id(config)
+        if cfg_id not in _round_robin_cycles:
+            _round_robin_cycles[cfg_id] = itertools.cycle(all_targets)
+        return next(_round_robin_cycles[cfg_id])
+
+    # Default: random
+    return random.choice(all_targets)
 
 
 async def handle_drop(
@@ -28,30 +51,34 @@ async def handle_drop(
 ) -> Response:
     """Execute the configured drop action for a blocked request."""
     resolved_persona = persona or config.persona or PersonaConfig()
+    target = _select_target(config)
 
     log.info(
         "request_blocked",
         action=config.type.value,
-        target=config.target,
+        target=target,
         reason=reason,
         client=request.client.host if request.client else "unknown",
         path=request.url.path,
     )
 
     if config.type == DropActionType.REDIRECT:
-        return RedirectResponse(url=config.target, status_code=302)
+        return RedirectResponse(url=target, status_code=302)
 
     elif config.type == DropActionType.RESET:
         return Response(status_code=444, content=b"")
 
     elif config.type == DropActionType.PROXY:
-        return await _proxy_decoy(config.target, request, resolved_persona)
+        return await _proxy_decoy(target, request, resolved_persona)
 
     elif config.type == DropActionType.TARPIT:
         return await _tarpit_response(resolved_persona)
 
     elif config.type == DropActionType.DECOY:
-        return _serve_decoy_spa(config.target, request, pages_dir, resolved_persona)
+        return _serve_decoy_spa(
+            target, request, pages_dir, resolved_persona,
+            canary=config.canary,
+        )
 
     # Fallback - persona-consistent 404
     return Response(
@@ -141,6 +168,7 @@ def _serve_decoy_spa(
     request: Request,
     pages_dir: str,
     persona: PersonaConfig,
+    canary: CanaryConfig | None = None,
 ) -> Response:
     """Serve a local SPA from the pages directory.
 
@@ -197,4 +225,20 @@ def _serve_decoy_spa(
             )
 
     content_type, _ = mimetypes.guess_type(str(file_path))
+
+    # Inject canary tokens into HTML responses
+    if canary and canary.enabled and content_type and "html" in content_type:
+        html = file_path.read_text(encoding="utf-8")
+        html = inject_all_canaries(
+            html,
+            enable_pixel=canary.tracking_pixel,
+            enable_honeypot_link=canary.honeypot_link,
+            enable_honeypot_form=canary.honeypot_form,
+        )
+        return Response(
+            content=html,
+            media_type=content_type,
+            headers={"Server": persona.server_header, **persona.extra_headers},
+        )
+
     return FileResponse(str(file_path), media_type=content_type)
