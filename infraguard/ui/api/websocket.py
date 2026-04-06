@@ -57,7 +57,8 @@ class EventBroadcaster:
             session_id = ws.cookies.get(SESSION_COOKIE, "")
 
             token_ok = token and hmac.compare_digest(token, expected_token)
-            session_ok = session_id and validate_session(session_id, expected_token)
+            db = ws.app.state.db
+            session_ok = session_id and await validate_session(db, session_id, expected_token)
 
             if not token_ok and not session_ok:
                 await ws.close(code=4003)

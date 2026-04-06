@@ -11,56 +11,63 @@ import hashlib
 import hmac
 import secrets
 import time
+from collections import defaultdict
+from datetime import datetime, timezone
 
+import structlog
 from starlette.requests import Request
 from starlette.responses import JSONResponse
 
-# Session tokens mapped to (token_hash, created_at)
-_sessions: dict[str, tuple[str, float]] = {}
+from infraguard.tracking.database import Database
+
+log = structlog.get_logger()
+
+# ── Per-IP rate limiting for failed login attempts ────────────────────
+_rate_limit: dict[str, list[float]] = defaultdict(list)
+_RATE_WINDOW = 60.0  # seconds
+_MAX_ATTEMPTS = 5
+
+
+def _check_rate_limit(ip: str) -> bool:
+    """Return True if the IP is rate-limited (should be blocked)."""
+    now = time.monotonic()
+    # Prune expired attempts
+    _rate_limit[ip] = [t for t in _rate_limit[ip] if now - t < _RATE_WINDOW]
+    return len(_rate_limit[ip]) >= _MAX_ATTEMPTS
+
+
+def _record_failed_attempt(ip: str) -> int:
+    """Record a failed attempt and return current count in window."""
+    _rate_limit[ip].append(time.monotonic())
+    return len(_rate_limit[ip])
+
 
 SESSION_COOKIE = "ig_session"
-_SESSION_TTL = 86400  # 24 hours
-_MAX_SESSIONS = 1000
 
 
 def _token_hash(token: str) -> str:
     return hashlib.sha256(token.encode()).hexdigest()
 
 
-def _evict_expired() -> None:
-    """Remove expired sessions and enforce max count."""
-    now = time.time()
-    expired = [sid for sid, (_, ts) in _sessions.items() if now - ts > _SESSION_TTL]
-    for sid in expired:
-        del _sessions[sid]
-    # If still over limit, evict oldest
-    if len(_sessions) > _MAX_SESSIONS:
-        by_age = sorted(_sessions.items(), key=lambda x: x[1][1])
-        for sid, _ in by_age[: len(_sessions) - _MAX_SESSIONS]:
-            del _sessions[sid]
-
-
-def create_session(api_token: str) -> str:
-    """Create a session ID that maps to the given API token."""
-    _evict_expired()
+async def create_session(db: Database, api_token: str, ttl: int, client_ip: str = "") -> str:
+    """Create a session ID backed by SQLite and return the session_id."""
     session_id = secrets.token_urlsafe(32)
-    _sessions[session_id] = (_token_hash(api_token), time.time())
+    await db.create_session(session_id, _token_hash(api_token), ttl, client_ip)
     return session_id
 
 
-def validate_session(session_id: str, expected_token: str) -> bool:
-    """Check if a session ID is valid and not expired."""
-    entry = _sessions.get(session_id)
-    if not entry:
+async def validate_session(db: Database, session_id: str, expected_token: str) -> bool:
+    """Check if a session ID is valid and not expired against the SQLite store."""
+    row = await db.get_session(session_id)
+    if not row:
         return False
-    stored_hash, created_at = entry
-    if time.time() - created_at > _SESSION_TTL:
-        del _sessions[session_id]
+    if datetime.fromisoformat(row["expires_at"]) < datetime.now(timezone.utc):
+        await db.delete_session(session_id)
         return False
-    return hmac.compare_digest(stored_hash, _token_hash(expected_token))
+    return row["token_hash"] == _token_hash(expected_token)
 
 
-def check_auth(request: Request, expected_token: str | None) -> JSONResponse | None:
+async def check_auth(request: Request, expected_token: str | None) -> JSONResponse | None:
     """Validate bearer token or session cookie. Returns error response or None if valid."""
     if not expected_token:
         return None  # Auth disabled
@@ -75,8 +82,10 @@ def check_auth(request: Request, expected_token: str | None) -> JSONResponse | N
 
     # Check session cookie (web dashboard)
     session_id = request.cookies.get(SESSION_COOKIE)
-    if session_id and validate_session(session_id, expected_token):
-        return None
+    if session_id:
+        db: Database = request.app.state.db
+        if await validate_session(db, session_id, expected_token):
+            return None
 
     return JSONResponse({"error": "Authentication required"}, status_code=401)
 
@@ -89,13 +98,28 @@ async def login_handler(request: Request) -> JSONResponse:
         # Auth disabled, just return success
         return JSONResponse({"status": "ok", "message": "Auth disabled"})
 
+    client_ip = request.client.host if request.client else "unknown"
+
+    # Rate limit check before token validation
+    if _check_rate_limit(client_ip):
+        log.warning("auth_locked", client_ip=client_ip)
+        return JSONResponse(
+            {"error": "Too many attempts. Try again later."},
+            status_code=429,
+        )
+
     body = await request.json()
     token = body.get("token", "")
 
     if not token or not hmac.compare_digest(token, expected_token):
+        attempt_count = _record_failed_attempt(client_ip)
+        log.warning("auth_failed", client_ip=client_ip, attempts=attempt_count)
         return JSONResponse({"error": "Invalid token"}, status_code=403)
 
-    session_id = create_session(expected_token)
+    db: Database = request.app.state.db
+    ttl: int = request.app.state.config.api.session_ttl
+    session_id = await create_session(db, expected_token, ttl, client_ip)
+    log.info("auth_success", client_ip=client_ip, session_created=True)
     response = JSONResponse({"status": "ok"})
     # Set Secure flag based on whether the request arrived over HTTPS
     is_secure = request.url.scheme == "https" or request.headers.get("x-forwarded-proto") == "https"
@@ -105,7 +129,7 @@ async def login_handler(request: Request) -> JSONResponse:
         httponly=True,
         secure=is_secure,
         samesite="strict",
-        max_age=86400,  # 24 hours
+        max_age=ttl,
     )
     return response
 
@@ -114,7 +138,8 @@ async def logout_handler(request: Request) -> JSONResponse:
     """POST /api/auth/logout -- clear session cookie."""
     session_id = request.cookies.get(SESSION_COOKIE)
     if session_id:
-        _sessions.pop(session_id, None)
+        db: Database = request.app.state.db
+        await db.delete_session(session_id)
     response = JSONResponse({"status": "ok"})
     response.delete_cookie(SESSION_COOKIE)
     return response
@@ -126,7 +151,7 @@ async def check_handler(request: Request) -> JSONResponse:
     if not expected_token:
         return JSONResponse({"authenticated": True, "auth_required": False})
 
-    error = check_auth(request, expected_token)
+    error = await check_auth(request, expected_token)
     if error:
         return JSONResponse({"authenticated": False, "auth_required": True})
     return JSONResponse({"authenticated": True, "auth_required": True})

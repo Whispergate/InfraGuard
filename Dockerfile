@@ -10,6 +10,7 @@ WORKDIR /app
 COPY pyproject.toml README.md ./
 COPY infraguard/ infraguard/
 COPY examples/ examples/
+COPY pages/ pages/
 
 RUN pip install --no-cache-dir ".[all]"
 

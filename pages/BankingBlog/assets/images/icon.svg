@@ -1,0 +1,14 @@
+<svg width="100%" viewBox="0 0 200 200" xmlns="http://www.w3.org/2000/svg">
+  <!-- Bank building -->
+  <polygon points="100,40 160,70 40,70" fill="#c69026" fill-opacity="0.15" stroke="#c69026" stroke-width="3" stroke-linejoin="round"/>
+  <rect x="40" y="70" width="120" height="8" rx="2" fill="#c69026"/>
+  <!-- Pillars -->
+  <rect x="55" y="82" width="10" height="60" rx="2" fill="#c69026"/>
+  <rect x="80" y="82" width="10" height="60" rx="2" fill="#c69026"/>
+  <rect x="110" y="82" width="10" height="60" rx="2" fill="#c69026"/>
+  <rect x="135" y="82" width="10" height="60" rx="2" fill="#c69026"/>
+  <!-- Base -->
+  <rect x="40" y="142" width="120" height="12" rx="3" fill="#c69026"/>
+  <!-- Steps -->
+  <rect x="32" y="154" width="136" height="8" rx="2" fill="#c69026" opacity="0.5"/>
+</svg>

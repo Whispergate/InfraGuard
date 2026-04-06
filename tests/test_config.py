@@ -2,6 +2,8 @@
 
 import os
 import tempfile
+from pathlib import Path
+from unittest.mock import patch
 
 import pytest
 
@@ -177,3 +179,123 @@ class TestSchemaModels:
         )
         assert ps.enabled is False
         assert ps.options["url"] == "https://example.com"
+
+    def test_domain_config_circuit_breaker_defaults(self):
+        """DomainConfig has circuit_breaker_threshold and circuit_breaker_cooldown fields."""
+        dc = DomainConfig(upstream="https://test:443", profile_path="test.profile")
+        assert dc.circuit_breaker_threshold == 5
+        assert dc.circuit_breaker_cooldown == 30.0
+
+
+class TestStartupValidation:
+    """Startup profile path validation in DomainRouter (RESL-03)."""
+
+    def _make_config(self, domains: dict) -> "InfraGuardConfig":
+        from infraguard.config.schema import (
+            DropActionConfig,
+            InfraGuardConfig,
+            ListenerConfig,
+            PipelineConfig,
+        )
+        return InfraGuardConfig(
+            listeners=[ListenerConfig(protocol="https", bind="127.0.0.1", port=8443)],
+            domains=domains,
+            pipeline=PipelineConfig(
+                enable_ip_filter=False,
+                enable_bot_filter=False,
+                enable_header_filter=False,
+                enable_dns_filter=False,
+                enable_replay_filter=False,
+            ),
+        )
+
+    def test_profile_valid_path_initializes_without_error(self, tmp_path: Path):
+        """Test 1: Valid profile_path files - DomainRouter initializes without error."""
+        from infraguard.core.router import DomainRouter
+        from unittest.mock import patch, MagicMock
+        from infraguard.profiles.models import C2Profile, HttpTransaction, ClientConfig, ServerConfig, MessageConfig
+
+        profile_file = tmp_path / "test.profile"
+        profile_file.write_text("# profile")
+
+        config = self._make_config({
+            "test.local": DomainConfig(
+                upstream="https://127.0.0.1:9999",
+                profile_path=str(profile_file),
+            )
+        })
+
+        dummy_profile = C2Profile(
+            name="test",
+            http_get=HttpTransaction(
+                verb="GET", uris=["/cb"],
+                client=ClientConfig(
+                    headers={}, message=MessageConfig(location="cookie", name="s"),
+                    transforms=[],
+                ),
+                server=ServerConfig(headers={}),
+            ),
+            http_post=HttpTransaction(
+                verb="POST", uris=["/post"],
+                client=ClientConfig(
+                    headers={}, message=MessageConfig(location="body", name=""),
+                    transforms=[],
+                ),
+                server=ServerConfig(headers={}),
+            ),
+            useragent="Test/1.0",
+        )
+
+        with patch("infraguard.core.router.DomainRouter._load_profile", return_value=dummy_profile):
+            router = DomainRouter(config)
+        assert "test.local" in router.routes
+
+    def test_startup_missing_profile_raises_file_not_found(self, tmp_path: Path):
+        """Test 2: Missing profile_path file - DomainRouter.__init__ raises FileNotFoundError."""
+        from infraguard.core.router import DomainRouter
+
+        missing = tmp_path / "nonexistent.profile"
+        # Do NOT create the file
+
+        config = self._make_config({
+            "test.local": DomainConfig(
+                upstream="https://127.0.0.1:9999",
+                profile_path=str(missing),
+            )
+        })
+
+        with pytest.raises(FileNotFoundError) as exc_info:
+            DomainRouter(config)
+
+        error_msg = str(exc_info.value)
+        assert "test.local" in error_msg
+        assert "nonexistent.profile" in error_msg
+
+    def test_startup_missing_profile_identifies_specific_domain(self, tmp_path: Path):
+        """Test 3: Multiple domains, one missing profile - error names the bad domain."""
+        from infraguard.core.router import DomainRouter
+        from unittest.mock import patch
+        from infraguard.profiles.models import C2Profile, HttpTransaction, ClientConfig, ServerConfig, MessageConfig
+
+        good_file = tmp_path / "good.profile"
+        good_file.write_text("# profile")
+        missing = tmp_path / "bad.profile"
+        # Do NOT create bad.profile
+
+        config = self._make_config({
+            "good.local": DomainConfig(
+                upstream="https://127.0.0.1:9999",
+                profile_path=str(good_file),
+            ),
+            "bad.local": DomainConfig(
+                upstream="https://127.0.0.1:9999",
+                profile_path=str(missing),
+            ),
+        })
+
+        with pytest.raises(FileNotFoundError) as exc_info:
+            DomainRouter(config)
+
+        error_msg = str(exc_info.value)
+        assert "bad.local" in error_msg
+        assert "bad.profile" in error_msg

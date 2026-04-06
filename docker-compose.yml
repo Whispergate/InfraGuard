@@ -12,6 +12,7 @@ services:
       - ./config:/app/config:ro
       - ./examples:/app/examples:ro
       - ./rules:/app/rules:ro
+      - ./pages:/app/pages:ro
       - ./data:/app/data
       - certs:/app/certs:ro
       - geoip:/app/geoip:ro
@@ -60,6 +61,7 @@ services:
   #   /etc/letsencrypt/live/${INFRAGUARD_DOMAIN}/privkey.pem
   #
   # After first run, restart the proxy to pick up the new certs.
+  # docker compose --profile letsencrypt up certbot
   certbot:
     image: certbot/certbot:latest
     container_name: infraguard-certbot
@@ -69,19 +71,19 @@ services:
       - certs:/etc/letsencrypt
       - certbot-www:/var/www/certbot
     entrypoint: /bin/sh
-    command: >
-      -c '
-        if [ "${INFRAGUARD_LETSENCRYPT}" = "true" ]; then
-          certbot certonly --standalone
-            --non-interactive --agree-tos
-            --email ${INFRAGUARD_DOMAIN_EMAIL}
-            -d ${INFRAGUARD_DOMAIN}
-            --preferred-challenges http
-          && echo "Certificate obtained for ${INFRAGUARD_DOMAIN}"
+    command:
+      - -c
+      - |
+        if [ "$${INFRAGUARD_LETSENCRYPT}" = "true" ]; then
+          certbot certonly --standalone \
+            --non-interactive --agree-tos \
+            --email $${INFRAGUARD_DOMAIN_EMAIL} \
+            -d $${INFRAGUARD_DOMAIN} \
+            --preferred-challenges http \
+          && echo "Certificate obtained for $${INFRAGUARD_DOMAIN}"
         else
-          echo "Let'\''s Encrypt disabled (INFRAGUARD_LETSENCRYPT != true)"
+          echo "Let's Encrypt disabled (INFRAGUARD_LETSENCRYPT != true)"
         fi
-      '
     ports:
       - "80:80"
     networks:

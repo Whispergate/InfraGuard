@@ -31,13 +31,14 @@ from infraguard.ui.api.routes.intel import add_blocklist, add_whitelist, classif
 from infraguard.ui.api.routes.nodes import heartbeat_node, list_nodes, register_node
 from infraguard.ui.api.routes.requests import get_requests
 from infraguard.ui.api.routes.stats import get_content_stats, get_stats
+from infraguard.ui.api.metrics import create_metrics_app
 from infraguard.ui.api.websocket import EventBroadcaster
 
 log = structlog.get_logger()
 
 # Paths that don't require authentication
 _PUBLIC_PATHS = frozenset({"/", "", "/api/auth/login", "/api/auth/check"})
-_PUBLIC_PREFIXES = ("/static",)
+_PUBLIC_PREFIXES = ("/static", "/metrics")
 
 
 class AuthMiddleware(BaseHTTPMiddleware):
@@ -54,7 +55,7 @@ class AuthMiddleware(BaseHTTPMiddleware):
         # WS auth is handled in the websocket.py handler directly.
 
         token = request.app.state.config.api.auth_token
-        error = check_auth(request, token)
+        error = await check_auth(request, token)
         if error:
             return error
         return await call_next(request)
@@ -97,6 +98,7 @@ def create_api_app(
     @asynccontextmanager
     async def lifespan(app: Starlette):
         await db.connect()
+        app.state.db = db
         poll_task = asyncio.create_task(_poll_and_broadcast())
         log.info("api_started", bind=config.api.bind, port=config.api.port)
         yield
@@ -150,6 +152,7 @@ def create_api_app(
         routes.append(Mount("/static", app=StaticFiles(directory=str(static_dir)), name="static"))
 
     app = Starlette(routes=routes, lifespan=lifespan)
+    app.mount("/metrics", create_metrics_app())
     app.add_middleware(AuthMiddleware)
 
     # Attach shared state

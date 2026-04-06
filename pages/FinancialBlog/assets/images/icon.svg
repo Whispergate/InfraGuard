@@ -1,0 +1,8 @@
+<svg width="100%" viewBox="0 0 200 200" xmlns="http://www.w3.org/2000/svg">
+  <!-- Chart rising arrow -->
+  <rect x="36" y="36" width="128" height="128" rx="16" fill="#2ea043" fill-opacity="0.07" stroke="#2ea043" stroke-width="3"/>
+  <polyline points="56,140 80,110 108,125 148,65" fill="none" stroke="#2ea043" stroke-width="5" stroke-linecap="round" stroke-linejoin="round"/>
+  <polygon points="148,65 148,85 128,65" fill="#2ea043"/>
+  <!-- Dollar sign -->
+  <text x="100" y="170" text-anchor="middle" font-family="sans-serif" font-size="24" font-weight="700" fill="#2ea043" opacity="0.6">$</text>
+</svg>

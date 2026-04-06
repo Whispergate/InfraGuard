@@ -183,7 +183,12 @@ def profile_convert(
 # ── Config commands ───────────────────────────────────────────────────
 
 
-@cli.command("init")
+@cli.group("config")
+def config_group() -> None:
+    """Configuration management commands."""
+
+
+@config_group.command("init")
 @click.option(
     "-o",
     "--output",
@@ -200,6 +205,68 @@ def init_config(output: Path) -> None:
 
     output.write_text(generate_default_config(), encoding="utf-8")
     click.echo(f"Config written to {output}")
+
+
+@config_group.command("generate")
+@click.option("--domain", required=True, help="Primary domain for the redirector.")
+@click.option(
+    "--c2-profile",
+    required=True,
+    type=click.Path(exists=True, path_type=Path),
+    help="Path to C2 profile file.",
+)
+@click.option(
+    "--upstream",
+    required=True,
+    help="C2 teamserver URL (e.g. https://10.0.0.5:8443).",
+)
+@click.option(
+    "--profile-type",
+    type=click.Choice(["auto", "cobalt_strike", "mythic", "brute_ratel", "sliver", "havoc"]),
+    default="auto",
+    help="Profile type (auto-detected by default).",
+)
+@click.option(
+    "--drop-target",
+    default="https://www.google.com",
+    help="Redirect URL for blocked traffic.",
+)
+@click.option(
+    "-o",
+    "--output",
+    type=click.Path(path_type=Path),
+    default=Path("./infraguard-deploy"),
+    help="Output directory for deployment bundle.",
+)
+def config_generate(
+    domain: str,
+    c2_profile: Path,
+    upstream: str,
+    profile_type: str,
+    drop_target: str,
+    output: Path,
+) -> None:
+    """Generate a deployment-ready config bundle from minimal inputs."""
+    from infraguard.deploy.config_gen import generate_config, write_bundle
+
+    # Use container-relative path for the profile in the generated config
+    container_profile_path = f"/config/profiles/{c2_profile.name}"
+
+    cfg = generate_config(
+        domain=domain,
+        c2_profile_path=container_profile_path,
+        upstream=upstream,
+        profile_type=profile_type,
+        drop_target=drop_target,
+    )
+    write_bundle(cfg, output, profile_source=c2_profile)
+
+    click.echo(f"Deployment bundle written to {output}/")
+    click.echo(f"  config.yaml        - InfraGuard configuration")
+    click.echo(f"  .env               - Environment variables (edit before deploy)")
+    click.echo(f"  docker-compose.yml - Docker Compose deployment")
+    click.echo(f"  profiles/          - C2 profile files")
+    click.echo(f"\nNext: edit .env, then run 'docker-compose up -d' in {output}/")
 
 
 @cli.command("validate")
@@ -271,6 +338,14 @@ def run_server(config_path: Path, host: str | None, port: int | None) -> None:
         cert_path, key_path = resolve_tls_paths(listener.tls, domains)
         uvicorn_kwargs["ssl_certfile"] = cert_path
         uvicorn_kwargs["ssl_keyfile"] = key_path
+
+        # HTTP/2 support
+        if listener.http2:
+            try:
+                import h2  # noqa: F401
+                uvicorn_kwargs["http"] = "h2"
+            except ImportError:
+                click.echo("Warning: http2 enabled but h2 package not installed", err=True)
 
     uvicorn.run(app, **uvicorn_kwargs)
 
@@ -614,28 +689,12 @@ def _load_profile_file(file: Path, profile_type: str, name: str | None = None):
     from infraguard.profiles.sliver import parse_sliver_file
 
     if profile_type == "auto":
-        if file.suffix == ".profile":
-            profile_type = "cobalt_strike"
-        elif file.suffix == ".toml":
-            profile_type = "havoc"
-        elif file.suffix == ".json":
-            import json
-            try:
-                data = json.loads(file.read_text(encoding="utf-8"))
-                if "listeners" in data and "c2_handler" in data:
-                    profile_type = "brute_ratel"
-                elif "implant_config" in data and "server_config" in data:
-                    profile_type = "sliver"
-                else:
-                    profile_type = "mythic"
-            except Exception:
-                profile_type = "mythic"
-        else:
-            click.echo(
-                f"Cannot auto-detect profile type for '{file.suffix}'. "
-                "Use --type to specify.",
-                err=True,
-            )
+        from infraguard.deploy.profile_detect import detect_profile_type
+
+        try:
+            profile_type = detect_profile_type(file).value
+        except ValueError as exc:
+            click.echo(str(exc), err=True)
             sys.exit(1)
 
     if profile_type == "cobalt_strike":
@@ -696,6 +755,227 @@ def _print_profile_summary(p: "C2Profile") -> None:  # noqa: F821
                 click.echo(f"      {k}: {v}")
         if txn.server.transforms:
             click.echo(f"    Server Transforms ({len(txn.server.transforms)} steps)")
+
+
+# ── Report command ───────────────────────────────────────────────────
+
+
+@cli.command("report")
+@click.option(
+    "-c",
+    "--config",
+    "config_path",
+    type=click.Path(exists=True, path_type=Path),
+    default=None,
+    help="Path to config file (reads db_path from tracking.db_path).",
+)
+@click.option(
+    "--db",
+    "db_path",
+    type=click.Path(path_type=Path),
+    default=None,
+    help="Path to SQLite database (overrides config).",
+)
+@click.option(
+    "-o",
+    "--output",
+    type=click.Path(path_type=Path),
+    default=Path("infraguard-report.html"),
+    help="Output HTML report path.",
+)
+@click.option(
+    "--title",
+    default="InfraGuard Engagement Report",
+    help="Report title.",
+)
+def generate_report_cmd(
+    config_path: Path | None, db_path: Path | None, output: Path, title: str
+) -> None:
+    """Generate an HTML engagement report from the tracking database.
+
+    \b
+    Examples:
+      infraguard report --db infraguard.db
+      infraguard report -c config.yaml -o report.html --title "Op Phantom 2026"
+    """
+    import asyncio
+
+    from infraguard.tracking.database import Database
+    from infraguard.tracking.report import generate_report
+
+    # Resolve DB path: explicit --db flag, or extract from config, or default
+    resolved_db = "infraguard.db"
+    if db_path:
+        resolved_db = str(db_path)
+    elif config_path:
+        try:
+            from infraguard.config.loader import load_config
+            cfg = load_config(config_path)
+            resolved_db = cfg.tracking.db_path
+        except Exception as e:
+            # Config may not fully validate (e.g. unset env vars in a
+            # non-Docker environment).  Fall back to extracting db_path
+            # directly from the raw YAML.
+            import yaml
+            with open(config_path) as f:
+                raw = yaml.safe_load(f) or {}
+            tracking = raw.get("tracking", {})
+            if isinstance(tracking, dict) and tracking.get("db_path"):
+                import os
+                import re
+                val = tracking["db_path"]
+                val = re.sub(r"\$\{([^}]+)\}", lambda m: os.environ.get(m.group(1), ""), val)
+                if val:
+                    resolved_db = val
+            click.echo(f"Warning: Config did not fully validate ({e}), using db_path={resolved_db}", err=True)
+
+    async def _run():
+        db = Database(resolved_db)
+        await db.connect()
+        try:
+            result_path = await generate_report(db, output, title)
+            click.echo(f"Report generated: {result_path}")
+        finally:
+            await db.close()
+
+    asyncio.run(_run())
+
+
+# ── Test request command ─────────────────────────────────────────────
+
+
+@cli.command("test-request")
+@click.option(
+    "-c",
+    "--config",
+    "config_path",
+    type=click.Path(exists=True, path_type=Path),
+    required=True,
+    help="Path to config file.",
+)
+@click.option("--domain", required=True, help="Target domain (must be in config).")
+@click.option("--path", "uri_path", default="/", help="Request URI path.")
+@click.option("--method", default="GET", help="HTTP method.")
+@click.option("--ip", "client_ip", default="1.2.3.4", help="Simulated client IP.")
+@click.option("--user-agent", "user_agent", default="Mozilla/5.0", help="User-Agent header.")
+@click.option(
+    "--header",
+    "extra_headers",
+    multiple=True,
+    help="Extra headers (Name:Value format, repeatable).",
+)
+def test_request(
+    config_path: Path,
+    domain: str,
+    uri_path: str,
+    method: str,
+    client_ip: str,
+    user_agent: str,
+    extra_headers: tuple[str, ...],
+) -> None:
+    """Simulate a request through the filter pipeline (dry-run).
+
+    Shows the per-filter scoring breakdown without sending any traffic.
+    Useful for validating C2 profile configuration before going live.
+
+    \b
+    Examples:
+      infraguard test-request -c config.yaml --domain cdn.example.com --path /jquery-3.3.1.min.js
+      infraguard test-request -c config.yaml --domain cdn.example.com --ip 8.8.8.8 --user-agent "curl/7.68"
+    """
+    import asyncio
+    from ipaddress import ip_address
+
+    from infraguard.config.loader import load_config
+    from infraguard.core.router import DomainRouter
+    from infraguard.models.common import FilterAction
+    from infraguard.pipeline.base import RequestContext
+
+    cfg = load_config(config_path)
+
+    if domain not in cfg.domains:
+        click.echo(f"Domain '{domain}' not found in config. Available: {', '.join(cfg.domains.keys())}", err=True)
+        sys.exit(1)
+
+    # Build the router (loads profiles and pipelines)
+    router = DomainRouter(cfg)
+    route = router.routes.get(domain)
+    if not route:
+        click.echo(f"Failed to load route for '{domain}'", err=True)
+        sys.exit(1)
+
+    # Build a mock request scope
+    headers_list: list[tuple[bytes, bytes]] = [
+        (b"host", domain.encode()),
+        (b"user-agent", user_agent.encode()),
+        (b"accept", b"text/html,application/xhtml+xml,application/xml;q=0.9,*/*;q=0.8"),
+        (b"accept-language", b"en-US,en;q=0.9"),
+        (b"accept-encoding", b"gzip, deflate, br"),
+    ]
+    for h in extra_headers:
+        if ":" in h:
+            name, value = h.split(":", 1)
+            headers_list.append((name.strip().lower().encode(), value.strip().encode()))
+
+    scope = {
+        "type": "http",
+        "method": method.upper(),
+        "path": uri_path,
+        "query_string": b"",
+        "headers": headers_list,
+        "server": ("127.0.0.1", 443),
+        "root_path": "",
+    }
+
+    from starlette.requests import Request
+
+    mock_request = Request(scope)
+
+    ctx = RequestContext(
+        request=mock_request,
+        client_ip=ip_address(client_ip),
+        domain_config=route.config,
+        profile=route.profile,
+        metadata={"body": b""},
+    )
+
+    async def _run():
+        return await route.pipeline.evaluate(ctx)
+
+    result = asyncio.run(_run())
+
+    # Display results
+    verdict = "ALLOW" if result.allowed else "BLOCK"
+    color = "green" if result.allowed else "red"
+
+    click.echo(f"\n{'=' * 60}")
+    click.secho(f"  VERDICT: {verdict}", fg=color, bold=True)
+    click.echo(f"  Total Score: {result.total_score:.2f} (threshold: {cfg.pipeline.block_score_threshold})")
+    click.echo(f"  Duration: {result.duration_ms:.1f}ms")
+    click.echo(f"  Mode: {cfg.pipeline.filter_mode}")
+    click.echo(f"{'=' * 60}")
+
+    click.echo(f"\n  Filter Breakdown:")
+    click.echo(f"  {'Filter':<20} {'Action':<10} {'Score':<8} Reason")
+    click.echo(f"  {'-' * 58}")
+    for r in result.results:
+        action_color = {
+            FilterAction.ALLOW: "green",
+            FilterAction.BLOCK: "red",
+            FilterAction.SUSPECT: "yellow",
+        }.get(r.action, "white")
+        reason = r.reason or ""
+        click.echo(
+            f"  {r.filter_name:<20} "
+            + click.style(f"{r.action.value:<10}", fg=action_color)
+            + f" {r.score:<8.2f} {reason}"
+        )
+
+    click.echo()
+
+
+from infraguard.deploy.cli import deploy_group
+cli.add_command(deploy_group)
 
 
 if __name__ == "__main__":

@@ -7,6 +7,10 @@ import structlog
 from starlette.requests import Request
 from starlette.responses import Response, StreamingResponse
 
+from infraguard.config.schema import DomainConfig
+from infraguard.core.headers import sanitize_response_headers
+from infraguard.core.ssl_context import build_ssl_context
+
 log = structlog.get_logger()
 
 
@@ -23,9 +27,18 @@ class ProxyHandler:
         upstream: str,
         *,
         timeout: float | None = None,
+        domain_config: DomainConfig | None = None,
+        reraise_transport_errors: bool = False,
     ) -> Response:
-        """Proxy a request to the upstream and return the response."""
-        client = self._get_client(upstream)
+        """Proxy a request to the upstream and return the response.
+
+        Args:
+            reraise_transport_errors: When ``True``, ``httpx.TimeoutException``
+                and ``httpx.ConnectError`` are re-raised instead of being
+                converted to 504/502 responses.  Set by the circuit breaker so
+                it can observe and record failures.
+        """
+        client = self._get_client(upstream, domain_config)
         timeout = timeout or self.default_timeout
 
         # Build the upstream URL
@@ -49,16 +62,33 @@ class ProxyHandler:
             )
         except httpx.TimeoutException:
             log.warning("upstream_timeout", upstream=upstream, path=request.url.path)
+            if reraise_transport_errors:
+                raise
             return Response(status_code=504, content=b"Gateway Timeout")
         except httpx.ConnectError:
             log.warning("upstream_connect_error", upstream=upstream)
+            if reraise_transport_errors:
+                raise
             return Response(status_code=502, content=b"Bad Gateway")
-        except Exception:
-            log.exception("upstream_error", upstream=upstream)
+        except httpx.RequestError as e:
+            log.exception("upstream_error", upstream=upstream, path=request.url.path, error_type=type(e).__name__)
             return Response(status_code=502, content=b"Bad Gateway")
 
-        # Build response, filtering hop-by-hop headers
-        resp_headers = self._filter_response_headers(dict(resp.headers))
+        # Sanitize response headers using the whitelist sanitizer.
+        # Pass the persona's Server header to maintain cover identity.
+        extra = (
+            frozenset(domain_config.extra_allowed_headers)
+            if domain_config and domain_config.extra_allowed_headers
+            else None
+        )
+        persona_server = None
+        if domain_config and domain_config.drop_action.persona:
+            persona_server = domain_config.drop_action.persona.server_header
+        resp_headers = sanitize_response_headers(
+            dict(resp.headers),
+            extra_allowed=extra,
+            server_header=persona_server,
+        )
 
         return Response(
             content=resp.content,
@@ -66,10 +96,19 @@ class ProxyHandler:
             headers=resp_headers,
         )
 
-    def _get_client(self, upstream: str) -> httpx.AsyncClient:
+    def _get_client(
+        self, upstream: str, domain_config: DomainConfig | None = None
+    ) -> httpx.AsyncClient:
         if upstream not in self._clients:
+            ssl_ctx = (
+                build_ssl_context(domain_config.ssl_verify, domain_config.ssl_ca_bundle)
+                if domain_config
+                else False
+            )
+            if domain_config and not domain_config.ssl_verify:
+                log.warning("ssl_verification_disabled", upstream=upstream)
             self._clients[upstream] = httpx.AsyncClient(
-                verify=False,  # C2 teamservers typically use self-signed certs
+                verify=ssl_ctx,
                 follow_redirects=False,
             )
         return self._clients[upstream]
@@ -92,18 +131,6 @@ class ProxyHandler:
             for k, v in headers.items()
             if k.lower() not in hop_by_hop
         }
-
-    @staticmethod
-    def _filter_response_headers(headers: dict[str, str]) -> dict[str, str]:
-        """Remove hop-by-hop and encoding headers from upstream response."""
-        skip = {
-            "connection",
-            "keep-alive",
-            "transfer-encoding",
-            "content-encoding",
-            "content-length",
-        }
-        return {k: v for k, v in headers.items() if k.lower() not in skip}
 
     async def close(self) -> None:
         for client in self._clients.values():
