@@ -16,24 +16,24 @@ variable "operator_ip" {
 
 variable "instance_size" {
   type        = string
-  default     = "t3.micro"
-  description = "EC2 instance type"
+  default     = "Standard_B1s"
+  description = "Azure VM size (SKU)"
 }
 
 variable "region" {
   type        = string
-  default     = "us-east-1"
-  description = "AWS region to deploy in"
+  default     = "eastus"
+  description = "Azure region to deploy in"
 }
 
-variable "docker_image" {
+variable "repo_url" {
   type        = string
-  default     = "infraguard:latest"
-  description = "Docker image to run (registry image or 'infraguard:latest' to build from source)"
+  default     = "https://github.com/Whispergate/InfraGuard.git"
+  description = "Git repository URL for InfraGuard source code"
 }
 
 variable "name_prefix" {
   type        = string
   default     = "infraguard"
-  description = "Name prefix applied to all provisioned AWS resources"
+  description = "Name prefix applied to all provisioned Azure resources"
 }

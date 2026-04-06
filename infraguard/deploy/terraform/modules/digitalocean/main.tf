@@ -4,16 +4,19 @@ terraform {
       source  = "digitalocean/digitalocean"
       version = "~> 2.81"
     }
-  }
+}
   required_version = ">= 1.10"
 }
 
 # ── SSH key ───────────────────────────────────────────────────────────────────
-
-resource "digitalocean_ssh_key" "this" {
-  name       = "${var.name_prefix}-${var.domain}-key"
-  public_key = var.ssh_public_key
-}
+# The operator's SSH key fingerprint is computed by the CLI from the public
+# key file and passed directly.  The key must already exist on the DO account.
+# This avoids 422 "SSH Key is already in use" errors from trying to re-create
+# an existing key, and works regardless of what name the key was registered
+# under.
+#
+# If the key doesn't exist yet, add it first:
+#   doctl compute ssh-key import infraguard --public-key-file ~/.ssh/id_rsa.pub
 
 # ── Tag ───────────────────────────────────────────────────────────────────────
 # The Droplet is tagged at creation time so the firewall attaches immediately.
@@ -22,7 +25,7 @@ resource "digitalocean_ssh_key" "this" {
 # post-creation association step.
 
 resource "digitalocean_tag" "this" {
-  name = "${var.name_prefix}-${var.domain}"
+  name = "${var.name_prefix}-${replace(var.domain, ".", "-")}"
 }
 
 # ── Firewall ──────────────────────────────────────────────────────────────────
@@ -85,12 +88,12 @@ resource "digitalocean_firewall" "this" {
 # Post-provision secrets via SSH after Droplet is ready.
 
 resource "digitalocean_droplet" "this" {
-  name   = "${var.name_prefix}-${var.domain}"
+  name   = "${var.name_prefix}-${replace(var.domain, ".", "-")}"
   image  = "ubuntu-22-04-x64"
   size   = var.instance_size
   region = var.region
 
-  ssh_keys = [digitalocean_ssh_key.this.fingerprint]
+  ssh_keys = [var.ssh_key_fingerprint]
 
   # Attaches the firewall at creation via tag - zero exposure window
   tags = [digitalocean_tag.this.id]
@@ -98,14 +101,14 @@ resource "digitalocean_droplet" "this" {
   user_data = <<-CLOUD_INIT
     #!/bin/bash
     set -euo pipefail
-
-    # ── Update packages ──────────────────────────────────────────────────────
     export DEBIAN_FRONTEND=noninteractive
+
+    # ── System updates ───────────────────────────────────────────────────────
     apt-get update -qq
     apt-get upgrade -y -qq
 
     # ── Install Docker via official repo (not snap) ──────────────────────────
-    apt-get install -y -qq ca-certificates curl gnupg lsb-release
+    apt-get install -y -qq ca-certificates curl gnupg lsb-release git
     install -m 0755 -d /etc/apt/keyrings
     curl -fsSL https://download.docker.com/linux/ubuntu/gpg \
       -o /etc/apt/keyrings/docker.asc
@@ -118,21 +121,21 @@ resource "digitalocean_droplet" "this" {
     apt-get update -qq
     apt-get install -y -qq docker-ce docker-ce-cli containerd.io docker-compose-plugin
 
-    # ── Enable and start Docker ──────────────────────────────────────────────
     systemctl enable docker
     systemctl start docker
 
-    # ── Pull or build the InfraGuard image ──────────────────────────────────
-    DOCKER_IMAGE="${var.docker_image}"
-    if echo "$DOCKER_IMAGE" | grep -q '/'; then
-      docker pull "$DOCKER_IMAGE"
-    else
-      apt-get install -y -qq git
-      git clone https://github.com/Whispergate/InfraGuard.git /opt/infraguard
-      docker build -t "$DOCKER_IMAGE" /opt/infraguard
-    fi
+    # ── Clone InfraGuard and build Docker image ──────────────────────────────
+    git clone ${var.repo_url} /opt/infraguard
+    cd /opt/infraguard
 
-    # ── Signal provisioning complete ─────────────────────────────────────────
+    # Create runtime directories (mounted as volumes by docker-compose)
+    mkdir -p /opt/infraguard/data /opt/infraguard/rules
+
+    # Build the image using the repo's Dockerfile
+    docker compose build
+
+    # ── Signal ready for config deployment ───────────────────────────────────
+    # The CLI polls for this file over SSH before deploying config + starting
     touch /var/lib/infraguard-bootstrap-done
   CLOUD_INIT
 }

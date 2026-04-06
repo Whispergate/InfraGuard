@@ -17,8 +17,7 @@ class CloudflareProvider(TerraformProvider):
 
     def __init__(self, work_dir: Path) -> None:
         module_path = (
-            Path(__file__).parent.parent.parent.parent
-            / "deploy"
+            Path(__file__).parent.parent
             / "terraform"
             / "modules"
             / "cloudflare"

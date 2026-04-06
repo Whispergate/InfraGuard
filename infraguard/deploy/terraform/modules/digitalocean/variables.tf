@@ -3,10 +3,9 @@ variable "domain" {
   description = "Primary domain for this redirector instance"
 }
 
-variable "ssh_public_key" {
+variable "ssh_key_fingerprint" {
   type        = string
-  sensitive   = true
-  description = "SSH public key for operator access"
+  description = "MD5 fingerprint of the operator's SSH public key (already registered on DO account)"
 }
 
 variable "operator_ip" {
@@ -26,10 +25,10 @@ variable "region" {
   description = "DigitalOcean region slug"
 }
 
-variable "docker_image" {
+variable "repo_url" {
   type        = string
-  default     = "infraguard:latest"
-  description = "Docker image to run (registry image or 'infraguard:latest' to build from source)"
+  default     = "https://github.com/Whispergate/InfraGuard.git"
+  description = "Git repository URL for InfraGuard source code"
 }
 
 variable "name_prefix" {

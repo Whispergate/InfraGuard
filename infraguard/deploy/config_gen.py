@@ -44,11 +44,72 @@ services:
 
 # ── .env template ─────────────────────────────────────────────────────
 
-_ENV_TEMPLATE = """\
-# InfraGuard environment variables
-# Edit this file before deploying - do NOT commit secrets to version control.
+def _generate_env(
+    domain: str,
+    upstream: str,
+    profile_type: str,
+    api_token: str | None = None,
+    health_path: str | None = None,
+    letsencrypt: bool = True,
+) -> str:
+    """Generate a populated .env file for a deployment.
 
-INFRAGUARD_API_TOKEN=change_me_before_deploy
+    Auto-generates an API token and health path if not provided.
+    """
+    import secrets
+
+    token = api_token or secrets.token_urlsafe(32)
+    hpath = health_path or secrets.token_hex(8)
+
+    # Map profile type to the correct upstream env var name
+    upstream_var_map = {
+        "cobalt_strike": "INFRAGUARD_CS_UPSTREAM",
+        "mythic": "INFRAGUARD_MYTHIC_UPSTREAM",
+        "brute_ratel": "INFRAGUARD_BRC4_UPSTREAM",
+        "sliver": "INFRAGUARD_SLIVER_UPSTREAM",
+        "havoc": "INFRAGUARD_HAVOC_UPSTREAM",
+    }
+    upstream_var = upstream_var_map.get(profile_type, "INFRAGUARD_MYTHIC_UPSTREAM")
+
+    le_email = f"le@{domain}"
+
+    return f"""\
+# InfraGuard environment variables (auto-generated)
+# Secrets - do NOT commit to version control.
+
+INFRAGUARD_DOMAIN={domain}
+INFRAGUARD_DOMAIN_EMAIL={le_email}
+
+# TLS - Let's Encrypt
+INFRAGUARD_LETSENCRYPT={'true' if letsencrypt else 'false'}
+INFRAGUARD_TLS_CERT=/app/certs/live/{domain}/fullchain.pem
+INFRAGUARD_TLS_KEY=/app/certs/live/{domain}/privkey.pem
+
+# Dashboard API token
+INFRAGUARD_API_TOKEN={token}
+
+# Upstream teamserver
+{upstream_var}={upstream}
+
+# Database
+INFRAGUARD_DB_PATH=/app/data/infraguard.db
+
+# Pipeline
+INFRAGUARD_FILTER_MODE=scoring
+
+# OPSEC - randomized health path to avoid fingerprinting
+INFRAGUARD_HEALTH_PATH={hpath}
+
+# Decoy pages
+IG_DECOY_PAGES_DIR=/app/pages
+IG_DECOY_SITE=
+
+# Rules / blocklists
+INFRAGUARD_RULES_DIR=/app/rules
+INFRAGUARD_BANNED_IP_FILE=/app/rules/banned_ips.txt
+
+# Logging
+INFRAGUARD_LOG_LEVEL=INFO
 """
 
 
@@ -114,6 +175,9 @@ def write_bundle(
     config: InfraGuardConfig,
     out_dir: Path,
     profile_source: Path | None = None,
+    domain: str = "",
+    upstream: str = "",
+    profile_type: str = "mythic",
 ) -> None:
     """Write a deployment bundle to *out_dir*.
 
@@ -121,7 +185,7 @@ def write_bundle(
 
         out_dir/
           config.yaml          - InfraGuard configuration
-          .env                 - Environment variable placeholders
+          .env                 - Environment variables (populated)
           docker-compose.yml   - Docker Compose deployment manifest
           profiles/            - C2 profile files (if profile_source given)
 
@@ -131,6 +195,9 @@ def write_bundle(
         profile_source: Local path to the C2 profile file.  When provided,
             the file is copied to ``out_dir/profiles/`` so the bundle is
             self-contained.
+        domain: Primary domain for .env generation.
+        upstream: Upstream teamserver URL for .env generation.
+        profile_type: C2 profile type for .env upstream variable selection.
     """
     out_dir.mkdir(parents=True, exist_ok=True)
 
@@ -139,8 +206,13 @@ def write_bundle(
     config_yaml = yaml.dump(config_data, default_flow_style=False, allow_unicode=True)
     (out_dir / "config.yaml").write_text(config_yaml, encoding="utf-8")
 
-    # .env
-    (out_dir / ".env").write_text(_ENV_TEMPLATE, encoding="utf-8")
+    # .env - fully populated with auto-generated secrets
+    env_content = _generate_env(
+        domain=domain,
+        upstream=upstream,
+        profile_type=profile_type,
+    )
+    (out_dir / ".env").write_text(env_content, encoding="utf-8")
 
     # docker-compose.yml
     (out_dir / "docker-compose.yml").write_text(_DOCKER_COMPOSE_TEMPLATE, encoding="utf-8")

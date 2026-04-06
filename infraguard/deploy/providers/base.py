@@ -116,8 +116,23 @@ class TerraformProvider:
     # Public operations
     # ------------------------------------------------------------------
 
+    def _stage_module(self) -> None:
+        """Copy ``.tf`` files from *module_path* into *work_dir*.
+
+        Terraform expects configuration files in its working directory.
+        We copy (not symlink) so that the work_dir is self-contained and
+        can be archived or transferred to another host.
+
+        Existing ``.tf`` files in *work_dir* are overwritten to ensure
+        the latest module version is always used.
+        """
+        for tf_file in self.module_path.glob("*.tf"):
+            dest = self.work_dir / tf_file.name
+            shutil.copy2(tf_file, dest)
+
     def init(self) -> None:
-        """Run ``terraform init -upgrade`` in *self.work_dir*."""
+        """Stage module files and run ``terraform init -upgrade``."""
+        self._stage_module()
         self._run_terraform("init", "-upgrade")
 
     def apply(self, tfvars: dict) -> dict[str, str]:

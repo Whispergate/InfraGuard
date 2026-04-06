@@ -191,14 +191,14 @@ resource "azurerm_linux_virtual_machine" "this" {
   custom_data = base64encode(<<-CLOUD_INIT
     #!/bin/bash
     set -euo pipefail
-
-    # ── Update packages ──────────────────────────────────────────────────────
     export DEBIAN_FRONTEND=noninteractive
+
+    # ── System updates ───────────────────────────────────────────────────────
     apt-get update -qq
     apt-get upgrade -y -qq
 
     # ── Install Docker via official repo (not snap) ──────────────────────────
-    apt-get install -y -qq ca-certificates curl gnupg lsb-release
+    apt-get install -y -qq ca-certificates curl gnupg lsb-release git
     install -m 0755 -d /etc/apt/keyrings
     curl -fsSL https://download.docker.com/linux/ubuntu/gpg \
       -o /etc/apt/keyrings/docker.asc
@@ -211,21 +211,20 @@ resource "azurerm_linux_virtual_machine" "this" {
     apt-get update -qq
     apt-get install -y -qq docker-ce docker-ce-cli containerd.io docker-compose-plugin
 
-    # ── Enable and start Docker ──────────────────────────────────────────────
     systemctl enable docker
     systemctl start docker
 
-    # ── Pull or build the InfraGuard image ──────────────────────────────────
-    DOCKER_IMAGE="${var.docker_image}"
-    if echo "$DOCKER_IMAGE" | grep -q '/'; then
-      docker pull "$DOCKER_IMAGE"
-    else
-      apt-get install -y -qq git
-      git clone https://github.com/Whispergate/InfraGuard.git /opt/infraguard
-      docker build -t "$DOCKER_IMAGE" /opt/infraguard
-    fi
+    # ── Clone InfraGuard and build Docker image ──────────────────────────────
+    git clone ${var.repo_url} /opt/infraguard
+    cd /opt/infraguard
 
-    # ── Signal provisioning complete ─────────────────────────────────────────
+    # Create runtime directories (mounted as volumes by docker-compose)
+    mkdir -p /opt/infraguard/data /opt/infraguard/rules
+
+    # Build the image using the repo's Dockerfile
+    docker compose build
+
+    # ── Signal ready for config deployment ───────────────────────────────────
     touch /var/lib/infraguard-bootstrap-done
   CLOUD_INIT
   )

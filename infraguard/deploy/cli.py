@@ -13,6 +13,8 @@ Security invariants:
 from __future__ import annotations
 
 import asyncio
+import base64
+import hashlib
 import subprocess
 import time
 from pathlib import Path
@@ -21,6 +23,110 @@ import click
 
 from infraguard.deploy.providers import get_provider
 from infraguard.deploy.state import decrypt_state, encrypt_state
+
+
+def _compute_ssh_fingerprint(pub_key_path: Path) -> str:
+    """Compute the MD5 fingerprint of an SSH public key file.
+
+    Returns the colon-separated hex digest format that DigitalOcean uses
+    (e.g. ``ab:cd:ef:...``).
+    """
+    content = pub_key_path.read_text(encoding="utf-8").strip()
+    # SSH public key format: "type base64data comment"
+    parts = content.split()
+    if len(parts) < 2:
+        raise click.ClickException(f"Invalid SSH public key format in {pub_key_path}")
+    key_data = base64.b64decode(parts[1])
+    digest = hashlib.md5(key_data).hexdigest()
+    return ":".join(digest[i:i + 2] for i in range(0, len(digest), 2))
+
+
+def _derive_private_key(pub_key_path: Path) -> Path:
+    """Derive the private key path from a public key path.
+
+    ``~/.ssh/id_rsa.pub`` → ``~/.ssh/id_rsa``
+    """
+    priv = pub_key_path.with_suffix("")
+    if not priv.exists():
+        raise click.ClickException(
+            f"Private key not found at {priv}. "
+            f"Expected alongside public key {pub_key_path}"
+        )
+    return priv
+
+
+_SSH_OPTS = [
+    "-o", "StrictHostKeyChecking=no",
+    "-o", "UserKnownHostsFile=/dev/null",
+    "-o", "LogLevel=ERROR",
+    "-o", "ConnectTimeout=10",
+]
+
+
+def _run_ssh(
+    ip: str,
+    command: str,
+    ssh_key: Path,
+    user: str = "root",
+) -> subprocess.CompletedProcess:
+    """Run a command on a remote host via SSH."""
+    priv_key = _derive_private_key(ssh_key)
+    cmd = [
+        "ssh", *_SSH_OPTS,
+        "-i", str(priv_key),
+        f"{user}@{ip}",
+        command,
+    ]
+    return subprocess.run(cmd, capture_output=True, text=True)
+
+
+def _scp_to(
+    ip: str,
+    local_path: Path,
+    remote_path: str,
+    ssh_key: Path,
+    user: str = "root",
+) -> subprocess.CompletedProcess:
+    """Copy a local file to a remote host via SCP."""
+    priv_key = _derive_private_key(ssh_key)
+    cmd = [
+        "scp", *_SSH_OPTS,
+        "-i", str(priv_key),
+        str(local_path),
+        f"{user}@{ip}:{remote_path}",
+    ]
+    return subprocess.run(cmd, capture_output=True, text=True)
+
+
+def _wait_for_bootstrap(
+    ip: str,
+    ssh_key: Path,
+    max_attempts: int = 30,
+    interval: float = 10.0,
+    user: str = "root",
+) -> None:
+    """Poll the instance via SSH until cloud-init has completed.
+
+    Checks for the ``/var/lib/infraguard-bootstrap-done`` marker file.
+    """
+    click.echo("Waiting for cloud-init bootstrap to complete...")
+    for attempt in range(max_attempts):
+        result = _run_ssh(ip, "test -f /var/lib/infraguard-bootstrap-done && echo OK", ssh_key, user=user)
+        if result.returncode == 0 and "OK" in result.stdout:
+            click.echo(f"Bootstrap complete (attempt {attempt + 1}/{max_attempts})")
+            return
+        if attempt < max_attempts - 1:
+            remaining = (max_attempts - attempt - 1) * interval
+            click.echo(
+                f"  [{attempt + 1}/{max_attempts}] Not ready yet, "
+                f"retrying in {int(interval)}s (~{int(remaining)}s remaining)..."
+            )
+            time.sleep(interval)
+
+    raise click.ClickException(
+        f"Bootstrap did not complete after {max_attempts} attempts ({int(max_attempts * interval)}s). "
+        "SSH into the Droplet and check /var/log/cloud-init-output.log"
+    )
 
 
 # ---------------------------------------------------------------------------
@@ -146,56 +252,156 @@ def deploy_run(
     state_key: str | None,
     work_dir: Path,
 ) -> None:
-    """Provision a new cloud redirector instance."""
+    """Provision a new cloud redirector instance.
+
+    Full lifecycle:
+    1. Terraform apply (Droplet + firewall + tag)
+    2. Wait for cloud-init bootstrap (Docker + repo clone + image build)
+    3. Generate config bundle + .env locally
+    4. SCP config, profile, and .env to the Droplet
+    5. SSH to start docker compose services
+    6. Poll health endpoint to confirm InfraGuard is running
+    """
     from infraguard.deploy.config_gen import generate_config, write_bundle
+    from infraguard.deploy.profile_detect import detect_profile_type
 
     work_dir = Path(work_dir)
     work_dir.mkdir(parents=True, exist_ok=True)
 
     tf_provider = get_provider(provider, work_dir)
 
-    # Build tfvars - never use -var CLI flags, only -var-file
+    # Build provider-specific tfvars
     tfvars: dict = {
         "domain": domain,
-        "ssh_public_key": ssh_key.read_text(encoding="utf-8").strip(),
         "operator_ip": operator_ip,
-        "docker_image": "infraguard:latest",
     }
     if region:
         tfvars["region"] = region
     if instance_size:
         tfvars["instance_size"] = instance_size
 
+    # SSH key handling differs by provider:
+    # - DO: uses fingerprint (key must already exist on account)
+    # - AWS/Azure: uses raw public key (creates key pair resource)
+    if provider == "do":
+        tfvars["ssh_key_fingerprint"] = _compute_ssh_fingerprint(ssh_key)
+    else:
+        tfvars["ssh_public_key"] = ssh_key.read_text(encoding="utf-8").strip()
+
+    # SSH user differs by provider
+    _SSH_USERS = {"do": "root", "aws": "ubuntu", "azure": "operator"}
+    ssh_user = _SSH_USERS.get(provider, "root")
+
+    # ── Step 1: Terraform apply ──────────────────────────────────────
+    click.echo(f"[1/6] Provisioning {provider} instance for {domain}...")
     try:
         outputs = tf_provider.apply(tfvars)
     except Exception as exc:
         raise click.ClickException(str(exc)) from exc
+
+    instance_ip = outputs.get("instance_ip", "")
+    if not instance_ip:
+        raise click.ClickException("Terraform apply succeeded but no instance_ip in outputs")
 
     # Encrypt state if age public key provided
     state_file = work_dir / "terraform.tfstate"
     if state_key and state_file.exists():
         try:
             enc_path = encrypt_state(state_file, state_key)
-            click.echo(f"State encrypted: {enc_path}")
+            click.echo(f"  State encrypted: {enc_path}")
         except RuntimeError as exc:
-            click.echo(f"Warning: state encryption failed: {exc}", err=True)
+            click.echo(f"  Warning: state encryption failed: {exc}", err=True)
 
-    # Print connection info
-    click.echo(f"\nInstance provisioned:")
-    click.echo(f"  instance_ip:  {outputs.get('instance_ip', 'N/A')}")
-    click.echo(f"  instance_id:  {outputs.get('instance_id', 'N/A')}")
-    click.echo(f"  ssh_command:  {outputs.get('ssh_command', 'N/A')}")
+    click.echo(f"  Instance IP: {instance_ip}")
+    click.echo(f"  SSH: ssh {ssh_user}@{instance_ip}")
 
-    # Generate config bundle into work_dir/config/
-    container_profile_path = f"/config/profiles/{c2_profile.name}"
+    # ── Step 2: Wait for cloud-init bootstrap ────────────────────────
+    click.echo(f"\n[2/6] Waiting for cloud-init (Docker install + image build)...")
+    _wait_for_bootstrap(instance_ip, ssh_key, user=ssh_user)
+
+    # ── Step 3: Generate config bundle ───────────────────────────────
+    click.echo(f"\n[3/6] Generating config bundle...")
+
+    # Detect profile type for .env upstream variable mapping
+    detected_type = detect_profile_type(c2_profile)
+
+    container_profile_path = f"examples/{c2_profile.name}"
     cfg = generate_config(
         domain=domain,
         c2_profile_path=container_profile_path,
         upstream=upstream,
+        profile_type=detected_type.value,
     )
     bundle_dir = work_dir / "config"
-    write_bundle(cfg, bundle_dir, profile_source=c2_profile)
-    click.echo(f"\nConfig bundle written to {bundle_dir}/")
+    write_bundle(
+        cfg, bundle_dir,
+        profile_source=c2_profile,
+        domain=domain,
+        upstream=upstream,
+        profile_type=detected_type.value,
+    )
+    click.echo(f"  Bundle: {bundle_dir}/")
+
+    # ── Step 4: SCP config files to Droplet ──────────────────────────
+    click.echo(f"\n[4/6] Deploying config to {instance_ip}...")
+
+    # Ensure remote directories exist
+    _run_ssh(instance_ip, "mkdir -p /opt/infraguard/config /opt/infraguard/examples", ssh_key, user=ssh_user)
+
+    # SCP config.yaml
+    r = _scp_to(instance_ip, bundle_dir / "config.yaml", "/opt/infraguard/config/config.yaml", ssh_key, user=ssh_user)
+    if r.returncode != 0:
+        raise click.ClickException(f"SCP config.yaml failed: {r.stderr}")
+    click.echo("  config.yaml deployed")
+
+    # SCP C2 profile
+    profile_dir = bundle_dir / "profiles"
+    for pfile in profile_dir.iterdir():
+        r = _scp_to(instance_ip, pfile, f"/opt/infraguard/examples/{pfile.name}", ssh_key, user=ssh_user)
+        if r.returncode != 0:
+            raise click.ClickException(f"SCP profile failed: {r.stderr}")
+        click.echo(f"  {pfile.name} deployed")
+
+    # SCP .env
+    r = _scp_to(instance_ip, bundle_dir / ".env", "/opt/infraguard/.env", ssh_key, user=ssh_user)
+    if r.returncode != 0:
+        raise click.ClickException(f"SCP .env failed: {r.stderr}")
+    click.echo("  .env deployed")
+
+    # ── Step 5: Start docker compose services ────────────────────────
+    click.echo(f"\n[5/6] Starting InfraGuard services...")
+
+    # Non-root users need sudo for docker on AWS/Azure
+    sudo = "" if ssh_user == "root" else "sudo "
+    start_cmd = f"cd /opt/infraguard && {sudo}docker compose up -d proxy dashboard"
+    r = _run_ssh(instance_ip, start_cmd, ssh_key, user=ssh_user)
+    if r.returncode != 0:
+        click.echo(f"  Warning: docker compose returned {r.returncode}", err=True)
+        click.echo(f"  stderr: {r.stderr}", err=True)
+    else:
+        click.echo("  proxy + dashboard started")
+
+    # ── Step 6: Health check ─────────────────────────────────────────
+    click.echo(f"\n[6/6] Polling health endpoint...")
+    try:
+        _poll_health(instance_ip, port=443)
+        click.echo("  Health check passed!")
+    except RuntimeError:
+        click.echo(
+            "  Warning: Health check did not pass yet. Services may still be starting.\n"
+            f"  Check manually: curl -k https://{instance_ip}:443/health",
+            err=True,
+        )
+
+    # ── Summary ──────────────────────────────────────────────────────
+    click.echo(f"\n{'=' * 50}")
+    click.echo(f"  InfraGuard deployed to {instance_ip}")
+    click.echo(f"  Domain:    {domain}")
+    click.echo(f"  Upstream:  {upstream}")
+    click.echo(f"  SSH:       ssh {ssh_user}@{instance_ip}")
+    click.echo(f"  Dashboard: https://{instance_ip}:8080")
+    click.echo(f"  Work dir:  {work_dir}")
+    click.echo(f"{'=' * 50}")
 
 
 # ---------------------------------------------------------------------------
@@ -376,11 +582,11 @@ def deploy_rotate(
     new_work_dir.mkdir(parents=True, exist_ok=True)
 
     new_provider = get_provider(provider, new_work_dir)
+    ssh_fingerprint = _compute_ssh_fingerprint(ssh_key)
     tfvars: dict = {
         "domain": new_domain,
-        "ssh_public_key": ssh_key.read_text(encoding="utf-8").strip(),
+        "ssh_key_fingerprint": ssh_fingerprint,
         "operator_ip": operator_ip,
-        "docker_image": "infraguard:latest",
     }
     if region:
         tfvars["region"] = region

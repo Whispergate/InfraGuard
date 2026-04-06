@@ -225,3 +225,4 @@ vendor/pwndrop/pwndrop/
 images/.$InfraGuard Infrastructure Diagram.drawio.bkp
 .planning/*
 .claude
+.infraguard-deploy
