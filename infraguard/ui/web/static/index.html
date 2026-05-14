@@ -140,6 +140,19 @@
             </div>
 
             <div class="card full-width">
+                <h3>Reports</h3>
+                <p style="color: var(--text-dim); font-size: 12px; margin-bottom: 12px;">
+                    Download a full report of InfraGuard statistics, per-domain activity, blocked traffic, registered nodes, and the operator audit log.
+                </p>
+                <div style="display: flex; gap: 10px; flex-wrap: wrap;">
+                    <button class="btn" onclick="downloadReport('html')">Download HTML</button>
+                    <button class="btn" onclick="downloadReport('json')">Download JSON</button>
+                    <button class="btn" onclick="downloadReport('csv')">Download CSV</button>
+                </div>
+                <div id="report-status" style="color: var(--text-dim); font-size: 12px; margin-top: 10px; min-height: 16px;"></div>
+            </div>
+
+            <div class="card full-width">
                 <h3>Recent Requests</h3>
                 <table>
                     <thead><tr><th>Time</th><th>Proto</th><th>Domain</th><th>IP</th><th>Method</th><th>URI</th><th>Result</th><th>Reason</th><th>Actions</th></tr></thead>
@@ -274,6 +287,44 @@
                 if (resp.ok) { refresh(); }
                 else { alert('Failed to block IP'); }
             } catch(e) { alert('Error: ' + e.message); }
+        }
+
+        // ── Report download ────────────────────────────────────
+        async function downloadReport(format) {
+            const statusEl = document.getElementById('report-status');
+            statusEl.textContent = `Generating ${format.toUpperCase()} report...`;
+            statusEl.style.color = 'var(--text-dim)';
+            try {
+                const resp = await fetch(API_BASE + '/api/reports/export?format=' + encodeURIComponent(format), {
+                    credentials: 'same-origin',
+                });
+                if (resp.status === 401 || resp.status === 403) { showLogin(); return; }
+                if (!resp.ok) {
+                    let msg = 'Report export failed (' + resp.status + ')';
+                    try { const d = await resp.json(); if (d.error) msg = d.error; } catch(_) {}
+                    statusEl.textContent = msg;
+                    statusEl.style.color = 'var(--red)';
+                    return;
+                }
+                const disposition = resp.headers.get('Content-Disposition') || '';
+                const match = /filename="([^"]+)"/.exec(disposition);
+                const fallback = 'infraguard-report-' + new Date().toISOString().split('T')[0] + '.' + format;
+                const filename = match ? match[1] : fallback;
+                const blob = await resp.blob();
+                const url = URL.createObjectURL(blob);
+                const a = document.createElement('a');
+                a.href = url;
+                a.download = filename;
+                document.body.appendChild(a);
+                a.click();
+                document.body.removeChild(a);
+                URL.revokeObjectURL(url);
+                statusEl.textContent = 'Downloaded ' + filename;
+                statusEl.style.color = 'var(--green)';
+            } catch(e) {
+                statusEl.textContent = 'Error: ' + e.message;
+                statusEl.style.color = 'var(--red)';
+            }
         }
 
         // ── Dashboard data ─────────────────────────────────────

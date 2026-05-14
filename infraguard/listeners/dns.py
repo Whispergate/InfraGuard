@@ -11,11 +11,13 @@ from __future__ import annotations
 
 import asyncio
 import time
+from collections import defaultdict, deque
 from ipaddress import ip_address
+from typing import TYPE_CHECKING
 
 import structlog
 
-from infraguard.config.schema import ListenerConfig
+from infraguard.config.schema import IntelConfig, ListenerConfig
 from infraguard.intel.ip_lists import CIDRList
 from infraguard.intel.manager import IntelManager
 from infraguard.models.events import RequestEvent
@@ -34,6 +36,7 @@ class DNSListener:
         config: ListenerConfig,
         intel: IntelManager,
         recorder: EventRecorder | None = None,
+        intel_config: IntelConfig | None = None,
     ):
         self._config = config
         self._intel = intel
@@ -43,6 +46,13 @@ class DNSListener:
             t.upper() for t in config.options.get("allowed_types", [])
         ]
         self._transport: asyncio.DatagramTransport | None = None
+
+        # DNS subdomain enumeration detection
+        _ic = intel_config
+        self._enum_threshold: int = (_ic.dns_enum_nxdomain_threshold if _ic else 15)
+        self._enum_window: int = (_ic.dns_enum_window_seconds if _ic else 30)
+        self._nxdomain_times: dict[str, deque[float]] = defaultdict(deque)
+        self._enum_blocked: set[str] = set()
 
     async def start(self) -> None:
         try:
@@ -112,6 +122,14 @@ class DNSListener:
         except Exception:
             pass
 
+        # Block IPs flagged for DNS enumeration
+        if client_ip_str in self._enum_blocked:
+            self._record_event(
+                domain, client_ip_str, qtype, qname, "block",
+                "DNS enumeration blocked", start,
+            )
+            return self._make_refused(query)
+
         # Forward to upstream
         response_data = await self._forward_query(data)
         if response_data is None:
@@ -120,6 +138,10 @@ class DNSListener:
                 "upstream_timeout", start,
             )
             return self._make_servfail(query)
+
+        # Track NXDOMAIN responses for enumeration detection
+        if response_data:
+            self._check_nxdomain(response_data, query, client_ip_str)
 
         self._record_event(
             domain, client_ip_str, qtype, qname, "allow", None, start,
@@ -162,6 +184,41 @@ class DNSListener:
         except Exception:
             log.exception("dns_forward_error", upstream=self._upstream)
             return None
+
+    def _check_nxdomain(self, response_data: bytes, query, client_ip: str) -> None:
+        """Track NXDOMAIN responses; block IPs that exceed the enumeration threshold."""
+        try:
+            import dns.message
+            import dns.rcode
+            response = dns.message.from_wire(response_data)
+            if response.rcode() != dns.rcode.NXDOMAIN:
+                return
+        except Exception:
+            return
+
+        now = time.time()
+        cutoff = now - self._enum_window
+        dq = self._nxdomain_times[client_ip]
+
+        # Slide the window
+        while dq and dq[0] < cutoff:
+            dq.popleft()
+        dq.append(now)
+
+        if len(dq) >= self._enum_threshold and client_ip not in self._enum_blocked:
+            self._enum_blocked.add(client_ip)
+            # Also block at the intel layer for cross-protocol coverage
+            try:
+                from ipaddress import ip_network
+                self._intel.blocklist.add(ip_network(client_ip))
+            except Exception:
+                pass
+            log.warning(
+                "dns_enum_blocked",
+                client=client_ip,
+                nxdomain_count=len(dq),
+                window_seconds=self._enum_window,
+            )
 
     def _record_event(
         self,

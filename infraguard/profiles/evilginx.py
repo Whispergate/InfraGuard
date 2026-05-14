@@ -114,7 +114,7 @@ def parse_phishlet(path: Path) -> PhishletInfo:
     if isinstance(creds, dict):
         for field_info in creds.values():
             if isinstance(field_info, dict) and field_info.get("type") == "post":
-                # Credentials are submitted via POST — login path handles this
+                # Credentials are submitted via POST - login path handles this
                 pass
 
     log.info(

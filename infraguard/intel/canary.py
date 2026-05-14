@@ -39,7 +39,7 @@ def inject_tracking_pixel(html: str, callback_path: str = "/_ig/px") -> str:
     )
     if "</body>" in html:
         return html.replace("</body>", f"{pixel}\n</body>", 1)
-    # No closing body tag — append
+    # No closing body tag - append
     return html + pixel
 
 
@@ -54,7 +54,7 @@ def inject_honeypot_link(
     tools that parse HTML will follow it, revealing themselves.
     """
     canary_id = generate_canary_id()
-    # Hidden via CSS — browsers won't render it, but HTML parsers see it
+    # Hidden via CSS - browsers won't render it, but HTML parsers see it
     link = (
         f'<a href="{callback_path}?c={canary_id}" '
         f'style="display:none;visibility:hidden;position:absolute;left:-9999px" '

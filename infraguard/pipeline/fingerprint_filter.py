@@ -13,7 +13,7 @@ composite fingerprint:
 
 Operators can configure:
   - ``allowed_fingerprints``: Hashes of expected beacon header orders
-    (allowlist — bypasses this filter entirely).
+    (allowlist - bypasses this filter entirely).
   - ``blocked_fingerprints``: Additional hashes to block.
 
 The fingerprint hash is computed as:

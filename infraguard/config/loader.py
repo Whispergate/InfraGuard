@@ -64,7 +64,7 @@ _AGE_IDENTITY_SEARCH_PATHS = [
 
 def _resolve_age_identity() -> Path | None:
     """Find the age identity file for decryption."""
-    # Inline key via env var — write to temp file for age CLI
+    # Inline key via env var - write to temp file for age CLI
     inline_key = os.environ.get("INFRAGUARD_AGE_KEY")
     if inline_key:
         tmp = Path(tempfile.mkdtemp()) / "age-identity.txt"

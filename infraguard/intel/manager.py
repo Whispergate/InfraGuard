@@ -260,6 +260,9 @@ class IntelManager:
             return False
         return self.blocklist.contains(ip)
 
-    def record_valid_request(self, ip: str) -> None:
-        """Record a valid C2 request for dynamic whitelisting."""
-        self.dynamic_whitelist.record_valid_request(ip)
+    def record_valid_request(self, ip: str) -> bool:
+        """Record a valid C2 request for dynamic whitelisting.
+
+        Returns True if this request caused the IP to be newly whitelisted.
+        """
+        return self.dynamic_whitelist.record_valid_request(ip)

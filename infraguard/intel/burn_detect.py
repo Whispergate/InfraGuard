@@ -21,8 +21,13 @@ import asyncio
 import time
 from collections import deque
 from dataclasses import dataclass, field
+from typing import TYPE_CHECKING
 
 import structlog
+
+if TYPE_CHECKING:
+    from infraguard.tracking.database import Database
+    from infraguard.tracking.recorder import EventRecorder
 
 log = structlog.get_logger()
 
@@ -48,6 +53,9 @@ class BurnConfig:
     vendor_spike_window_seconds: int = 300  # 5 min window
     multi_asn_probe_threshold: int = 3  # unique security ASNs probing per window
     multi_asn_window_seconds: int = 600  # 10 min window
+    # Cross-domain analyst detection
+    analyst_domain_threshold: int = 3    # unique domains from same IP = analyst
+    analyst_lookback_hours: int = 24
     # Actions
     cooldown_on_burn: bool = False
     cooldown_duration_seconds: int = 300
@@ -56,8 +64,15 @@ class BurnConfig:
 class BurnDetector:
     """Monitors request patterns for burn indicators."""
 
-    def __init__(self, config: BurnConfig | None = None):
+    def __init__(
+        self,
+        config: BurnConfig | None = None,
+        db: "Database | None" = None,
+        recorder: "EventRecorder | None" = None,
+    ):
         self.config = config or BurnConfig()
+        self._db = db
+        self._recorder = recorder
         self._vendor_blocked: deque[float] = deque()
         self._probe_asns: deque[tuple[float, int]] = deque()
         self._burn_events: list[BurnIndicator] = []
@@ -161,11 +176,80 @@ class BurnDetector:
         self._cooldown_until = 0.0
         log.info("burn_indicators_cleared")
 
+    def _fire_burn_alert(self, indicator: BurnIndicator) -> None:
+        """Dispatch a burn indicator to the recorder so plugins receive it."""
+        if self._recorder is None:
+            return
+        try:
+            from infraguard.models.events import RequestEvent
+            self._recorder.record(
+                RequestEvent.now(
+                    domain="",
+                    client_ip="0.0.0.0",
+                    method="BURN_INDICATOR",
+                    uri="/_burn_detect",
+                    user_agent=indicator.indicator_type,
+                    filter_result="burn_alert",
+                    filter_reason=indicator.description,
+                    filter_score=1.0,
+                    response_status=0,
+                    duration_ms=0.0,
+                )
+            )
+        except Exception:
+            log.exception("burn_alert_dispatch_error")
+
+    async def cross_domain_check(self) -> list[BurnIndicator]:
+        """Find IPs that accessed multiple domains - analyst recon pattern."""
+        if self._db is None:
+            return []
+        lookback = time.time() - self.config.analyst_lookback_hours * 3600
+        from datetime import datetime, timezone
+        since = datetime.fromtimestamp(lookback, tz=timezone.utc).isoformat()
+        try:
+            rows = await self._db.fetchall(
+                """
+                SELECT client_ip, COUNT(DISTINCT domain) AS domain_count
+                FROM requests
+                WHERE timestamp > ? AND filter_result != 'block'
+                GROUP BY client_ip
+                HAVING domain_count >= ?
+                """,
+                (since, self.config.analyst_domain_threshold),
+            )
+        except Exception:
+            log.exception("cross_domain_check_error")
+            return []
+
+        indicators: list[BurnIndicator] = []
+        for row in rows:
+            ind = BurnIndicator(
+                indicator_type="cross_domain_analyst",
+                description=(
+                    f"IP {row['client_ip']} accessed {row['domain_count']} domains "
+                    f"in {self.config.analyst_lookback_hours}h - possible analyst"
+                ),
+                severity="warning",
+            )
+            indicators.append(ind)
+            log.warning(
+                "burn_detected",
+                type="cross_domain_analyst",
+                ip=row["client_ip"],
+                domain_count=row["domain_count"],
+            )
+            self._fire_burn_alert(ind)
+        self._burn_events.extend(indicators)
+        return indicators
+
     async def watch_loop(self) -> None:
         """Background task that periodically runs burn detection checks."""
         while True:
             try:
-                self.check()
+                new = self.check()
+                for ind in new:
+                    self._fire_burn_alert(ind)
+                await self.cross_domain_check()
             except Exception:
                 log.exception("burn_check_error")
             await asyncio.sleep(self.config.check_interval_seconds)

@@ -22,6 +22,8 @@ class ProfileType(str, Enum):
     BRUTE_RATEL = "brute_ratel"
     SLIVER = "sliver"
     HAVOC = "havoc"
+    NIGHTHAWK = "nighthawk"
+    POSHC2 = "poshc2"
     GOPHISH = "gophish"
     EVILGINX = "evilginx"
     CUDDLEPHISH = "cuddlephish"
@@ -41,6 +43,7 @@ class ContentBackendType(str, Enum):
     PWNDROP = "pwndrop"
     FILESYSTEM = "filesystem"
     HTTP_PROXY = "http_proxy"
+    MYTHIC_FILE = "mythic_file"
 
 
 class FilterAction(str, Enum):

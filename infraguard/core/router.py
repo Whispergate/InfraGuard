@@ -8,6 +8,7 @@ content delivery routes.
 from __future__ import annotations
 
 import asyncio
+import re
 import random
 import time
 from ipaddress import IPv4Address, IPv6Address, ip_address
@@ -18,12 +19,13 @@ import structlog
 from starlette.requests import Request
 from starlette.responses import Response
 
-from infraguard.config.schema import DomainConfig, InfraGuardConfig, PipelineConfig
+from infraguard.config.schema import ContentRouteGuardConfig, DomainConfig, InfraGuardConfig, PipelineConfig
 from infraguard.core.circuit_breaker import CircuitBreaker, CircuitOpenError
 from infraguard.core.content import ContentBackend, RouteMatch, create_backend
 from infraguard.core.content_router import ContentRouteResolver
 from infraguard.core.drop import handle_drop
 from infraguard.core.proxy import ProxyHandler
+from infraguard.core.rate_limiter import ContentRateLimiter
 from infraguard.intel.ip_lists import CIDRList
 from infraguard.intel.manager import IntelManager
 from infraguard.models.common import DropActionType
@@ -31,15 +33,20 @@ from infraguard.models.events import RequestEvent
 from infraguard.pipeline.base import FilterPipeline, RequestContext
 from infraguard.pipeline.bot_filter import BotFilter
 from infraguard.pipeline.dns_filter import DNSFilter
+from infraguard.pipeline.enumeration_filter import EnumerationFilter
 from infraguard.pipeline.header_filter import HeaderFilter
+from infraguard.pipeline.sandbox_filter import SandboxFilter
 from infraguard.pipeline.ip_filter import IPFilter
 from infraguard.pipeline.profile_filter import ProfileFilter
 from infraguard.pipeline.fingerprint_filter import FingerprintFilter
 from infraguard.pipeline.replay_filter import ReplayFilter
+from infraguard.pipeline.tls_filter import TLSFilter
 from infraguard.profiles.cobalt_strike import parse_cobalt_strike_file
 from infraguard.profiles.models import C2Profile
 from infraguard.profiles.mythic import parse_mythic_file
+from infraguard.tracking.database import Database
 from infraguard.tracking.recorder import EventRecorder
+from infraguard.tracking.tokens import PayloadTokenStore
 
 log = structlog.get_logger()
 
@@ -72,6 +79,7 @@ class DomainRouter:
         config: InfraGuardConfig,
         extra_filters: list | None = None,
         recorder: EventRecorder | None = None,
+        db: Database | None = None,
     ):
         self.config = config
         self.proxy = ProxyHandler()
@@ -79,6 +87,7 @@ class DomainRouter:
         self._routes_lock = asyncio.Lock()
         self._extra_filters = extra_filters or []
         self._recorder = recorder
+        self._db = db
         self._content_backends: list[ContentBackend] = []
         self._breakers: dict[str, CircuitBreaker] = {}
 
@@ -94,7 +103,54 @@ class DomainRouter:
                 self.intel.enrich_cidr_list(wl)
                 self._domain_whitelists[domain_name] = wl
 
+        # Shared filters (state must survive per-domain construction)
+        pc = config.pipeline
+        self._replay_filter: ReplayFilter | None = (
+            ReplayFilter(
+                window_seconds=pc.replay_window_seconds,
+                max_cache=50000,
+                db=db,
+                persist=pc.replay_persist,
+            )
+            if pc.enable_replay_filter
+            else None
+        )
+        self._enumeration_filter: EnumerationFilter | None = (
+            EnumerationFilter(
+                unique_path_threshold=pc.enumeration_unique_path_threshold,
+                unique_path_suspect_threshold=pc.enumeration_unique_path_suspect_threshold,
+                window_seconds=pc.enumeration_window_seconds,
+            )
+            if pc.enable_enumeration_filter
+            else None
+        )
+        self._sandbox_filter: SandboxFilter | None = (
+            SandboxFilter() if pc.enable_sandbox_filter else None
+        )
+        ja3_cfg = pc.ja3_filter
+        self._tls_filter: TLSFilter | None = (
+            TLSFilter(
+                blocked_ja3=set(ja3_cfg.blocked_ja3) if ja3_cfg.blocked_ja3 else None,
+                allowed_ja3=set(ja3_cfg.allowed_ja3) if ja3_cfg.allowed_ja3 is not None else None,
+                log_ja3=ja3_cfg.log_ja3,
+                block_unknown=ja3_cfg.block_unknown,
+            )
+            if pc.enable_ja3_filter
+            else None
+        )
+        self._rate_limiter = ContentRateLimiter()
+        self._token_store: PayloadTokenStore | None = (
+            PayloadTokenStore(db) if db is not None and config.payload_tokens.enabled else None
+        )
+
         self._load_routes()
+
+    async def startup(self) -> None:
+        """Post-connect startup: hydrate persistent caches from the database."""
+        if self._replay_filter is not None:
+            await self._replay_filter.load_from_db()
+        if self._token_store is not None:
+            await self._token_store.prune_expired()
 
     def _build_filters(self, phishing_filter=None) -> list:
         """Build the full filter chain based on pipeline config.
@@ -104,6 +160,10 @@ class DomainRouter:
         """
         pc = self.config.pipeline
         filters: list = []
+
+        # TLS fingerprint check runs first - before any IP/bot/header logic
+        if self._tls_filter is not None:
+            filters.append(self._tls_filter)
 
         if pc.enable_ip_filter:
             filters.append(IPFilter(self.intel, self._domain_whitelists))
@@ -125,8 +185,14 @@ class DomainRouter:
         else:
             filters.append(ProfileFilter())
 
-        if pc.enable_replay_filter:
-            filters.append(ReplayFilter())
+        if self._replay_filter is not None:
+            filters.append(self._replay_filter)
+
+        if self._enumeration_filter is not None:
+            filters.append(self._enumeration_filter)
+
+        if self._sandbox_filter is not None:
+            filters.append(self._sandbox_filter)
 
         filters.extend(self._extra_filters)
         return filters
@@ -242,6 +308,8 @@ class DomainRouter:
     def _load_profile(config: DomainConfig) -> C2Profile:
         from infraguard.profiles.brute_ratel import parse_brute_ratel_file
         from infraguard.profiles.havoc import parse_havoc_file
+        from infraguard.profiles.nighthawk import parse_nighthawk_file
+        from infraguard.profiles.poshc2 import parse_poshc2_file
         from infraguard.profiles.sliver import parse_sliver_file
 
         path = Path(config.profile_path)
@@ -253,6 +321,10 @@ class DomainRouter:
             return parse_sliver_file(path)
         elif config.profile_type.value == "havoc":
             return parse_havoc_file(path)
+        elif config.profile_type.value == "nighthawk":
+            return parse_nighthawk_file(path)
+        elif config.profile_type.value == "poshc2":
+            return parse_poshc2_file(path)
         else:
             return parse_mythic_file(path)
 
@@ -423,7 +495,7 @@ class DomainRouter:
                     client_ip=client_ip,
                     domain_config=route.config,
                     profile=route.profile,
-                    metadata={"body": body},
+                    metadata={"body": body, "ja3": getattr(request.state, "ja3", None)},
                 )
                 pre_result = await route.pipeline.evaluate(ctx)
                 if not pre_result.allowed:
@@ -469,7 +541,7 @@ class DomainRouter:
             client_ip=client_ip,
             domain_config=route.config,
             profile=route.profile,
-            metadata={"body": body},
+            metadata={"body": body, "ja3": getattr(request.state, "ja3", None)},
         )
 
         result = await route.pipeline.evaluate(ctx)
@@ -482,6 +554,23 @@ class DomainRouter:
                 path=request.url.path,
                 score=round(result.total_score, 2),
             )
+            # Record valid request for dynamic whitelisting.
+            # If this causes the IP to be newly whitelisted, issue a payload token.
+            newly_whitelisted = self.intel.record_valid_request(str(client_ip))
+            if newly_whitelisted and self._token_store is not None:
+                pt_cfg = self.config.payload_tokens
+                # Issue tokens for all token-gated content routes on this domain
+                for cr in route.config.content_routes:
+                    if cr.require_token:
+                        token = await self._token_store.issue(
+                            beacon_ip=str(client_ip),
+                            route_path=cr.path,
+                            ttl_seconds=pt_cfg.default_ttl_seconds,
+                            max_uses=pt_cfg.default_max_uses,
+                        )
+                        # Token delivered via response header after proxying
+                        ctx.metadata.setdefault("issued_tokens", {})[cr.path] = token
+
             # Build ordered upstream list: primary + backups
             upstreams = [route.config.upstream] + list(route.config.backup_upstreams)
             response = None
@@ -503,7 +592,7 @@ class DomainRouter:
                         response = await self.proxy.forward(
                             request, upstream, domain_config=route.config,
                         )
-                    break  # Success — stop trying upstreams
+                    break  # Success - stop trying upstreams
                 except CircuitOpenError:
                     log.warning(
                         "upstream_circuit_open",
@@ -536,6 +625,19 @@ class DomainRouter:
                 )
                 filter_result_str = "block"
                 filter_reason = "all_upstreams_failed"
+
+            # Attach any issued payload tokens to the response headers
+            issued_tokens: dict[str, str] = ctx.metadata.get("issued_tokens", {})
+            if issued_tokens:
+                pt_cfg = self.config.payload_tokens
+                # Encode as JSON if multiple tokens; plain string if single
+                import json as _json
+                token_value = (
+                    next(iter(issued_tokens.values()))
+                    if len(issued_tokens) == 1
+                    else _json.dumps(issued_tokens)
+                )
+                response.headers[pt_cfg.issuance_header] = token_value
 
             status_code = response.status_code
         else:
@@ -606,7 +708,7 @@ class DomainRouter:
                 client_ip=client_ip,
                 domain_config=route.config,
                 profile=route.profile,
-                metadata={"body": body},
+                metadata={"body": body, "ja3": getattr(request.state, "ja3", None)},
             )
             if route.fingerprint_pipeline:
                 fp_result = await route.fingerprint_pipeline.evaluate(ctx)
@@ -634,6 +736,75 @@ class DomainRouter:
                     )
                     return response
 
+        # Environment keying / delivery guardrails
+        if content_config.guard:
+            guard_reason = self._check_content_guard(request, content_config.guard, client_ip)
+            if guard_reason:
+                log.warning(
+                    "content_guard_blocked",
+                    domain=route.domain,
+                    client=str(client_ip),
+                    path=request.url.path,
+                    reason=guard_reason,
+                )
+                self._record_content_event(
+                    route.domain, client_ip, request,
+                    Response(status_code=403, content=b"Forbidden"),
+                    "guard_blocked", filter_score, start, content_config.track,
+                )
+                return await handle_drop(request, route.config.drop_action)
+
+        # One-time payload token validation
+        if content_config.require_token and self._token_store is not None:
+            pt_cfg = self.config.payload_tokens
+            token = (
+                request.headers.get(pt_cfg.token_header)
+                or request.query_params.get(pt_cfg.token_param)
+            )
+            if not token:
+                log.warning(
+                    "payload_token_missing",
+                    domain=route.domain,
+                    client=str(client_ip),
+                    path=request.url.path,
+                )
+                return Response(status_code=403, content=b"Forbidden")
+            validation = await self._token_store.validate_and_consume(token, content_config.path)
+            if not validation.valid:
+                log.warning(
+                    "payload_token_invalid",
+                    domain=route.domain,
+                    client=str(client_ip),
+                    path=request.url.path,
+                )
+                return Response(status_code=403, content=b"Forbidden")
+
+        # Per-route download rate limiting
+        if content_config.rate_limit and content_config.rate_limit.enabled:
+            rl = content_config.rate_limit
+            allowed = self._rate_limiter.check(
+                str(client_ip), content_config.path, rl.max_downloads, rl.window_seconds,
+            )
+            if not allowed:
+                log.warning(
+                    "rate_limit_exceeded",
+                    domain=route.domain,
+                    client=str(client_ip),
+                    path=request.url.path,
+                    max_downloads=rl.max_downloads,
+                    window_seconds=rl.window_seconds,
+                )
+                if content_config.conditional and content_config.conditional.scanner_backend:
+                    backend = create_backend(content_config.conditional.scanner_backend)
+                    self._content_backends.append(backend)
+                    response = await backend.serve(request, match)
+                    self._record_content_event(
+                        route.domain, client_ip, request, response,
+                        "rate_limited", filter_score, start, content_config.track,
+                    )
+                    return response
+                return Response(status_code=429, content=b"Too Many Requests")
+
         # Serve real content
         backend = create_backend(content_config.backend)
         self._content_backends.append(backend)
@@ -652,6 +823,33 @@ class DomainRouter:
             "content_served", filter_score, start, content_config.track,
         )
         return response
+
+    def _check_content_guard(
+        self,
+        request: Request,
+        guard: ContentRouteGuardConfig,
+        client_ip: IPv4Address | IPv6Address,
+    ) -> str | None:
+        """Return None if all guard checks pass, or a reason string if blocked."""
+        if guard.require_beacon_ip:
+            if not self.intel.dynamic_whitelist.is_whitelisted(str(client_ip)):
+                return "not a whitelisted beacon IP"
+
+        if guard.allowed_user_agents:
+            ua = request.headers.get("user-agent", "")
+            if not any(re.search(pat, ua, re.IGNORECASE) for pat in guard.allowed_user_agents):
+                return f"UA not in allowlist ({ua[:80]!r})"
+
+        for header_name, expected_value in guard.required_headers.items():
+            actual = request.headers.get(header_name, "")
+            if actual != expected_value:
+                return f"required header mismatch: {header_name}"
+
+        for header_name in guard.forbidden_headers:
+            if header_name.lower() in request.headers:
+                return f"forbidden header present: {header_name}"
+
+        return None
 
     def _record_content_event(
         self,

@@ -66,7 +66,7 @@ def sanitize_response_headers(
     Keys are compared case-insensitively.  Any header not in
     ``DEFAULT_SAFE_HEADERS`` (or *extra_allowed*) is stripped.
     Headers in ``BLOCKED_HEADERS`` are **always** stripped, even if
-    they appear in *extra_allowed* — this prevents operator
+    they appear in *extra_allowed* - this prevents operator
     misconfiguration from leaking server identity.
 
     Args:

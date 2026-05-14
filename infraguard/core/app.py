@@ -16,7 +16,7 @@ from starlette.routing import Route
 from infraguard.config.reloader import ConfigReloader
 from infraguard.config.schema import InfraGuardConfig
 from infraguard.core.log_sanitizer import redact_sensitive_fields
-from infraguard.core.middleware import RequestLoggingMiddleware
+from infraguard.core.middleware import JA3InjectionMiddleware, RequestLoggingMiddleware
 from infraguard.core.router import DomainRouter
 from infraguard.plugins.loader import load_plugins
 from infraguard.tracking.database import Database
@@ -53,7 +53,7 @@ def create_app(config: InfraGuardConfig) -> Starlette:
 
     db = Database(config.tracking.db_path)
     recorder = EventRecorder(db, plugins=plugins)
-    router = DomainRouter(config, recorder=recorder)
+    router = DomainRouter(config, recorder=recorder, db=db)
 
     # Health endpoint path is configurable to avoid fingerprinting
     health_path = config.api.health_path.strip("/")
@@ -82,6 +82,8 @@ def create_app(config: InfraGuardConfig) -> Starlette:
         # Expose db and config on app state for auth and other handlers
         app.state.db = db
         app.state.config = config
+        # Hydrate persistent caches (replay filter) from the now-connected database
+        await router.startup()
         # Start plugins (isolated - one failure doesn't stop others)
         for p in plugins:
             try:
@@ -98,6 +100,41 @@ def create_app(config: InfraGuardConfig) -> Starlette:
 
         # Collect background tasks for structured shutdown
         _background_tasks: list[asyncio.Task] = []
+
+        # Background task: Certificate Transparency monitoring
+        _ct_monitor = None
+        if config.intel.ct_monitor.enabled:
+            from infraguard.intel.ct_monitor import CTMonitor
+            from infraguard.intel.burn_detect import BurnDetector, BurnConfig
+            _burn_detector = BurnDetector(db=db, recorder=recorder)
+            ct_domains = config.intel.ct_monitor.monitored_domains or list(config.domains.keys())
+            _ct_monitor = CTMonitor(
+                domains=ct_domains,
+                interval_hours=config.intel.ct_monitor.interval_hours,
+                burn_detector=_burn_detector,
+                recorder=recorder,
+            )
+            await _ct_monitor.start()
+
+        # Background task: Domain reputation self-monitoring
+        _rep_monitor = None
+        if config.intel.reputation_monitor.enabled:
+            from infraguard.intel.reputation import DomainReputationMonitor
+            _burn_det = getattr(_ct_monitor, '_burn_detector', None) if _ct_monitor else None
+            rep_domains = (
+                config.intel.reputation_monitor.monitored_domains or list(config.domains.keys())
+            )
+            _rep_monitor = DomainReputationMonitor(
+                domains=rep_domains,
+                interval_hours=config.intel.reputation_monitor.interval_hours,
+                check_urlhaus=config.intel.reputation_monitor.check_urlhaus,
+                check_openphish=config.intel.reputation_monitor.check_openphish,
+                check_google_safebrowsing=config.intel.reputation_monitor.check_google_safebrowsing,
+                google_safebrowsing_api_key=config.intel.reputation_monitor.google_safebrowsing_api_key,
+                burn_detector=_burn_det,
+                recorder=recorder,
+            )
+            await _rep_monitor.start()
 
         # Background task: initial feed load and periodic refresh
         if config.intel.feeds.enabled:
@@ -143,6 +180,12 @@ def create_app(config: InfraGuardConfig) -> Starlette:
             await asyncio.gather(*_background_tasks, return_exceptions=True)
         _background_tasks.clear()
 
+        # Stop optional monitors
+        if _ct_monitor is not None:
+            await _ct_monitor.stop()
+        if _rep_monitor is not None:
+            await _rep_monitor.stop()
+
         # 2. Stop recorder (cancels tracked tasks and does final flush)
         await recorder.stop()
 
@@ -167,5 +210,9 @@ def create_app(config: InfraGuardConfig) -> Starlette:
     )
 
     app.add_middleware(RequestLoggingMiddleware)
+    app.add_middleware(
+        JA3InjectionMiddleware,
+        ja3_header=config.pipeline.ja3_filter.ja3_header,
+    )
 
     return app

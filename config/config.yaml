@@ -1,5 +1,6 @@
 # InfraGuard Docker Configuration
 # Environment variables are loaded from .env automatically.
+# Full reference with all options: config/test-config-full.yaml
 
 listeners:
   - bind: "0.0.0.0"
@@ -65,13 +66,47 @@ domains:
       type: "decoy"
       target: "${IG_DECOY_SITE}"
     content_routes:
+      # Mythic-hosted stage-2 payload at a clean URL.
+      # Guard: beacon IP required + Windows UA + no proxy headers + single-use token.
+      - path: "/jquery-3.7.1.min.js"
+        backend:
+          type: "mythic_file"
+          target: "${MYTHIC_URL}"          # e.g. https://10.0.0.5:7443
+          file_id: "${MYTHIC_STAGE2_FILE_ID}"
+          ssl_verify: false
+          headers:
+            Content-Disposition: "attachment; filename=\"jquery-3.7.1.min.js\""
+        guard:
+          require_beacon_ip: true
+          allowed_user_agents:
+            - "^Mozilla/5\\.0 \\(Windows NT"
+            - "WinHTTP"
+          forbidden_headers:
+            - "Via"
+            - "X-Forwarded-For"
+        require_token: true
+        rate_limit:
+          enabled: true
+          max_downloads: 1
+          window_seconds: 3600
+        conditional:
+          score_threshold: 0.5
+          scanner_backend:
+            type: "http_proxy"
+            target: "https://jquery.com"
+        track: true
+      # PwnDrop payload delivery (rate-limited, scanner-aware)
       - path: "/downloads/*"
         backend:
           type: "pwndrop"
-          target: "http://pwndrop:80"    # Docker internal URL
+          target: "http://pwndrop:80"
           auth_token: "${PWNDROP_TOKEN}"
+        rate_limit:
+          enabled: true
+          max_downloads: 3
+          window_seconds: 300
         conditional:
-          score_threshold: 0.5           # bots/scanners get decoy instead
+          score_threshold: 0.5
           scanner_backend:
             type: "http_proxy"
             target: "https://jquery.com"
@@ -89,8 +124,19 @@ intel:
   geoip_country_db: "${INFRAGUARD_GEOIP_COUNTRY_DB}"
   banned_ip_file: "${INFRAGUARD_BANNED_IP_FILE}"
   rules_dir: "${INFRAGUARD_RULES_DIR}"    # auto-ingest .htaccess / robots.txt on startup
+  dns_enum_nxdomain_threshold: 15
+  dns_enum_window_seconds: 30
   feeds:
     enabled: true
+  ct_monitor:
+    enabled: false                        # set true + add domains to enable CT log alerting
+    interval_hours: 6.0
+    monitored_domains: []                 # empty = auto-populate from domain keys above
+  reputation_monitor:
+    enabled: false                        # set true to check URLhaus / OpenPhish on schedule
+    interval_hours: 4.0
+    check_urlhaus: true
+    check_openphish: true
 
 tracking:
   db_path: "${INFRAGUARD_DB_PATH}"
@@ -98,12 +144,32 @@ tracking:
 pipeline:
   filter_mode: "${INFRAGUARD_FILTER_MODE}"  # "scoring" or "hard"
   block_score_threshold: 0.7
+  replay_window_seconds: 86400
+  replay_persist: true
+  enable_enumeration_filter: true
+  enumeration_unique_path_threshold: 20
+  enumeration_unique_path_suspect_threshold: 8
+  enumeration_window_seconds: 60
+  enable_sandbox_filter: true
+  enable_ja3_filter: true
+  ja3_filter:
+    log_ja3: true
+    block_unknown: false
+    ja3_header: "x-ja3"             # set by nginx ssl_fingerprint / HAProxy JA3
 
 api:
   bind: "0.0.0.0"
   port: 8080
   auth_token: "${INFRAGUARD_API_TOKEN}"
   health_path: "/${INFRAGUARD_HEALTH_PATH}"
+
+payload_tokens:
+  enabled: false                          # set true to gate content routes behind one-time tokens
+  default_ttl_seconds: 3600
+  default_max_uses: 1
+  token_header: "X-DL-Token"
+  token_param: "_t"
+  issuance_header: "X-Payload-Token"
 
 decoy_pages_dir: "${IG_DECOY_PAGES_DIR}"  # base directory for decoy SPA sites
 

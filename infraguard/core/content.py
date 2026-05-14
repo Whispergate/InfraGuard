@@ -187,6 +187,105 @@ class HttpProxyBackend:
             await self._client.aclose()
 
 
+class MythicFileBackend:
+    """Download a specific file from Mythic's file store.
+
+    Proxies GET {target}/direct/download/{file_id} to the beacon, preserving
+    Content-Type and Content-Disposition from Mythic's response.
+
+    Mythic's /direct/download/{uuid} endpoint is unauthenticated — access
+    control is provided entirely by InfraGuard's filter pipeline, content
+    guard (require_beacon_ip, allowed_user_agents, required_headers), one-time
+    tokens, and rate limiting. Set ssl_verify: false for Mythic's default
+    self-signed cert.
+
+    Two delivery modes:
+      - Fixed: ``file_id`` set in config → always serves that file regardless
+        of the incoming path (clean URL aliasing, e.g. /update.exe → UUID).
+      - Proxy: ``file_id`` absent → extracts the UUID from the last path
+        segment of the incoming request (exposes Mythic downloads behind
+        InfraGuard's filter pipeline + token/rate-limit controls).
+
+    ``auth_token`` is optional. If set, sent as ``Authorization: Bearer <token>``.
+    ``headers`` can override Content-Disposition to rename the download.
+    """
+
+    _UUID_RE = __import__("re").compile(
+        r"[0-9a-f]{8}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{12}",
+        __import__("re").IGNORECASE,
+    )
+
+    def __init__(self, config: ContentBackendConfig) -> None:
+        if not config.target:
+            raise ValueError("mythic_file backend requires target (Mythic base URL)")
+        self._target = config.target.rstrip("/")
+        self._file_id = config.file_id  # None = extract from path
+        self._auth_token = config.auth_token
+        self._extra_headers = config.headers  # operator overrides (e.g. Content-Disposition)
+        self._ssl_verify = config.ssl_verify
+        self._ssl_ca_bundle = config.ssl_ca_bundle
+        self._client: httpx.AsyncClient | None = None
+
+    def _resolve_file_id(self, match: RouteMatch) -> str | None:
+        if self._file_id:
+            return self._file_id
+        # Extract UUID from last non-empty path segment
+        segments = [s for s in match.path_remainder.split("/") if s]
+        for seg in reversed(segments):
+            if self._UUID_RE.fullmatch(seg):
+                return seg
+        return None
+
+    async def serve(self, request: Request, match: RouteMatch) -> Response:
+        if not self._client:
+            self._client = httpx.AsyncClient(
+                timeout=60.0,
+                verify=build_ssl_context(self._ssl_verify, self._ssl_ca_bundle),
+                follow_redirects=True,
+            )
+
+        file_id = self._resolve_file_id(match)
+        if not file_id:
+            log.warning("mythic_file_no_uuid", path=request.url.path)
+            return Response(status_code=400, content=b"Missing file ID")
+
+        upstream_url = f"{self._target}/direct/download/{file_id}"
+        headers: dict[str, str] = {}
+        if self._auth_token:
+            headers["Authorization"] = f"Bearer {self._auth_token}"
+
+        try:
+            resp = await self._client.get(upstream_url, headers=headers)
+        except (httpx.RequestError, httpx.TimeoutException) as exc:
+            log.warning("mythic_file_backend_error", target=self._target, file_id=file_id, error=str(exc))
+            return Response(status_code=502, content=b"Bad Gateway")
+
+        if resp.status_code == 401:
+            log.error("mythic_file_auth_failed", target=self._target, file_id=file_id)
+            return Response(status_code=502, content=b"Bad Gateway")
+
+        resp_headers = sanitize_response_headers(dict(resp.headers))
+        # Operator-supplied headers win (e.g. rename Content-Disposition)
+        resp_headers.update(self._extra_headers)
+
+        log.info(
+            "mythic_file_served",
+            file_id=file_id,
+            status=resp.status_code,
+            size=len(resp.content),
+            client=request.client.host if request.client else "?",
+        )
+        return Response(
+            content=resp.content,
+            status_code=resp.status_code,
+            headers=resp_headers,
+        )
+
+    async def close(self) -> None:
+        if self._client:
+            await self._client.aclose()
+
+
 def create_backend(config: ContentBackendConfig) -> ContentBackend:
     """Factory: create the right backend based on config type."""
     from infraguard.models.common import ContentBackendType
@@ -197,5 +296,7 @@ def create_backend(config: ContentBackendConfig) -> ContentBackend:
         return FilesystemBackend(config)
     elif config.type == ContentBackendType.HTTP_PROXY:
         return HttpProxyBackend(config)
+    elif config.type == ContentBackendType.MYTHIC_FILE:
+        return MythicFileBackend(config)
     else:
         raise ValueError(f"Unknown content backend type: {config.type}")

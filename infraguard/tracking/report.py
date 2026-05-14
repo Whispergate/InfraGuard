@@ -25,24 +25,14 @@ from infraguard.tracking.database import Database
 log = structlog.get_logger()
 
 
-async def generate_report(
-    db: Database,
-    output_path: Path,
-    title: str = "InfraGuard Engagement Report",
-) -> Path:
-    """Generate an HTML engagement report from the tracking database.
+async def collect_report_data(db: Database, audit_limit: int = 50) -> dict:
+    """Gather all data needed to render an engagement report.
 
-    Args:
-        db: Connected Database instance.
-        output_path: File path to write the HTML report.
-        title: Report title.
-
-    Returns:
-        Path to the generated report file.
+    Returns a dict with raw rows and scalar counts. Callers render this
+    into HTML, JSON, CSV, or any other format without re-running queries.
     """
     now = datetime.now(timezone.utc)
 
-    # Gather statistics
     total = await db.fetchone("SELECT COUNT(*) as count FROM requests")
     total_count = total["count"] if total else 0
 
@@ -56,27 +46,28 @@ async def generate_report(
     )
     blocked_count = blocked["count"] if blocked else 0
 
-    # Top blocked IPs
+    unique_ips_row = await db.fetchone(
+        "SELECT COUNT(DISTINCT client_ip) as count FROM requests"
+    )
+    unique_ips = unique_ips_row["count"] if unique_ips_row else 0
+
     top_blocked_ips = await db.fetchall(
         "SELECT client_ip, COUNT(*) as count FROM requests "
         "WHERE filter_result = 'block' "
         "GROUP BY client_ip ORDER BY count DESC LIMIT 20"
     )
 
-    # Per-domain stats
     domain_stats = await db.fetchall(
         "SELECT domain, filter_result, COUNT(*) as count FROM requests "
         "GROUP BY domain, filter_result ORDER BY domain"
     )
 
-    # Filter reason breakdown
     filter_reasons = await db.fetchall(
         "SELECT filter_reason, COUNT(*) as count FROM requests "
         "WHERE filter_reason IS NOT NULL AND filter_reason != '' "
         "GROUP BY filter_reason ORDER BY count DESC LIMIT 15"
     )
 
-    # Hourly volume (last 7 days)
     hourly_volume = await db.fetchall(
         "SELECT strftime('%Y-%m-%d %H:00', timestamp) as hour, "
         "filter_result, COUNT(*) as count FROM requests "
@@ -84,45 +75,62 @@ async def generate_report(
         "GROUP BY hour, filter_result ORDER BY hour"
     )
 
-    # Top User-Agents (blocked)
     top_blocked_uas = await db.fetchall(
         "SELECT user_agent, COUNT(*) as count FROM requests "
         "WHERE filter_result = 'block' AND user_agent != '' "
         "GROUP BY user_agent ORDER BY count DESC LIMIT 10"
     )
 
-    # Audit log summary
-    audit_entries = await db.get_audit_log(limit=50)
+    audit_entries = await db.get_audit_log(limit=audit_limit)
 
-    # Time range
-    first_req = await db.fetchone(
-        "SELECT MIN(timestamp) as first_ts FROM requests"
-    )
-    last_req = await db.fetchone(
-        "SELECT MAX(timestamp) as last_ts FROM requests"
-    )
-    first_ts = (first_req["first_ts"] if first_req and first_req["first_ts"] else "N/A")
-    last_ts = (last_req["last_ts"] if last_req and last_req["last_ts"] else "N/A")
+    first_req = await db.fetchone("SELECT MIN(timestamp) as first_ts FROM requests")
+    last_req = await db.fetchone("SELECT MAX(timestamp) as last_ts FROM requests")
+    first_ts = first_req["first_ts"] if first_req and first_req["first_ts"] else "N/A"
+    last_ts = last_req["last_ts"] if last_req and last_req["last_ts"] else "N/A"
 
-    # Build HTML
+    return {
+        "generated_at": now.isoformat(),
+        "total": total_count,
+        "allowed": allowed_count,
+        "blocked": blocked_count,
+        "unique_ips": unique_ips,
+        "first_request": first_ts,
+        "last_request": last_ts,
+        "top_blocked_ips": top_blocked_ips,
+        "domain_stats": domain_stats,
+        "filter_reasons": filter_reasons,
+        "hourly_volume": hourly_volume,
+        "top_blocked_uas": top_blocked_uas,
+        "audit_entries": audit_entries,
+    }
+
+
+async def generate_report(
+    db: Database,
+    output_path: Path,
+    title: str = "InfraGuard Engagement Report",
+) -> Path:
+    """Generate an HTML engagement report from the tracking database."""
+    data = await collect_report_data(db, audit_limit=50)
+
     report_html = _render_html(
         title=title,
-        generated_at=now.isoformat(),
-        total=total_count,
-        allowed=allowed_count,
-        blocked=blocked_count,
-        first_request=first_ts,
-        last_request=last_ts,
-        top_blocked_ips=top_blocked_ips,
-        domain_stats=domain_stats,
-        filter_reasons=filter_reasons,
-        top_blocked_uas=top_blocked_uas,
-        audit_entries=audit_entries,
+        generated_at=data["generated_at"],
+        total=data["total"],
+        allowed=data["allowed"],
+        blocked=data["blocked"],
+        first_request=data["first_request"],
+        last_request=data["last_request"],
+        top_blocked_ips=data["top_blocked_ips"],
+        domain_stats=data["domain_stats"],
+        filter_reasons=data["filter_reasons"],
+        top_blocked_uas=data["top_blocked_uas"],
+        audit_entries=data["audit_entries"],
     )
 
     output_path.parent.mkdir(parents=True, exist_ok=True)
     output_path.write_text(report_html, encoding="utf-8")
-    log.info("report_generated", path=str(output_path), total_requests=total_count)
+    log.info("report_generated", path=str(output_path), total_requests=data["total"])
     return output_path
 
 

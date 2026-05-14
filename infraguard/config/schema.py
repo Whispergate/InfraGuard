@@ -65,6 +65,8 @@ class ContentBackendConfig(BaseModel):
     headers: dict[str, str] = Field(default_factory=dict)
     ssl_verify: bool = False
     ssl_ca_bundle: str | None = None
+    # mythic_file only: UUID of the file in Mythic's file store
+    file_id: str | None = None
 
 
 class ConditionalDeliveryConfig(BaseModel):
@@ -75,6 +77,56 @@ class ConditionalDeliveryConfig(BaseModel):
     use_fingerprint_filters: bool = True
 
 
+class RateLimitConfig(BaseModel):
+    """Per-route download rate limiting."""
+
+    enabled: bool = True
+    max_downloads: int = 3
+    window_seconds: int = 300
+
+
+class PayloadTokenConfig(BaseModel):
+    """One-time download token configuration (root-level)."""
+
+    enabled: bool = False
+    default_ttl_seconds: int = 3600       # token validity window
+    default_max_uses: int = 1             # token reuse limit
+    token_header: str = "X-DL-Token"     # header name for inbound token
+    token_param: str = "_t"              # query param fallback
+    issuance_header: str = "X-Payload-Token"  # response header carrying new token
+
+
+class ContentRouteGuardConfig(BaseModel):
+    """Environment keying and delivery guardrails for content routes.
+
+    Evaluated before the backend is called. Blocks requests that do not match
+    the expected beacon environment — preventing automated scanners, analysts,
+    and sandboxes from retrieving payloads even if they know the URL.
+
+    All checks are AND-ed: every enabled check must pass.
+    Failed checks serve the domain drop_action (redirect/reset/proxy), not a
+    raw 403, to avoid fingerprinting InfraGuard as the gatekeeper.
+    """
+
+    require_beacon_ip: bool = False
+    # Only serve to IPs that have been promoted to the dynamic whitelist
+    # (i.e., IPs that already completed N successful C2 checkins).
+
+    allowed_user_agents: list[str] = Field(default_factory=list)
+    # Regex patterns (re.IGNORECASE). Empty = any UA passes.
+    # Match is a re.search (not fullmatch), so partial patterns work.
+    # Example: ["^Mozilla/5\\.0 .* Windows NT", "WinHTTP"]
+
+    required_headers: dict[str, str] = Field(default_factory=dict)
+    # Headers that must be present with an exact value.
+    # Keys are case-insensitive. Example: {"X-C2-Implant": "v2"}
+
+    forbidden_headers: list[str] = Field(default_factory=list)
+    # Request must NOT contain any of these headers.
+    # Catches: Via (proxy traversal), X-Forwarded-For (CDN/scanner proxy),
+    # X-Scanner (automated tools), CF-Worker (Cloudflare Workers).
+
+
 class ContentRouteConfig(BaseModel):
     """Maps a URI pattern to a content delivery backend."""
 
@@ -83,6 +135,25 @@ class ContentRouteConfig(BaseModel):
     conditional: ConditionalDeliveryConfig | None = None
     track: bool = True
     methods: list[str] = Field(default_factory=lambda: ["GET"])
+    rate_limit: RateLimitConfig | None = None
+    require_token: bool = False  # gate this route behind a one-time payload token
+    guard: ContentRouteGuardConfig | None = None  # environment keying / delivery guardrails
+
+
+class CampaignTokenConfig(BaseModel):
+    """Validate per-campaign tokens embedded in phishing URLs.
+
+    Prevents analysts who discover the phishing URL (via CT logs, threat feeds,
+    or paste sites) from loading the phishing page - they lack the campaign token
+    that was embedded in the actual phishing email link.
+    """
+
+    enabled: bool = False
+    token_param: str = "t"
+    tokens: list[str] = Field(default_factory=list)  # static token allowlist
+    hmac_secret: str | None = None      # if set, validate HMAC(secret, token, ts)
+    hmac_ttl_seconds: int = 604800      # 7 days
+    score_on_missing: float = 0.8       # pipeline score added for missing token
 
 
 class DomainConfig(BaseModel):
@@ -102,6 +173,7 @@ class DomainConfig(BaseModel):
     content_route_filter: str = "ip_only"  # "ip_only" | "full_pipeline"
     circuit_breaker_threshold: int = 5  # consecutive failures before OPEN
     circuit_breaker_cooldown: float = 30.0  # seconds before HALF_OPEN probe
+    campaign_token: CampaignTokenConfig = Field(default_factory=CampaignTokenConfig)
 
 
 class ListenerConfig(BaseModel):
@@ -136,6 +208,27 @@ class CloudRangeConfig(BaseModel):
     refresh_interval_hours: int = 24
 
 
+class CTMonitorConfig(BaseModel):
+    """Certificate Transparency log monitoring."""
+
+    enabled: bool = False
+    interval_hours: float = 6.0
+    monitored_domains: list[str] = Field(default_factory=list)
+    # Empty = auto-populate from config.domains keys at startup
+
+
+class ReputationMonitorConfig(BaseModel):
+    """Domain reputation self-monitoring against threat intel feeds."""
+
+    enabled: bool = False
+    interval_hours: float = 4.0
+    monitored_domains: list[str] = Field(default_factory=list)
+    check_urlhaus: bool = True
+    check_openphish: bool = True
+    check_google_safebrowsing: bool = False
+    google_safebrowsing_api_key: str | None = None
+
+
 class IntelConfig(BaseModel):
     geoip_db: str | None = None
     geoip_asn_db: str | None = None
@@ -151,6 +244,10 @@ class IntelConfig(BaseModel):
     rules_dir: str | None = None  # auto-ingest .htaccess / robots.txt on startup
     feeds: FeedConfig = Field(default_factory=FeedConfig)
     cloud_ranges: CloudRangeConfig = Field(default_factory=CloudRangeConfig)
+    dns_enum_nxdomain_threshold: int = 15  # NXDOMAIN responses per window before blocking
+    dns_enum_window_seconds: int = 30
+    ct_monitor: CTMonitorConfig = Field(default_factory=CTMonitorConfig)
+    reputation_monitor: ReputationMonitorConfig = Field(default_factory=ReputationMonitorConfig)
 
 
 class TrackingConfig(BaseModel):
@@ -166,6 +263,17 @@ class APIConfig(BaseModel):
     session_ttl: int = 86400  # seconds, default 24h
 
 
+class JA3FilterConfig(BaseModel):
+    """JA3 TLS fingerprint filter configuration."""
+
+    blocked_ja3: list[str] = Field(default_factory=list)
+    allowed_ja3: list[str] | None = None
+    log_ja3: bool = True
+    block_unknown: bool = False
+    # Header set by a reverse proxy (nginx ssl_fingerprint, HAProxy 2.2+ native JA3)
+    ja3_header: str = "x-ja3"
+
+
 class PipelineConfig(BaseModel):
     filter_mode: str = "scoring"  # "scoring" | "hard"
     block_score_threshold: float = DEFAULT_BLOCK_SCORE_THRESHOLD
@@ -179,6 +287,19 @@ class PipelineConfig(BaseModel):
     enable_fingerprint_filter: bool = False
     allowed_fingerprints: list[str] = Field(default_factory=list)
     blocked_fingerprints: list[str] = Field(default_factory=list)
+    # Replay filter persistence
+    replay_window_seconds: int = 86400  # 24h rolling dedup window
+    replay_persist: bool = True  # persist replay hashes to SQLite across restarts
+    # Enumeration detection
+    enable_enumeration_filter: bool = True
+    enumeration_unique_path_threshold: int = 20   # hard-block above this
+    enumeration_unique_path_suspect_threshold: int = 8
+    enumeration_window_seconds: int = 60
+    # Sandbox / headless browser detection
+    enable_sandbox_filter: bool = True
+    # JA3 TLS fingerprint filter (works with reverse proxy JA3 header or JA3InjectingProtocol)
+    enable_ja3_filter: bool = True
+    ja3_filter: JA3FilterConfig = Field(default_factory=JA3FilterConfig)
 
 
 class LoggingConfig(BaseModel):
@@ -237,6 +358,7 @@ class InfraGuardConfig(BaseModel):
     logging: LoggingConfig = Field(default_factory=LoggingConfig)
     timing: TimingConfig = Field(default_factory=TimingConfig)
     deadman: DeadManConfig = Field(default_factory=DeadManConfig)
+    payload_tokens: PayloadTokenConfig = Field(default_factory=PayloadTokenConfig)
     decoy_pages_dir: str = "pages"
     plugins: list[str] = Field(default_factory=list)
     plugin_settings: dict[str, PluginSettings] = Field(default_factory=dict)

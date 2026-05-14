@@ -74,7 +74,7 @@ class DeadManSwitch:
                     ttl=self.ttl_seconds,
                     last_heartbeat=self._last_heartbeat,
                 )
-                # Don't break — keep checking in case operator comes back
+                # Don't break - keep checking in case operator comes back
                 # and calls heartbeat() to reset
 
             # Check every 1/10th of TTL or 60s, whichever is smaller

@@ -82,6 +82,25 @@ CREATE TABLE IF NOT EXISTS audit_log (
 
 CREATE INDEX IF NOT EXISTS idx_audit_log_timestamp ON audit_log(timestamp);
 CREATE INDEX IF NOT EXISTS idx_audit_log_action ON audit_log(action);
+
+CREATE TABLE IF NOT EXISTS replay_tokens (
+    hash TEXT PRIMARY KEY,
+    seen_at INTEGER NOT NULL
+);
+
+CREATE INDEX IF NOT EXISTS idx_replay_tokens_seen_at ON replay_tokens(seen_at);
+
+CREATE TABLE IF NOT EXISTS payload_tokens (
+    token TEXT PRIMARY KEY,
+    beacon_ip TEXT NOT NULL,
+    route_path TEXT NOT NULL,
+    issued_at INTEGER NOT NULL,
+    expires_at INTEGER NOT NULL,
+    max_uses INTEGER NOT NULL DEFAULT 1,
+    used_count INTEGER NOT NULL DEFAULT 0
+);
+
+CREATE INDEX IF NOT EXISTS idx_payload_tokens_expires ON payload_tokens(expires_at);
 """
 
 
@@ -245,3 +264,70 @@ class Database:
             "SELECT * FROM audit_log ORDER BY timestamp DESC LIMIT ? OFFSET ?",
             (limit, offset),
         )
+
+    # ── Replay token helpers ──────────────────────────────────────────
+
+    async def load_replay_tokens(self, since: int) -> list[tuple[str, int]]:
+        """Return (hash, seen_at) pairs seen after *since* (unix epoch)."""
+        rows = await self.fetchall(
+            "SELECT hash, seen_at FROM replay_tokens WHERE seen_at > ?", (since,)
+        )
+        return [(r["hash"], r["seen_at"]) for r in rows]
+
+    async def add_replay_token(self, hash_: str, seen_at: int) -> None:
+        """Record a request hash. INSERT OR REPLACE to handle duplicates."""
+        await self.execute(
+            "INSERT OR REPLACE INTO replay_tokens (hash, seen_at) VALUES (?, ?)",
+            (hash_, seen_at),
+        )
+
+    async def prune_replay_tokens(self, cutoff: int) -> int:
+        """Delete tokens older than *cutoff* (unix epoch). Returns count deleted."""
+        cursor = await self.execute(
+            "DELETE FROM replay_tokens WHERE seen_at < ?", (cutoff,)
+        )
+        return cursor.rowcount
+
+    # ── Payload token helpers ─────────────────────────────────────────
+
+    async def insert_payload_token(
+        self,
+        token: str,
+        beacon_ip: str,
+        route_path: str,
+        issued_at: int,
+        expires_at: int,
+        max_uses: int,
+    ) -> None:
+        await self.execute(
+            "INSERT INTO payload_tokens "
+            "(token, beacon_ip, route_path, issued_at, expires_at, max_uses, used_count) "
+            "VALUES (?, ?, ?, ?, ?, ?, 0)",
+            (token, beacon_ip, route_path, issued_at, expires_at, max_uses),
+        )
+
+    async def consume_payload_token(
+        self, token: str, route_path: str, now: int
+    ) -> str | None:
+        """Atomically increment used_count if valid. Returns route_path or None on failure.
+
+        Returns:
+            The token's route_path if consumed successfully, None otherwise.
+        """
+        cursor = await self.execute(
+            "UPDATE payload_tokens "
+            "SET used_count = used_count + 1 "
+            "WHERE token = ? AND route_path = ? AND expires_at > ? AND used_count < max_uses",
+            (token, route_path, now),
+        )
+        if cursor.rowcount == 0:
+            return None
+        return route_path
+
+    async def prune_payload_tokens(self, now: int) -> int:
+        """Delete expired or exhausted payload tokens. Returns count deleted."""
+        cursor = await self.execute(
+            "DELETE FROM payload_tokens WHERE expires_at < ? OR used_count >= max_uses",
+            (now,),
+        )
+        return cursor.rowcount

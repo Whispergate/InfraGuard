@@ -29,6 +29,7 @@ from infraguard.ui.api.routes.config import get_config, get_domains
 from infraguard.ui.api.routes.decoys import get_decoy_file, list_decoys, update_decoy_file
 from infraguard.ui.api.routes.intel import add_blocklist, add_whitelist, classify_ip, remove_blocklist
 from infraguard.ui.api.routes.nodes import heartbeat_node, list_nodes, register_node
+from infraguard.ui.api.routes.reports import export_report
 from infraguard.ui.api.routes.requests import get_requests
 from infraguard.ui.api.routes.stats import get_content_stats, get_stats
 from infraguard.ui.api.metrics import create_metrics_app
@@ -130,6 +131,7 @@ def create_api_app(
         # API routes (require auth)
         Route("/api/stats", get_stats, methods=["GET"]),
         Route("/api/stats/content", get_content_stats, methods=["GET"]),
+        Route("/api/reports/export", export_report, methods=["GET"]),
         Route("/api/requests", get_requests, methods=["GET"]),
         Route("/api/nodes", list_nodes, methods=["GET"]),
         Route("/api/nodes/register", register_node, methods=["POST"]),
