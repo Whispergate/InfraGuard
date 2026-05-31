@@ -92,20 +92,38 @@ class WebSocketListener:
                 return
             return
 
-        # Proxy to upstream WebSocket
+        # Proxy to upstream WebSocket (handles both text and binary frames,
+        # required for Chisel/yamux which sends only binary frames).
         try:
             import websockets
 
-            async with websockets.connect(self._upstream) as upstream_ws:
+            # Forward critical subprotocol if client requested one (Chisel).
+            requested_subproto = ws.headers.get("sec-websocket-protocol")
+            subprotos = (
+                [p.strip() for p in requested_subproto.split(",")]
+                if requested_subproto
+                else None
+            )
+
+            async with websockets.connect(
+                self._upstream,
+                subprotocols=subprotos,
+                max_size=None,         # no frame-size cap — tunnels send big chunks
+                ping_interval=None,    # let endpoints manage their own keepalive
+            ) as upstream_ws:
                 async def _client_to_upstream():
                     try:
                         while True:
-                            data = await ws.receive_text()
-                            await upstream_ws.send(data)
-                            self._record_event(
-                                "", client_ip_str, "MESSAGE", self._path,
-                                "allow", None, time.perf_counter(),
-                            )
+                            msg = await ws.receive()
+                            if msg["type"] == "websocket.disconnect":
+                                await upstream_ws.close()
+                                return
+                            payload = msg.get("text")
+                            if payload is None:
+                                payload = msg.get("bytes")
+                            if payload is None:
+                                continue
+                            await upstream_ws.send(payload)
                     except WebSocketDisconnect:
                         await upstream_ws.close()
                     except Exception:

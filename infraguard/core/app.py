@@ -172,6 +172,25 @@ def create_app(config: InfraGuardConfig) -> Starlette:
         _cleanup_task = asyncio.create_task(_session_cleanup_loop(db))
         _background_tasks.append(_cleanup_task)
 
+        # ── Tunnel listeners (Ligolo, generic TCP passthrough) ────────
+        # Any listener with protocol "tcp_tunnel" is started here so it
+        # rides alongside the uvicorn HTTP listener in the same loop.
+        _tunnel_listeners: list = []
+        for lis in config.listeners:
+            if lis.protocol != "tcp_tunnel":
+                continue
+            from infraguard.listeners.tcp_tunnel import TCPTunnelListener
+            tl = TCPTunnelListener(lis, intel=router.intel, recorder=recorder)
+            try:
+                await tl.start()
+                _tunnel_listeners.append(tl)
+            except Exception:
+                log.exception(
+                    "tcp_tunnel_start_error",
+                    bind=lis.bind,
+                    port=lis.port,
+                )
+
         log.info(
             "infraguard_started",
             domains=list(config.domains.keys()),
@@ -186,6 +205,13 @@ def create_app(config: InfraGuardConfig) -> Starlette:
         if _background_tasks:
             await asyncio.gather(*_background_tasks, return_exceptions=True)
         _background_tasks.clear()
+
+        # Stop tunnel listeners
+        for tl in _tunnel_listeners:
+            try:
+                await tl.stop()
+            except Exception:
+                log.exception("tcp_tunnel_stop_error")
 
         # Stop optional monitors
         if _ct_monitor is not None:

