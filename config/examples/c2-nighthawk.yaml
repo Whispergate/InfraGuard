@@ -1,9 +1,9 @@
 # ═══════════════════════════════════════════════════════════════════════
-# InfraGuard — Nighthawk Example
+# InfraGuard - Nighthawk Example
 # ═══════════════════════════════════════════════════════════════════════
 #
 # Redirector fronting a Nighthawk teamserver. InfraGuard parses the
-# Nighthawk JSON listener config — reading listener.http.routes[] for
+# Nighthawk JSON listener config - reading listener.http.routes[] for
 # URI/method/header matching and implant.metadata for message location.
 #
 # Stack:

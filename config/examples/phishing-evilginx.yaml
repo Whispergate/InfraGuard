@@ -1,5 +1,5 @@
 # ═══════════════════════════════════════════════════════════════════════
-# InfraGuard — Evilginx Example
+# InfraGuard - Evilginx Example
 # ═══════════════════════════════════════════════════════════════════════
 #
 # Redirector fronting an Evilginx reverse proxy. Two operating modes:
@@ -53,7 +53,7 @@ domains:
       token_param: "t"
       tokens:
         - "${CAMPAIGN_TOKEN_Q1}"
-      score_on_missing: 0.9               # very aggressive — almost all non-email visitors blocked
+      score_on_missing: 0.9               # very aggressive - almost all non-email visitors blocked
 
     drop_action:
       type: "proxy"

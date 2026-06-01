@@ -97,7 +97,7 @@ class ProxyHandler:
         resp_headers.pop("Content-Encoding", None)
         resp_headers.pop("transfer-encoding", None)
         resp_headers.pop("Transfer-Encoding", None)
-        # Drop upstream Content-Length — it reflects the on-wire (possibly
+        # Drop upstream Content-Length - it reflects the on-wire (possibly
         # compressed/chunked) length, but resp.content is the decoded body.
         # Let Starlette recompute from the actual bytes we forward.
         resp_headers.pop("content-length", None)

@@ -1,9 +1,9 @@
 # ═══════════════════════════════════════════════════════════════════════
-# InfraGuard — Mythic Example
+# InfraGuard - Mythic Example
 # ═══════════════════════════════════════════════════════════════════════
 #
 # Redirector fronting a Mythic C2 server using the HTTPX JSON profile.
-# Also demonstrates Mythic file staging — serving agent payloads from
+# Also demonstrates Mythic file staging - serving agent payloads from
 # Mythic's unauthenticated /direct/download/ endpoint behind InfraGuard's
 # guard stack (beacon IP + UA check + one-time token + rate limit).
 #
@@ -81,7 +81,7 @@ domains:
         track: true
 
       # Proxy-mode: expose all of Mythic's file store behind InfraGuard.
-      # UUID extracted from incoming path — no file_id in config.
+      # UUID extracted from incoming path - no file_id in config.
       # Requires beacon IP so only known implants can enumerate files.
       - path: "/dl/*"
         backend:

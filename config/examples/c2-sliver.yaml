@@ -1,5 +1,5 @@
 # ═══════════════════════════════════════════════════════════════════════
-# InfraGuard — Sliver Example
+# InfraGuard - Sliver Example
 # ═══════════════════════════════════════════════════════════════════════
 #
 # Redirector fronting a Sliver teamserver. The Sliver JSON profile
@@ -48,7 +48,7 @@ pipeline:
   enable_geo_filter: true
   enable_dns_filter: true
   enable_profile_filter: true
-  # Sliver rotates User-Agent — disable header-based UA checks if needed.
+  # Sliver rotates User-Agent - disable header-based UA checks if needed.
   # Bot filter still catches known scanner UAs.
   enable_replay_filter: true
   replay_persist: true

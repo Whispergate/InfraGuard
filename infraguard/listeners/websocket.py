@@ -108,7 +108,7 @@ class WebSocketListener:
             async with websockets.connect(
                 self._upstream,
                 subprotocols=subprotos,
-                max_size=None,         # no frame-size cap — tunnels send big chunks
+                max_size=None,         # no frame-size cap - tunnels send big chunks
                 ping_interval=None,    # let endpoints manage their own keepalive
             ) as upstream_ws:
                 async def _client_to_upstream():

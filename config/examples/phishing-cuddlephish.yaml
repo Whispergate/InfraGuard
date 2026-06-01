@@ -1,9 +1,9 @@
 # ═══════════════════════════════════════════════════════════════════════
-# InfraGuard — CuddlePhish Example
+# InfraGuard - CuddlePhish Example
 # ═══════════════════════════════════════════════════════════════════════
 #
 # Redirector fronting a CuddlePhish OAuth/device-code phishing server.
-# All paths are forwarded — CuddlePhish handles OAuth flow routing
+# All paths are forwarded - CuddlePhish handles OAuth flow routing
 # internally and the paths change per session. Use allowed_paths to
 # restrict to known OAuth endpoints if desired.
 #
@@ -65,7 +65,7 @@ pipeline:
   enable_profile_filter: true
   enable_replay_filter: false             # OAuth flows are multi-step; replay breaks them
   enable_enumeration_filter: true
-  enable_sandbox_filter: true             # critical — blocks Safe Links, Defender ATP
+  enable_sandbox_filter: true             # critical - blocks Safe Links, Defender ATP
   enable_ja3_filter: true
   ja3_filter:
     ja3_header: "x-ja3"

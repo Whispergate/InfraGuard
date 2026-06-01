@@ -1,8 +1,8 @@
 # ═══════════════════════════════════════════════════════════════════════
-# InfraGuard — Phishing.club Example
+# InfraGuard - Phishing.club Example
 # ═══════════════════════════════════════════════════════════════════════
 #
-# Redirector fronting a phishing.club server. All paths forwarded —
+# Redirector fronting a phishing.club server. All paths forwarded -
 # phishing.club generates campaign-specific paths dynamically. Use
 # allowed_paths to restrict if campaign paths are predictable.
 #
@@ -12,7 +12,7 @@
 # configured Discord/Slack plugins.
 #
 # Optional whitelist_on_click: promotes the clicking target's IP to
-# InfraGuard's dynamic whitelist — useful when pairing this phishing
+# InfraGuard's dynamic whitelist - useful when pairing this phishing
 # redirector with a C2 redirector on the same host.
 #
 # Stack (redirector):

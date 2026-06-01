@@ -1,5 +1,5 @@
 # ═══════════════════════════════════════════════════════════════════════
-# InfraGuard — Payload Delivery Showcase
+# InfraGuard - Payload Delivery Showcase
 # ═══════════════════════════════════════════════════════════════════════
 #
 # Demonstrates all four content backends with full OPSEC hardening:
@@ -91,9 +91,9 @@ domains:
             target: "https://jquery.com/jquery-3.7.1.min.js"
         track: true
 
-      # ── Backend 2: Mythic file (proxy mode — dynamic UUID) ──────────
+      # ── Backend 2: Mythic file (proxy mode - dynamic UUID) ──────────
       # Exposes all of Mythic's file store behind InfraGuard.
-      # UUID extracted from the incoming path — no file_id in config.
+      # UUID extracted from the incoming path - no file_id in config.
       # Path pattern /dl/<uuid> → Mythic /direct/download/<uuid>.
       # require_beacon_ip ensures only known implants can enumerate.
       - path: "/dl/*"
@@ -143,7 +143,7 @@ domains:
 
       # ── Backend 4: Filesystem ───────────────────────────────────────
       # Serves files from a local directory on disk. No guard on this
-      # route — it serves cover/decoy files to unfiltered visitors.
+      # route - it serves cover/decoy files to unfiltered visitors.
       # High rate limit prevents content discovery enumeration.
       - path: "/assets/*"
         backend:

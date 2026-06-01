@@ -1,10 +1,10 @@
 # ═══════════════════════════════════════════════════════════════════════
-# InfraGuard — Ligolo-ng / Ligolo-mp Tunnel Example
+# InfraGuard - Ligolo-ng / Ligolo-mp Tunnel Example
 # ═══════════════════════════════════════════════════════════════════════
 #
 # Front a Ligolo proxy listener with InfraGuard for pivot operations.
 # Ligolo speaks raw TLS (mTLS in mp mode) over a single long-lived TCP
-# connection — not HTTP — so it gets its own dedicated port. The
+# connection - not HTTP - so it gets its own dedicated port. The
 # tcp_tunnel listener gates connections with the IP-intel filter, then
 # pipes bytes straight through to the team server. TLS is end-to-end
 # between agent and proxy; the redirector handles ciphertext only.
@@ -26,16 +26,31 @@
 #   ./agent -connect redirector.example.net:11601 -ignore-cert
 #
 # Required env vars:
-#   INFRAGUARD_DB_PATH    - SQLite path for the tracking DB
-#   LIGOLO_UPSTREAM_HOST  - team server reachable IP (e.g. 10.3.40.1)
-#   LIGOLO_UPSTREAM_PORT  - proxy port on the team server (e.g. 11601)
+#   INFRAGUARD_DB_PATH           - SQLite path for the tracking DB
+#   LIGOLO_UPSTREAM_HOST         - proxy reachable IP (e.g. 10.3.40.1)
+#   LIGOLO_UPSTREAM_PORT         - proxy port on the team server (e.g. 11601)
+#
+# TLS model (important - read before changing):
+#   Ligolo's auth direction is server → agent. The proxy generates a
+#   self-signed cert (`-selfcert`); the operator copies the proxy
+#   fingerprint (`certificate_fingerprint` in the proxy console) into
+#   the agent's `-accept-fingerprint <sha256>` flag. The agent verifies
+#   the proxy's cert; the proxy does NOT verify any agent cert.
+#
+#   Therefore this listener uses TLS PASSTHROUGH - no tls.cert/key on
+#   the listener. The redirector forwards opaque TCP bytes; the agent
+#   and the Ligolo proxy negotiate TLS end-to-end and the fingerprint
+#   stays valid. Terminating TLS at the redirector would present
+#   InfraGuard's cert and break `-accept-fingerprint`.
 #
 # Notes:
 #   * Do NOT colocate this listener on the same port as the HTTP front
 #     (443) unless you add SNI multiplexing in front. Ligolo is not HTTP.
-#   * IP-intel filter is the only guard available pre-handshake. If you
-#     need stricter gating, terminate TLS at InfraGuard and require a
-#     client cert (set tls.cert / tls.key on the listener).
+#   * Pre-handshake gating available here: IP-intel filter, GeoIP,
+#     feed-driven blocklist. JA3 fingerprinting of the agent's TLS
+#     ClientHello is the server-observable equivalent of "cert pinning"
+#     for an inbound tunnel - enable JA3 filtering on the pipeline if
+#     you want to lock the agent's TLS stack fingerprint.
 #   * Long-running connections: idle_timeout_seconds is the silence
 #     threshold, not the total session cap. Ligolo keepalives keep the
 #     stream alive indefinitely under normal pivot use.
@@ -52,15 +67,17 @@ listeners:
     domains:
       - "vpn.example.net"
 
-  # ── Ligolo tunnel listener ────────────────────────────────────────────
+  # ── Ligolo tunnel listener (TLS passthrough) ─────────────────────────
+  # No tls block - bytes are forwarded opaque. Agent's
+  # -accept-fingerprint validates the Ligolo proxy cert end-to-end.
   - protocol: "tcp_tunnel"
     bind: "0.0.0.0"
     port: 11601
     options:
       upstream_host: "${LIGOLO_UPSTREAM_HOST}"
       upstream_port: ${LIGOLO_UPSTREAM_PORT}
-      idle_timeout_seconds: 600       # ligolo keepalive is generous
-      profile: "ligolo_mp"             # tag for tracking events
+      idle_timeout_seconds: 600         # ligolo keepalive is generous
+      profile: "ligolo_mp"               # tag for tracking events
 
 domains:
   # Optional cover site so non-tunnel traffic to vpn.example.net gets a
@@ -74,7 +91,7 @@ domains:
       target: "https://www.cisco.com/c/en/us/products/security/anyconnect-secure-mobility-client/index.html"
 
 pipeline:
-  # tcp_tunnel listener only consults the IP filter — the rest of the
+  # tcp_tunnel listener only consults the IP filter - the rest of the
   # pipeline is HTTP-oriented and bypassed for raw TCP. Keep the HTTP
   # filters enabled for the cover site on 443.
   filter_mode: "scoring"

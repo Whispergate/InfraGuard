@@ -1,20 +1,20 @@
 # ═══════════════════════════════════════════════════════════════════════
-# InfraGuard — Chisel Tunnel Example
+# InfraGuard - Chisel Tunnel Example
 # ═══════════════════════════════════════════════════════════════════════
 #
 # Front a Chisel server with InfraGuard. Chisel speaks HTTPS + WebSocket
 # upgrade, then yamux-multiplexes streams over binary frames. Two routing
 # strategies are shown; pick one.
 #
-#   Strategy A — TCP passthrough (simple, blends as random TCP traffic):
+#   Strategy A - TCP passthrough (simple, blends as random TCP traffic):
 #     Operator runs `chisel server -p 7777 --reverse` on the team server.
 #     Clients connect to `https://redirector.example.net:7777`. The
 #     tcp_tunnel listener pipes bytes through; TLS handshake terminates
 #     at the chisel server end-to-end.
 #
-#   Strategy B — HTTPS+WebSocket on the main 443 listener (blends as a
+#   Strategy B - HTTPS+WebSocket on the main 443 listener (blends as a
 #     normal web service; requires the chisel WebSocket route to be wired
-#     into the HTTP listener — see below).
+#     into the HTTP listener - see below).
 #
 # Operator setup:
 #   ./chisel server                         \
@@ -57,7 +57,7 @@ listeners:
     domains:
       - "cdn-assets.example.net"
 
-  # ── Strategy A — Chisel TCP passthrough ──────────────────────────────
+  # ── Strategy A - Chisel TCP passthrough ──────────────────────────────
   - protocol: "tcp_tunnel"
     bind: "0.0.0.0"
     port: 7777
@@ -67,7 +67,7 @@ listeners:
       idle_timeout_seconds: 300
       profile: "chisel"
 
-  # ── Strategy B — Chisel over HTTPS+WS on 443 (advanced) ──────────────
+  # ── Strategy B - Chisel over HTTPS+WS on 443 (advanced) ──────────────
   # Uncomment the WebSocket listener block below to colocate chisel on
   # the main HTTPS front. Requires the WebSocket listener to be wired
   # into the Starlette app at the chisel client's connect path (default

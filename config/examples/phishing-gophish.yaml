@@ -1,8 +1,8 @@
 # ═══════════════════════════════════════════════════════════════════════
-# InfraGuard — GoPhish Example
+# InfraGuard - GoPhish Example
 # ═══════════════════════════════════════════════════════════════════════
 #
-# Redirector fronting a GoPhish server. No C2 profile needed — InfraGuard
+# Redirector fronting a GoPhish server. No C2 profile needed - InfraGuard
 # uses built-in GoPhish path patterns: /track/*, /report, /static/*, /.
 #
 # Campaign tokens gate the phishing page behind a per-campaign value
@@ -65,7 +65,7 @@ pipeline:
   enable_geo_filter: true
   enable_dns_filter: true
   enable_profile_filter: true
-  enable_replay_filter: false             # disable replay for phishing — targets click once
+  enable_replay_filter: false             # disable replay for phishing - targets click once
   enable_enumeration_filter: true
   enumeration_unique_path_threshold: 15
   enumeration_window_seconds: 60

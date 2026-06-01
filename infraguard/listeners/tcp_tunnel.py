@@ -1,13 +1,13 @@
-"""TCP tunnel listener — raw byte-stream passthrough for pivot tooling.
+"""TCP tunnel listener - raw byte-stream passthrough for pivot tooling.
 
 Designed for tools whose traffic is not HTTP and therefore cannot be
 fronted by the Starlette ASGI app:
 
-  * **Ligolo-ng / Ligolo-mp** — single long-lived TLS connection between
+  * **Ligolo-ng / Ligolo-mp** - single long-lived TLS connection between
     the agent and the proxy/teamserver.  Multiplexed YAMUX streams ride
     on top.  The proxy port (default 11601) speaks raw TLS, not HTTP.
 
-  * **Generic TLS-over-TCP C2 channels** — any tooling that wants an
+  * **Generic TLS-over-TCP C2 channels** - any tooling that wants an
     opaque TCP tunnel through the redirector.
 
 The listener accepts TCP on a dedicated port (do NOT colocate with the
@@ -35,6 +35,7 @@ Config example::
 from __future__ import annotations
 
 import asyncio
+import hashlib
 import ssl
 import time
 from ipaddress import ip_address
@@ -68,13 +69,51 @@ class TCPTunnelListener:
         self._upstream_port: int = int(opts.get("upstream_port", 0))
         self._idle_timeout: float = float(opts.get("idle_timeout_seconds", 300))
         self._profile_tag: str = opts.get("profile", "tunnel")
+
+        # ── Client certificate pinning (mTLS) ─────────────────────────
+        # Allowlist of SHA-256 fingerprints (lowercase hex, no colons) of
+        # client certificates. When non-empty, the listener terminates
+        # TLS, requests a client certificate, and drops any connection
+        # whose cert fingerprint is not on the list. Pair with the
+        # listener's tls.cert/key so the redirector can present its own
+        # certificate to clients.
+        raw_pins = opts.get("allowed_client_cert_sha256", []) or []
+        if isinstance(raw_pins, str):
+            raw_pins = [raw_pins]
+        # Support comma-separated env-injected values: "abc,def,..."
+        flat: list[str] = []
+        for entry in raw_pins:
+            flat.extend(p.strip() for p in str(entry).split(","))
+        self._allowed_fps: set[str] = {
+            p.replace(":", "").lower() for p in flat if p
+        }
+        self._require_client_cert: bool = bool(
+            opts.get("require_client_cert", bool(self._allowed_fps))
+        )
+
         # TLS termination (client-facing). If a cert/key is configured on the
         # listener, terminate TLS; otherwise pass raw bytes through.
         self._ssl_ctx: ssl.SSLContext | None = None
         if config.tls:
             ctx = ssl.SSLContext(ssl.PROTOCOL_TLS_SERVER)
             ctx.load_cert_chain(str(config.tls.cert), str(config.tls.key))
+            if self._require_client_cert:
+                # CERT_OPTIONAL accepts the client certificate into the peer
+                # chain without enforcing a CA-signed trust chain - exactly
+                # what we want for self-signed Ligolo agent certs that we
+                # pin by fingerprint rather than by issuer.
+                ctx.verify_mode = ssl.CERT_OPTIONAL
+                ctx.check_hostname = False
             self._ssl_ctx = ctx
+        elif self._allowed_fps:
+            log.warning(
+                "tcp_tunnel_pinning_without_tls",
+                reason=(
+                    "allowed_client_cert_sha256 set but listener has no "
+                    "tls cert/key - fingerprint pinning is inactive"
+                ),
+            )
+
         self._server: asyncio.base_events.Server | None = None
 
     async def start(self) -> None:
@@ -129,8 +168,50 @@ class TCPTunnelListener:
                     pass
                 return
         except Exception:
-            # Don't fail-open silently — let the connection through but log it.
+            # Don't fail-open silently - let the connection through but log it.
             log.warning("tcp_tunnel_ip_classify_failed", client=client_ip_str)
+
+        # Client-certificate fingerprint pinning (mTLS). Skipped when no
+        # allowlist is configured or TLS is not terminated here.
+        if self._allowed_fps and self._ssl_ctx is not None:
+            ssl_obj = writer.get_extra_info("ssl_object")
+            peer_der = ssl_obj.getpeercert(binary_form=True) if ssl_obj else None
+            if not peer_der:
+                self._record(
+                    client_ip_str, "block",
+                    "no_client_certificate", start, 0, 0,
+                )
+                log.warning(
+                    "tcp_tunnel_no_client_cert", client=client_ip_str,
+                )
+                writer.close()
+                try:
+                    await writer.wait_closed()
+                except Exception:
+                    pass
+                return
+            fp = hashlib.sha256(peer_der).hexdigest()
+            if fp not in self._allowed_fps:
+                self._record(
+                    client_ip_str, "block",
+                    f"cert_fp_unknown:{fp}", start, 0, 0,
+                )
+                log.warning(
+                    "tcp_tunnel_cert_fp_rejected",
+                    client=client_ip_str,
+                    fp=fp,
+                )
+                writer.close()
+                try:
+                    await writer.wait_closed()
+                except Exception:
+                    pass
+                return
+            log.info(
+                "tcp_tunnel_cert_pinned",
+                client=client_ip_str,
+                fp=fp,
+            )
 
         # Dial upstream
         try:
@@ -222,7 +303,7 @@ class TCPTunnelListener:
         if not self._recorder:
             return
         duration_ms = (time.perf_counter() - start) * 1000
-        # No dedicated byte-count fields on RequestEvent yet — fold the
+        # No dedicated byte-count fields on RequestEvent yet - fold the
         # transfer summary into filter_reason for forensics.
         summary = reason or f"c2u={bytes_c2u}B u2c={bytes_u2c}B"
         self._recorder.record(
