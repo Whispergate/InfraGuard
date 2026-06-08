@@ -226,14 +226,19 @@ class MythicFileBackend:
         self._ssl_ca_bundle = config.ssl_ca_bundle
         self._client: httpx.AsyncClient | None = None
 
-    def _resolve_file_id(self, match: RouteMatch) -> str | None:
+    def _resolve_file_id(self, match: RouteMatch, request: Request | None = None) -> str | None:
         if self._file_id:
             return self._file_id
-        # Extract UUID from last non-empty path segment
+        # Prefer path_remainder (set by prefix/glob routes like /dl/*)
         segments = [s for s in match.path_remainder.split("/") if s]
         for seg in reversed(segments):
             if self._UUID_RE.fullmatch(seg):
                 return seg
+        # Fall back to full request path (regex routes that don't capture remainder)
+        if request is not None:
+            for seg in reversed([s for s in request.url.path.split("/") if s]):
+                if self._UUID_RE.fullmatch(seg):
+                    return seg
         return None
 
     async def serve(self, request: Request, match: RouteMatch) -> Response:
@@ -244,7 +249,7 @@ class MythicFileBackend:
                 follow_redirects=True,
             )
 
-        file_id = self._resolve_file_id(match)
+        file_id = self._resolve_file_id(match, request)
         if not file_id:
             log.warning("mythic_file_no_uuid", path=request.url.path)
             return Response(status_code=400, content=b"Missing file ID")

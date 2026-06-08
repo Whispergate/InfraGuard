@@ -95,6 +95,22 @@ domains:
             type: "http_proxy"
             target: "https://jquery.com"
         track: true
+      # Mythic file store proxy - any file by UUID: /dl/<uuid>
+      - path: "/dl/*"
+        backend:
+          type: "mythic_file"
+          target: "${MYTHIC_URL}"
+          ssl_verify: false
+        guard:
+          require_beacon_ip: true
+          forbidden_headers:
+            - "Via"
+            - "X-Forwarded-For"
+        rate_limit:
+          enabled: true
+          max_downloads: 5
+          window_seconds: 300
+        track: true
       # PwnDrop payload delivery (rate-limited, scanner-aware)
       - path: "/downloads/*"
         backend:
