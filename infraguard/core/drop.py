@@ -113,7 +113,7 @@ async def _proxy_decoy(
     forward_headers = {
         "Accept": request.headers.get("accept", "text/html"),
         "Accept-Language": request.headers.get("accept-language", "en-US,en;q=0.9"),
-        "Accept-Encoding": "gzip, deflate",
+        "Accept-Encoding": "identity",
         "User-Agent": request.headers.get("user-agent", "Mozilla/5.0"),
     }
 
@@ -122,7 +122,10 @@ async def _proxy_decoy(
             follow_redirects=True, timeout=10.0, verify=build_ssl_context(ssl_verify)
         ) as client:
             resp = await client.get(full_url, headers=forward_headers)
-            resp_headers = sanitize_response_headers(dict(resp.headers))
+            resp_headers = sanitize_response_headers(
+                dict(resp.headers),
+                server_header=persona.server_header,
+            )
 
             return Response(
                 content=resp.content,

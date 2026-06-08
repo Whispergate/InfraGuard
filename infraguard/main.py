@@ -329,6 +329,8 @@ def run_server(config_path: Path, host: str | None, port: int | None) -> None:
         "host": bind,
         "port": listen_port,
         "log_level": "info",
+        "server_header": False,
+        "date_header": False,
     }
     if cfg.listeners and cfg.listeners[0].tls:
         from infraguard.core.tls import resolve_tls_paths
@@ -523,6 +525,8 @@ def run_dashboard(
         "host": bind,
         "port": listen_port,
         "log_level": "info",
+        "server_header": False,
+        "date_header": False,
     }
 
     # TLS: auto-detect from listener config, or use --tls flag
@@ -609,6 +613,8 @@ def run_command_post(
         "host": bind,
         "port": listen_port,
         "log_level": "info",
+        "server_header": False,
+        "date_header": False,
     }
 
     # TLS - use provided certs, or try to reuse from the infra config

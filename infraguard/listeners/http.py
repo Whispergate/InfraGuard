@@ -39,6 +39,8 @@ class HTTPListener:
             "log_level": "info",
             "ssl_certfile": self._ssl_certfile,
             "ssl_keyfile": self._ssl_keyfile,
+            "server_header": False,
+            "date_header": False,
         }
 
         # HTTP/2 support via h2 (requires TLS and the h2 package)
