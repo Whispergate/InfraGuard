@@ -20,6 +20,7 @@ from starlette.responses import FileResponse, RedirectResponse, Response
 from infraguard.config.schema import ContentBackendConfig, ContentRouteConfig
 from infraguard.core.headers import sanitize_response_headers
 from infraguard.core.ssl_context import build_ssl_context
+from .headers import sanitize_response_headers, preserve_multi_value_headers
 
 log = structlog.get_logger()
 
@@ -83,11 +84,13 @@ class PwnDropBackend:
                 content=await request.body() or None,
             )
             resp_headers = sanitize_response_headers(dict(resp.headers))
-            return Response(
+            response = Response(
                 content=resp.content,
                 status_code=resp.status_code,
                 headers=resp_headers,
             )
+            preserve_multi_value_headers(response, resp.headers)
+            return response
         except (httpx.RequestError, httpx.TimeoutException):
             log.warning("pwndrop_backend_error", target=self._target)
             return Response(status_code=502, content=b"Bad Gateway")
@@ -173,11 +176,13 @@ class HttpProxyBackend:
                 content=await request.body() or None,
             )
             resp_headers = sanitize_response_headers(dict(resp.headers))
-            return Response(
+            response = Response(
                 content=resp.content,
                 status_code=resp.status_code,
                 headers=resp_headers,
             )
+            preserve_multi_value_headers(response, resp.headers)
+            return response
         except (httpx.RequestError, httpx.TimeoutException):
             log.warning("http_proxy_backend_error", target=self._target)
             return Response(status_code=502, content=b"Bad Gateway")
@@ -280,11 +285,13 @@ class MythicFileBackend:
             size=len(resp.content),
             client=request.client.host if request.client else "?",
         )
-        return Response(
-            content=resp.content,
-            status_code=resp.status_code,
-            headers=resp_headers,
-        )
+        response = Response(
+                content=resp.content,
+                status_code=resp.status_code,
+                headers=resp_headers,
+            )
+        preserve_multi_value_headers(response, resp.headers)
+        return response
 
     async def close(self) -> None:
         if self._client:

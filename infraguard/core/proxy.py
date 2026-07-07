@@ -10,6 +10,7 @@ from starlette.responses import Response, StreamingResponse
 from infraguard.config.schema import DomainConfig
 from infraguard.core.headers import sanitize_response_headers
 from infraguard.core.ssl_context import build_ssl_context
+from .headers import sanitize_response_headers, preserve_multi_value_headers
 
 log = structlog.get_logger()
 
@@ -103,11 +104,13 @@ class ProxyHandler:
         resp_headers.pop("content-length", None)
         resp_headers.pop("Content-Length", None)
 
-        return Response(
+        response = Response(
             content=resp.content,
             status_code=resp.status_code,
             headers=resp_headers,
         )
+        preserve_multi_value_headers(response, resp.headers)
+        return response
 
     def _get_client(
         self, upstream: str, domain_config: DomainConfig | None = None

@@ -90,3 +90,29 @@ def sanitize_response_headers(
         result["Server"] = server_header
 
     return result
+
+def preserve_multi_value_headers(
+    response,
+    upstream_headers,
+    multi_value_names: frozenset[str] = frozenset(
+        {"set-cookie", "www-authenticate", "proxy-authenticate"}
+    ),
+) -> None:
+    """
+    Rebuild response.raw_headers to PRESERVE multi-value upstream headers.
+
+    Starlette's ``Response(headers=Mapping[str, str])`` and any dict cast
+    of ``httpx.Headers`` collapse duplicate keys. For headers that
+    legitimately repeat (``Set-Cookie`` most importantly), we need to re-emit each
+    occurrence from the untouched upstream headers.
+    """
+    keep = [
+        (k, v) for k, v in response.raw_headers
+        if k.decode("latin-1").lower() not in multi_value_names
+    ]
+    for name, value in upstream_headers.multi_items():
+        if name.lower() in multi_value_names:
+            keep.append(
+                (name.lower().encode("latin-1"), value.encode("latin-1"))
+            )
+    response.raw_headers = keep
