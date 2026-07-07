@@ -37,7 +37,7 @@ class EventBroadcaster:
             return
         message = json.dumps(event)
         dead: list[WebSocket] = []
-        for ws in self._clients:
+        for ws in list(self._clients):
             try:
                 await ws.send_text(message)
             except Exception:

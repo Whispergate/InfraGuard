@@ -33,6 +33,9 @@ def _check_rate_limit(ip: str) -> bool:
     now = time.monotonic()
     # Prune expired attempts
     _rate_limit[ip] = [t for t in _rate_limit[ip] if now - t < _RATE_WINDOW]
+    if not _rate_limit[ip]:
+        del _rate_limit[ip]
+        return False
     return len(_rate_limit[ip]) >= _MAX_ATTEMPTS
 
 
@@ -110,7 +113,10 @@ async def login_handler(request: Request) -> JSONResponse:
             status_code=429,
         )
 
-    body = await request.json()
+    try:
+        body = await request.json()
+    except (ValueError, Exception):
+        return JSONResponse({"error": "Invalid request body"}, status_code=400)
     token = body.get("token", "")
 
     if not token or not hmac.compare_digest(token, expected_token):

@@ -25,7 +25,6 @@ class NodeRegistry:
                VALUES (?, ?, ?, ?, ?, 'active')""",
             (node_id, name, address, json.dumps(domains), now),
         )
-        await self.db.conn.commit()
         return node_id
 
     async def heartbeat(self, node_id: str) -> None:
@@ -34,11 +33,9 @@ class NodeRegistry:
             "UPDATE nodes SET last_heartbeat = ?, status = 'active' WHERE id = ?",
             (now, node_id),
         )
-        await self.db.conn.commit()
 
     async def list_nodes(self) -> list[dict]:
         return await self.db.fetchall("SELECT * FROM nodes ORDER BY name")
 
     async def remove(self, node_id: str) -> None:
         await self.db.execute("DELETE FROM nodes WHERE id = ?", (node_id,))
-        await self.db.conn.commit()

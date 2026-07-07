@@ -69,29 +69,44 @@ def create_command_post_app(config: CommandPostConfig) -> Starlette:
         return JSONResponse({"instances": health})
 
     async def get_stats(request: Request) -> JSONResponse:
-        hours = int(request.query_params.get("hours", "24"))
+        try:
+            hours = int(request.query_params.get("hours", "24"))
+        except (ValueError, TypeError):
+            return JSONResponse({"error": "Invalid hours parameter"}, status_code=400)
         stats = await aggregator.get_merged_stats(hours=hours)
         return JSONResponse(stats)
 
     async def get_requests(request: Request) -> JSONResponse:
-        limit = min(int(request.query_params.get("limit", "50")), 200)
+        try:
+            limit = min(int(request.query_params.get("limit", "50")), 200)
+        except (ValueError, TypeError):
+            return JSONResponse({"error": "Invalid limit parameter"}, status_code=400)
         requests_list = await aggregator.get_merged_requests(limit=limit)
         return JSONResponse({"requests": requests_list, "count": len(requests_list)})
 
     async def post_whitelist(request: Request) -> JSONResponse:
-        body = await request.json()
+        try:
+            body = await request.json()
+        except (ValueError, Exception):
+            return JSONResponse({"error": "Invalid request body"}, status_code=400)
         instance = body.pop("_instance", None)
         results = await aggregator.fan_out_post("/api/intel/whitelist", body, instance)
         return JSONResponse({"status": "ok", "results": results})
 
     async def post_blocklist(request: Request) -> JSONResponse:
-        body = await request.json()
+        try:
+            body = await request.json()
+        except (ValueError, Exception):
+            return JSONResponse({"error": "Invalid request body"}, status_code=400)
         instance = body.pop("_instance", None)
         results = await aggregator.fan_out_post("/api/intel/blocklist", body, instance)
         return JSONResponse({"status": "ok", "results": results})
 
     async def delete_blocklist(request: Request) -> JSONResponse:
-        body = await request.json()
+        try:
+            body = await request.json()
+        except (ValueError, Exception):
+            return JSONResponse({"error": "Invalid request body"}, status_code=400)
         instance = body.pop("_instance", None)
         results = await aggregator.fan_out_delete("/api/intel/blocklist", body, instance)
         return JSONResponse({"status": "ok", "results": results})
@@ -118,8 +133,8 @@ def create_command_post_app(config: CommandPostConfig) -> Starlette:
             try:
                 import websockets
                 ws_url = client.url.replace("https://", "wss://").replace("http://", "ws://")
-                ws_url += f"/ws/events?token={client._token}"
-                async with websockets.connect(ws_url, ssl=False) as upstream:
+                ws_url += f"/ws/events?token={client._token}"  # Known limitation: token in URL query param
+                async with websockets.connect(ws_url, ssl=ws_url.startswith("wss://")) as upstream:
                     async for msg in upstream:
                         try:
                             data = json.loads(msg)

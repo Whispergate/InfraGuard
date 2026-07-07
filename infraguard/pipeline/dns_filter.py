@@ -16,7 +16,10 @@ class DNSFilter:
     def __init__(self, extra_keywords: list[str] | None = None):
         keywords = BANNED_RDNS_KEYWORDS + (extra_keywords or [])
         escaped = [re.escape(k) for k in keywords]
-        self._regex = re.compile("|".join(escaped), re.IGNORECASE)
+        if escaped:
+            self._regex = re.compile("|".join(escaped), re.IGNORECASE)
+        else:
+            self._regex = None
 
     async def check(self, ctx: RequestContext) -> FilterResult:
         ip_str = str(ctx.client_ip)
@@ -27,7 +30,7 @@ class DNSFilter:
             rdns = await reverse_dns(ip_str)
             ctx.metadata["rdns"] = rdns
 
-        if rdns and self._regex.search(rdns):
+        if rdns and self._regex and self._regex.search(rdns):
             return FilterResult.block(
                 reason=f"Banned keyword in reverse DNS: {rdns}",
                 filter_name=self.name,

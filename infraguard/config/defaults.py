@@ -4,7 +4,11 @@ import os
 from pathlib import Path
 
 _CONFIG_DIR = Path(os.environ.get("XDG_CONFIG_HOME", Path.home() / ".config")) / "infraguard"
-_CONFIG_DIR.mkdir(parents=True, exist_ok=True)
+
+
+def ensure_config_dir():
+    """Create the config directory if it doesn't exist."""
+    _CONFIG_DIR.mkdir(parents=True, exist_ok=True)
 
 DEFAULT_BLOCK_SCORE_THRESHOLD = 0.7
 DEFAULT_DB_PATH = str(_CONFIG_DIR / "infraguard.db")

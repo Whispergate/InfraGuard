@@ -9,6 +9,8 @@ from __future__ import annotations
 import time
 from collections import defaultdict, deque
 
+_MAX_ENTRIES = 50_000
+
 
 class ContentRateLimiter:
     """Sliding-window per-IP download rate limiter."""
@@ -27,6 +29,9 @@ class ContentRateLimiter:
         # Prune expired timestamps
         while dq and dq[0] < cutoff:
             dq.popleft()
+
+        if len(self._windows) > _MAX_ENTRIES:
+            self.prune_stale()
 
         if len(dq) >= max_downloads:
             return False

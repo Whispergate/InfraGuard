@@ -106,7 +106,7 @@ def _append_encode(data: bytes, value: str) -> bytes:
 
 def _append_decode(data: bytes, value: str) -> bytes:
     suffix = value.encode()
-    if data.endswith(suffix):
+    if suffix and data.endswith(suffix):
         return data[: -len(suffix)]
     return data
 

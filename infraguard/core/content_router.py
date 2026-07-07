@@ -36,6 +36,8 @@ class _CompiledPattern:
         elif self.kind == "prefix":
             if path.startswith(self.prefix):
                 remainder = path[len(self.prefix) :]
+                if ".." in remainder.split("/"):
+                    return False, ""
                 return True, remainder
             return False, ""
         elif self.kind == "regex" and self.regex:
@@ -51,10 +53,16 @@ def _compile_pattern(pattern: str) -> _CompiledPattern:
     if pattern.startswith("~"):
         # Regex pattern
         raw_regex = pattern[1:]
+        try:
+            compiled = re.compile(raw_regex)
+        except re.error as exc:
+            raise ValueError(
+                f"Invalid regex in content route pattern '{pattern}': {exc}"
+            ) from exc
         return _CompiledPattern(
             raw=pattern,
             kind="regex",
-            regex=re.compile(raw_regex),
+            regex=compiled,
         )
     elif pattern.endswith("/*"):
         # Prefix glob

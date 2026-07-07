@@ -11,7 +11,10 @@ from infraguard.tracking.stats import StatsQuery
 async def get_requests(request: Request) -> JSONResponse:
     """GET /api/requests - paginated request log."""
     stats_query: StatsQuery = request.app.state.stats_query
-    limit = min(int(request.query_params.get("limit", "50")), 200)
+    try:
+        limit = min(max(int(request.query_params.get("limit", "50")), 1), 200)
+    except (ValueError, TypeError):
+        return JSONResponse({"error": "Invalid limit"}, status_code=400)
     domain = request.query_params.get("domain")
 
     rows = await stats_query.recent_requests(limit=limit, domain=domain)

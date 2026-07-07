@@ -31,6 +31,8 @@ if TYPE_CHECKING:
 
 log = structlog.get_logger()
 
+_MAX_BURN_EVENTS = 100
+
 
 @dataclass
 class BurnIndicator:
@@ -123,6 +125,7 @@ class BurnDetector:
                 blocked_count=len(self._vendor_blocked),
                 window_seconds=self.config.vendor_spike_window_seconds,
             )
+            self._vendor_blocked.clear()
 
         # Check 2: Multi-ASN probing
         asn_cutoff = now - self.config.multi_asn_window_seconds
@@ -147,6 +150,7 @@ class BurnDetector:
                 unique_asns=sorted(unique_asns),
                 window_seconds=self.config.multi_asn_window_seconds,
             )
+            self._probe_asns.clear()
 
         # Trigger cooldown if configured
         if new_indicators and self.config.cooldown_on_burn:
@@ -157,6 +161,8 @@ class BurnDetector:
             )
 
         self._burn_events.extend(new_indicators)
+        if len(self._burn_events) > _MAX_BURN_EVENTS:
+            self._burn_events = self._burn_events[-_MAX_BURN_EVENTS:]
         return new_indicators
 
     def get_status(self) -> dict:

@@ -81,11 +81,11 @@ class CobaltStrikeParser:
             stripped = line.strip()
             if stripped.startswith("#"):
                 continue
-            depth += stripped.count("{") - stripped.count("}")
             if depth == 0:
                 match = re.match(r'set\s+(\w+)\s+"((?:[^"\\]|\\.)*)"\s*;', stripped)
                 if match:
                     opts[match.group(1)] = self._unescape(match.group(2))
+            depth += stripped.count("{") - stripped.count("}")
         return opts
 
     # ── Profile name extraction ───────────────────────────────────────
@@ -258,7 +258,7 @@ class CobaltStrikeParser:
 
     @staticmethod
     def _unescape(s: str) -> str:
-        return s.replace('\\"', '"').replace("\\\\", "\\")
+        return s.replace("\\\\", "\x00").replace('\\"', '"').replace("\x00", "\\")
 
     def _parse_uri(self, content: str) -> list[str]:
         match = re.search(r'set\s+uri\s+"((?:[^"\\]|\\.)*)"', content)

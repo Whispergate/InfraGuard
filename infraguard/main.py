@@ -419,20 +419,18 @@ def generate_backend(
     from infraguard.backends.caddy import generate_caddy
     from infraguard.backends.nginx import generate_nginx
     from infraguard.config.loader import load_config
-    from infraguard.profiles.cobalt_strike import parse_cobalt_strike_file
+    from infraguard.models.common import PHISHING_PROFILE_TYPES, TUNNEL_PROFILE_TYPES
     from infraguard.profiles.models import C2Profile
-    from infraguard.profiles.mythic import parse_mythic_file
 
     cfg = load_config(config_path)
 
-    # Load profiles for each domain
+    # Load profiles for each domain (skip phishing/tunnel types that have no C2 profile)
     profiles: dict[str, C2Profile] = {}
     for domain_name, domain_config in cfg.domains.items():
+        if domain_config.profile_type in PHISHING_PROFILE_TYPES or domain_config.profile_type in TUNNEL_PROFILE_TYPES:
+            continue
         p = Path(domain_config.profile_path)
-        if domain_config.profile_type.value == "cobalt_strike":
-            profiles[domain_name] = parse_cobalt_strike_file(p)
-        else:
-            profiles[domain_name] = parse_mythic_file(p)
+        profiles[domain_name] = _load_profile_file(p, domain_config.profile_type.value)
 
     # Resolve defaults from listener config
     port = listen_port
@@ -566,7 +564,7 @@ def run_dashboard(
     "--instance",
     "instances",
     multiple=True,
-    help="Instance in 'name:url:token' format (repeatable).",
+    help="Instance in 'name|url|token' format (repeatable).",
 )
 @click.option("--host", default=None, help="Override bind address.")
 @click.option("--port", default=None, type=int, help="Override listen port.")
@@ -595,7 +593,7 @@ def run_command_post(
             "Provide a config file (-c) or --instance args.\n\n"
             "Examples:\n"
             "  infraguard command-post -c config/command-post.yaml\n"
-            '  infraguard command-post --instance "prod:https://ig1:8080:TOKEN"',
+            '  infraguard command-post --instance "prod|https://ig1:8080|TOKEN"',
             err=True,
         )
         sys.exit(1)

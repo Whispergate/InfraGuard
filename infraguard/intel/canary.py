@@ -15,14 +15,13 @@ alerted via the normal plugin pipeline (Discord, Slack, SIEM, etc.).
 
 from __future__ import annotations
 
-import hashlib
-import time
+import html as _html_mod
+import secrets
 
 
 def generate_canary_id() -> str:
     """Generate a unique canary token ID."""
-    raw = f"canary-{time.time_ns()}".encode()
-    return hashlib.sha256(raw).hexdigest()[:12]
+    return secrets.token_hex(6)
 
 
 def inject_tracking_pixel(html: str, callback_path: str = "/_ig/px") -> str:
@@ -31,9 +30,10 @@ def inject_tracking_pixel(html: str, callback_path: str = "/_ig/px") -> str:
     The pixel URL includes a unique canary ID so each page render
     generates a distinct callback.
     """
-    canary_id = generate_canary_id()
+    canary_id = _html_mod.escape(generate_canary_id())
+    safe_path = _html_mod.escape(callback_path)
     pixel = (
-        f'<img src="{callback_path}?c={canary_id}" '
+        f'<img src="{safe_path}?c={canary_id}" '
         f'width="1" height="1" alt="" '
         f'style="position:absolute;left:-9999px" />'
     )
@@ -53,10 +53,11 @@ def inject_honeypot_link(
     The link is invisible to normal users (display:none) but automated
     tools that parse HTML will follow it, revealing themselves.
     """
-    canary_id = generate_canary_id()
+    canary_id = _html_mod.escape(generate_canary_id())
+    safe_path = _html_mod.escape(callback_path)
     # Hidden via CSS - browsers won't render it, but HTML parsers see it
     link = (
-        f'<a href="{callback_path}?c={canary_id}" '
+        f'<a href="{safe_path}?c={canary_id}" '
         f'style="display:none;visibility:hidden;position:absolute;left:-9999px" '
         f'tabindex="-1" aria-hidden="true">{link_text}</a>'
     )
@@ -74,9 +75,10 @@ def inject_honeypot_form(
     The form is invisible to real users but automated credential
     stuffing tools and manual investigators may interact with it.
     """
-    canary_id = generate_canary_id()
+    canary_id = _html_mod.escape(generate_canary_id())
+    safe_path = _html_mod.escape(callback_path)
     form = (
-        f'<form action="{callback_path}?c={canary_id}" method="POST" '
+        f'<form action="{safe_path}?c={canary_id}" method="POST" '
         f'style="position:absolute;left:-9999px;opacity:0;height:0;overflow:hidden" '
         f'tabindex="-1" aria-hidden="true">'
         f'<input type="text" name="username" autocomplete="username" />'

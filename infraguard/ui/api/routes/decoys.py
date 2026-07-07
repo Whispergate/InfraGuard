@@ -30,6 +30,9 @@ async def get_decoy_file(request: Request) -> JSONResponse:
     domain = request.path_params["domain"]
     filename = request.path_params["filename"]
 
+    if '/' in filename or '\\' in filename or filename in ('.', '..'):
+        return JSONResponse({"error": "Invalid filename"}, status_code=400)
+
     dc = config.domains.get(domain)
     if not dc or not dc.decoy_dir:
         return JSONResponse({"error": "Domain or decoy dir not found"}, status_code=404)
@@ -54,6 +57,9 @@ async def update_decoy_file(request: Request) -> JSONResponse:
     domain = request.path_params["domain"]
     filename = request.path_params["filename"]
 
+    if '/' in filename or '\\' in filename or filename in ('.', '..'):
+        return JSONResponse({"error": "Invalid filename"}, status_code=400)
+
     dc = config.domains.get(domain)
     if not dc or not dc.decoy_dir:
         return JSONResponse({"error": "Domain or decoy dir not found"}, status_code=404)
@@ -64,8 +70,13 @@ async def update_decoy_file(request: Request) -> JSONResponse:
     except ValueError:
         return JSONResponse({"error": "Access denied"}, status_code=403)
 
-    body = await request.json()
+    try:
+        body = await request.json()
+    except (ValueError, Exception):
+        return JSONResponse({"error": "Invalid request body"}, status_code=400)
     content = body.get("content", "")
+    if len(content) > 1_000_000:
+        return JSONResponse({"error": "Content too large"}, status_code=413)
     file_path.parent.mkdir(parents=True, exist_ok=True)
     file_path.write_text(content, encoding="utf-8")
 

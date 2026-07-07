@@ -114,7 +114,7 @@ class SliverParser:
             uris=get_uris[:100],  # cap to prevent explosion
             client=client,
             server=server_config,
-        )
+        ) if get_uris else None
 
         http_post = HttpTransaction(
             verb="POST",
@@ -125,7 +125,7 @@ class SliverParser:
                 transforms=[],
             ),
             server=server_config,
-        )
+        ) if post_uris else None
 
         return C2Profile(
             name="Sliver HTTPS Profile",
