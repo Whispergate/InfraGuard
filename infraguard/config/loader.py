@@ -69,6 +69,7 @@ def _resolve_age_identity() -> Path | None:
     if inline_key:
         tmp = Path(tempfile.mkdtemp()) / "age-identity.txt"
         tmp.write_text(inline_key, encoding="utf-8")
+        os.chmod(str(tmp), 0o600)
         return tmp
 
     # Explicit path via env var

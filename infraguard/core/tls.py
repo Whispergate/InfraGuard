@@ -7,6 +7,8 @@ paths don't exist, so the proxy can always start with TLS enabled.
 from __future__ import annotations
 
 import datetime
+import ipaddress
+import os
 import ssl
 from pathlib import Path
 
@@ -35,10 +37,15 @@ def generate_self_signed_cert(
     cert_path = output_dir / f"{domain}.pem"
     key_path = output_dir / f"{domain}-key.pem"
 
-    # If we already generated one previously, reuse it
+    # If we already generated one previously, reuse it (if not expired)
     if cert_path.exists() and key_path.exists():
-        log.info("self_signed_reused", domain=domain, cert=str(cert_path))
-        return cert_path, key_path
+        from cryptography.x509 import load_pem_x509_certificate
+
+        existing_cert = load_pem_x509_certificate(cert_path.read_bytes())
+        if existing_cert.not_valid_after_utc > datetime.datetime.now(datetime.timezone.utc):
+            log.info("self_signed_reused", domain=domain, cert=str(cert_path))
+            return cert_path, key_path
+        log.warning("self_signed_expired", domain=domain, cert=str(cert_path))
 
     key = rsa.generate_private_key(public_exponent=65537, key_size=2048)
 
@@ -62,7 +69,7 @@ def generate_self_signed_cert(
                 x509.DNSName(f"*.{domain}"),
                 x509.DNSName("localhost"),
                 x509.IPAddress(
-                    __import__("ipaddress").IPv4Address("127.0.0.1")
+                    ipaddress.IPv4Address("127.0.0.1")
                 ),
             ]),
             critical=False,
@@ -70,13 +77,16 @@ def generate_self_signed_cert(
         .sign(key, hashes.SHA256())
     )
 
-    key_path.write_bytes(
-        key.private_bytes(
-            serialization.Encoding.PEM,
-            serialization.PrivateFormat.TraditionalOpenSSL,
-            serialization.NoEncryption(),
-        )
+    key_bytes = key.private_bytes(
+        serialization.Encoding.PEM,
+        serialization.PrivateFormat.TraditionalOpenSSL,
+        serialization.NoEncryption(),
     )
+    fd = os.open(str(key_path), os.O_WRONLY | os.O_CREAT | os.O_TRUNC, 0o600)
+    try:
+        os.write(fd, key_bytes)
+    finally:
+        os.close(fd)
     cert_path.write_bytes(cert.public_bytes(serialization.Encoding.PEM))
 
     log.warning(

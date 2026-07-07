@@ -16,7 +16,10 @@ class BotFilter:
         patterns = BOT_USER_AGENT_PATTERNS + (extra_patterns or [])
         # Compile a single regex for efficiency
         escaped = [re.escape(p) for p in patterns]
-        self._ua_regex = re.compile("|".join(escaped), re.IGNORECASE)
+        if escaped:
+            self._ua_regex = re.compile("|".join(escaped), re.IGNORECASE)
+        else:
+            self._ua_regex = None
 
     async def check(self, ctx: RequestContext) -> FilterResult:
         ua = ctx.request.headers.get("user-agent", "")
@@ -30,7 +33,7 @@ class BotFilter:
             )
 
         # Check against known bot patterns
-        if self._ua_regex.search(ua):
+        if self._ua_regex and self._ua_regex.search(ua):
             return FilterResult.block(
                 reason=f"Bot/scanner User-Agent detected",
                 filter_name=self.name,

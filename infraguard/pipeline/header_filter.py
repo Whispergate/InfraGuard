@@ -44,14 +44,17 @@ class HeaderFilter:
     def __init__(self, extra_keywords: list[str] | None = None):
         keywords = BANNED_HEADER_KEYWORDS + (extra_keywords or [])
         escaped = [re.escape(k) for k in keywords]
-        self._regex = re.compile("|".join(escaped), re.IGNORECASE)
+        if escaped:
+            self._regex = re.compile("|".join(escaped), re.IGNORECASE)
+        else:
+            self._regex = None
 
     async def check(self, ctx: RequestContext) -> FilterResult:
         for header_name, header_value in ctx.request.headers.items():
             lower_name = header_name.lower()
 
             # Check header names for banned keywords
-            if self._regex.search(header_name):
+            if self._regex and self._regex.search(header_name):
                 return FilterResult.block(
                     reason=f"Banned keyword in header name: {header_name}",
                     filter_name=self.name,
@@ -62,7 +65,7 @@ class HeaderFilter:
             # carry opaque data (base64, encoded cookies) that will false-
             # positive on short keywords like "nmap", "zap", etc.
             if lower_name not in self._SKIP_VALUE_CHECK:
-                if self._regex.search(header_value):
+                if self._regex and self._regex.search(header_value):
                     return FilterResult.block(
                         reason=f"Banned keyword in header value: {header_name}",
                         filter_name=self.name,

@@ -4,6 +4,7 @@ from __future__ import annotations
 
 import json
 
+import httpx
 import structlog
 
 from infraguard.models.events import RequestEvent
@@ -15,6 +16,13 @@ log = structlog.get_logger()
 class Plugin(BatchForwardingPlugin):
     name = "elasticsearch"
     version = "1.0.0"
+
+    async def on_startup(self) -> None:
+        await super().on_startup()
+        verify = self._opt("verify_ssl", True)
+        if self._client:
+            await self._client.aclose()
+            self._client = httpx.AsyncClient(timeout=httpx.Timeout(10.0), verify=verify)
 
     async def _send_batch(self, events: list[RequestEvent]) -> None:
         if not self._client:

@@ -81,6 +81,7 @@ class MQTTListener:
                     classification.reason, start,
                 )
                 writer.close()
+                await writer.wait_closed()
                 return
         except Exception:
             pass
@@ -119,6 +120,7 @@ class MQTTListener:
             log.exception("mqtt_proxy_error", client=client_ip)
         finally:
             writer.close()
+            await writer.wait_closed()
 
     def _record_event(
         self,

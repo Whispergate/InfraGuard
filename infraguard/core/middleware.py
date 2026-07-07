@@ -5,6 +5,7 @@ from __future__ import annotations
 import time
 from typing import Any
 
+import httpx
 import structlog
 from starlette.middleware.base import BaseHTTPMiddleware, RequestResponseEndpoint
 from starlette.requests import Request
@@ -49,6 +50,14 @@ class RequestLoggingMiddleware(BaseHTTPMiddleware):
 
         try:
             response = await call_next(request)
+        except (httpx.TimeoutException, httpx.ConnectError):
+            log.exception(
+                "upstream_error",
+                method=request.method,
+                path=request.url.path,
+                client=client_ip,
+            )
+            return Response(status_code=502, content=b"Bad Gateway")
         except Exception:
             log.exception(
                 "request_error",
@@ -56,7 +65,7 @@ class RequestLoggingMiddleware(BaseHTTPMiddleware):
                 path=request.url.path,
                 client=client_ip,
             )
-            return Response(status_code=502, content=b"Bad Gateway")
+            return Response(status_code=500, content=b"Internal Server Error")
 
         duration_ms = (time.perf_counter() - start) * 1000
 

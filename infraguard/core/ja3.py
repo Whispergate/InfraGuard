@@ -97,7 +97,7 @@ def _parse(data: bytes) -> ClientHelloFields | None:
     cs_end = pos + cs_len
     if cs_end > len(data):
         return None
-    while pos < cs_end:
+    while pos + 2 <= cs_end:
         cs = struct.unpack(">H", data[pos:pos + 2])[0]
         if cs not in _GREASE:
             fields.cipher_suites.append(cs)

@@ -43,6 +43,7 @@ class CircuitBreaker:
         self._failures = 0
         self._state = self.CLOSED
         self._opened_at: float | None = None
+        self._probe_in_flight = False
         self._lock = asyncio.Lock()
 
     @property
@@ -66,9 +67,12 @@ class CircuitBreaker:
                 elapsed = time.monotonic() - self._opened_at
                 if elapsed >= self._recovery_timeout:
                     self._state = self.HALF_OPEN
+                    self._probe_in_flight = True
                     log.info("circuit_half_open", upstream=self.upstream)
                 else:
                     raise CircuitOpenError(self.upstream)
+            elif self._state == self.HALF_OPEN and self._probe_in_flight:
+                raise CircuitOpenError(self.upstream)
 
         try:
             result = await coro_fn(*args, **kwargs)
@@ -86,12 +90,14 @@ class CircuitBreaker:
                     upstream=self.upstream,
                     previous_state=self._state,
                 )
+            self._probe_in_flight = False
             self._failures = 0
             self._state = self.CLOSED
             self._opened_at = None
 
     async def _on_failure(self) -> None:
         async with self._lock:
+            self._probe_in_flight = False
             self._failures += 1
             if self._failures >= self._threshold and self._state == self.CLOSED:
                 self._state = self.OPEN

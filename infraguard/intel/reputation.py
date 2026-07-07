@@ -139,7 +139,7 @@ class DomainReputationMonitor:
         }
         try:
             resp = await self._client.post(
-                f"{_GSB_API}?key={self._gsb_key}", json=payload
+                _GSB_API, json=payload, params={"key": self._gsb_key}
             )
             resp.raise_for_status()
             data = resp.json()

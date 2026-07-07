@@ -25,17 +25,23 @@ class CIDRList:
         self.name = name
         self._networks_v4: list[IPv4Network] = []
         self._networks_v6: list[IPv6Network] = []
+        self._seen: set[str] = set()
         self.metadata: dict[str, dict[str, Any]] = {}  # "10.0.0.0/8" → geo info
 
     def add(self, cidr: str) -> None:
         try:
-            net = ip_network(cidr, strict=False)
-            if isinstance(net, IPv4Network):
-                self._networks_v4.append(net)
-            else:
-                self._networks_v6.append(net)
+            normalized = str(ip_network(cidr, strict=False))
         except ValueError:
             log.warning("invalid_cidr", cidr=cidr, list=self.name)
+            return
+        if normalized in self._seen:
+            return
+        self._seen.add(normalized)
+        net = ip_network(normalized, strict=False)
+        if isinstance(net, IPv4Network):
+            self._networks_v4.append(net)
+        else:
+            self._networks_v6.append(net)
 
     def add_many(self, cidrs: list[str]) -> None:
         for cidr in cidrs:

@@ -63,10 +63,10 @@ class CommandPostConfig:
 
     @classmethod
     def from_cli_instances(cls, instance_strs: list[str]) -> CommandPostConfig:
-        """Parse --instance 'name:url:token' CLI args."""
+        """Parse --instance 'name|url|token' CLI args."""
         instances = []
         for s in instance_strs:
-            parts = s.split(":", 2)
+            parts = s.split("|", 2)
             if len(parts) == 3:
                 instances.append(InstanceConfig(name=parts[0], url=parts[1], token=parts[2]))
             elif len(parts) == 2:

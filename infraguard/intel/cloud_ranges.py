@@ -108,7 +108,7 @@ async def fetch_cloud_ranges(
                         provider=provider,
                         ranges=len(cidrs),
                     )
-            except (httpx.RequestError, httpx.TimeoutException, json.JSONDecodeError) as e:
+            except (httpx.RequestError, httpx.HTTPStatusError, httpx.TimeoutException, json.JSONDecodeError) as e:
                 log.warning(
                     "cloud_range_fetch_error",
                     provider=provider,

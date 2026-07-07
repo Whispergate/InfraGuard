@@ -67,15 +67,15 @@ async def fetch_feed(url: str, timeout: float = 30.0) -> list[str]:
     Retries up to 3 attempts with exponential backoff (60s, ~120s, ~240s).
     Returns an empty list after all retries are exhausted.
     """
-    try:
-        async for attempt in AsyncRetrying(
-            stop=stop_after_attempt(3),
-            wait=wait_exponential(multiplier=60, min=60, max=900),  # 60s, ~120s, capped 15m
-            retry=retry_if_exception_type((httpx.RequestError, httpx.TimeoutException, OSError)),
-            reraise=False,
-        ):
-            with attempt:
-                async with httpx.AsyncClient(timeout=timeout, follow_redirects=True) as client:
+    async with httpx.AsyncClient(timeout=timeout, follow_redirects=True) as client:
+        try:
+            async for attempt in AsyncRetrying(
+                stop=stop_after_attempt(3),
+                wait=wait_exponential(multiplier=60, min=60, max=900),  # 60s, ~120s, capped 15m
+                retry=retry_if_exception_type((httpx.RequestError, httpx.TimeoutException, OSError)),
+                reraise=False,
+            ):
+                with attempt:
                     resp = await client.get(url)
                     resp.raise_for_status()
                     entries = _parse_feed_lines(resp.text)
@@ -87,9 +87,9 @@ async def fetch_feed(url: str, timeout: float = 30.0) -> list[str]:
                     )
                     _feed_status[url] = datetime.now(timezone.utc)
                     return entries
-    except RetryError:
-        log.error("feed_fetch_exhausted", url=url, attempts=3)
-        return []
+        except RetryError:
+            log.error("feed_fetch_exhausted", url=url, attempts=3)
+            return []
     return []  # unreachable but satisfies type checker
 
 

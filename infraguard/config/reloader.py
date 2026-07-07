@@ -4,6 +4,7 @@ from __future__ import annotations
 
 import asyncio
 import signal
+import sys
 from pathlib import Path
 
 import structlog
@@ -27,11 +28,14 @@ class ConfigReloader:
 
     def install(self, loop: asyncio.AbstractEventLoop) -> None:
         """Register SIGHUP handler on the given event loop."""
-        loop.add_signal_handler(
-            signal.SIGHUP,
-            lambda: asyncio.create_task(self._reload()),
-        )
-        log.info("sighup_handler_installed", config_path=str(self._config_path))
+        if sys.platform != "win32":
+            loop.add_signal_handler(
+                signal.SIGHUP,
+                lambda: asyncio.create_task(self._reload()),
+            )
+            log.info("sighup_handler_installed", config_path=str(self._config_path))
+        else:
+            log.info("sighup_handler_skipped", reason="not supported on Windows")
 
     async def _reload(self) -> None:
         """Attempt config reload. Reject invalid config, preserve running state."""
@@ -40,6 +44,9 @@ class ConfigReloader:
             new_config = load_config(self._config_path)
         except (FileNotFoundError, ValidationError) as exc:
             log.error("config_reload_rejected", error=str(exc))
+            return
+        except Exception as exc:
+            log.error("config_reload_unexpected_error", error=str(exc))
             return
         try:
             await self._router.reload(new_config)

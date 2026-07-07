@@ -103,7 +103,7 @@ class FilterPipeline:
                 else:
                     # Scoring mode: accumulate scores, check threshold
                     if result.action == FilterAction.BLOCK:
-                        total_score = max(total_score + result.score, 1.0)
+                        total_score = min(total_score + result.score, 1.0)
                         break
                     else:
                         total_score += result.score

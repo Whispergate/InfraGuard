@@ -31,14 +31,14 @@ class DeadManSwitch:
     ):
         self.ttl_seconds = ttl_seconds
         self.enabled = enabled
-        self._last_heartbeat = time.time()
+        self._last_heartbeat = time.monotonic()
         self._expired = False
-        self._expire_event = on_expire or asyncio.Event()
+        self._expire_event = on_expire
         self._task: asyncio.Task | None = None
 
     def heartbeat(self) -> None:
         """Record an operator heartbeat, resetting the TTL countdown."""
-        self._last_heartbeat = time.time()
+        self._last_heartbeat = time.monotonic()
         if self._expired:
             self._expired = False
             self._expire_event.clear()
@@ -47,7 +47,7 @@ class DeadManSwitch:
     @property
     def time_remaining(self) -> float:
         """Seconds until the switch expires. Negative if expired."""
-        return (self._last_heartbeat + self.ttl_seconds) - time.time()
+        return (self._last_heartbeat + self.ttl_seconds) - time.monotonic()
 
     @property
     def is_expired(self) -> bool:
@@ -84,7 +84,9 @@ class DeadManSwitch:
     def start(self) -> None:
         """Start the dead man's switch watchdog."""
         if self.enabled:
-            self._last_heartbeat = time.time()
+            if self._expire_event is None:
+                self._expire_event = asyncio.Event()
+            self._last_heartbeat = time.monotonic()
             self._task = asyncio.create_task(self._watch_loop())
             log.info("deadman_switch_started", ttl=self.ttl_seconds)
 

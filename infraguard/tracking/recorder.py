@@ -40,6 +40,7 @@ class EventRecorder:
         self._plugins = plugins or []
         self._tasks: set[asyncio.Task] = set()
         self._task_timeout: float = 10.0  # per-task timeout for plugin dispatch
+        self._flush_lock = asyncio.Lock()
 
     # ------------------------------------------------------------------
     # Task lifecycle helpers
@@ -129,41 +130,43 @@ class EventRecorder:
             await self._flush()
 
     async def _flush(self) -> None:
-        if not self._buffer:
-            return
+        async with self._flush_lock:
+            if not self._buffer:
+                return
 
-        events = []
-        while self._buffer:
-            events.append(self._buffer.popleft())
+            events = []
+            while self._buffer:
+                events.append(self._buffer.popleft())
 
-        params = [
-            (
-                e.timestamp.isoformat(),
-                e.domain,
-                e.client_ip,
-                e.method,
-                e.uri,
-                e.user_agent,
-                e.filter_result,
-                e.filter_reason,
-                e.filter_score,
-                e.response_status,
-                e.request_hash,
-                e.duration_ms,
-                e.protocol,
-            )
-            for e in events
-        ]
+            params = [
+                (
+                    e.timestamp.isoformat(),
+                    e.domain,
+                    e.client_ip,
+                    e.method,
+                    e.uri,
+                    e.user_agent,
+                    e.filter_result,
+                    e.filter_reason,
+                    e.filter_score,
+                    e.response_status,
+                    e.request_hash,
+                    e.duration_ms,
+                    e.protocol,
+                )
+                for e in events
+            ]
 
-        try:
-            await self.db.executemany(
-                """INSERT INTO requests
-                   (timestamp, domain, client_ip, method, uri, user_agent,
-                    filter_result, filter_reason, filter_score, response_status,
-                    request_hash, duration_ms, protocol)
-                   VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)""",
-                params,
-            )
-            log.debug("events_flushed", count=len(events))
-        except (OSError, sqlite3.Error) as e:
-            log.exception("flush_error", count=len(events), error_type=type(e).__name__)
+            try:
+                await self.db.executemany(
+                    """INSERT INTO requests
+                       (timestamp, domain, client_ip, method, uri, user_agent,
+                        filter_result, filter_reason, filter_score, response_status,
+                        request_hash, duration_ms, protocol)
+                       VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)""",
+                    params,
+                )
+                log.debug("events_flushed", count=len(events))
+            except (OSError, sqlite3.Error) as e:
+                log.exception("flush_error", count=len(events), error_type=type(e).__name__)
+                self._buffer.extendleft(reversed(events))

@@ -34,35 +34,38 @@ class StatsQuery:
         self.db = db
 
     async def overview(self, hours: int = 24) -> OverviewStats:
-        time_filter = f"datetime('now', '-{hours} hours')"
+        time_param = f"-{int(hours)} hours"
 
         totals = await self.db.fetchone(
-            f"""SELECT
+            """SELECT
                 COUNT(*) as total,
                 SUM(CASE WHEN filter_result = 'allow' THEN 1 ELSE 0 END) as allowed,
                 SUM(CASE WHEN filter_result = 'block' THEN 1 ELSE 0 END) as blocked,
                 COUNT(DISTINCT client_ip) as unique_ips
-            FROM requests WHERE timestamp > {time_filter}"""
+            FROM requests WHERE timestamp > datetime('now', ?)""",
+            (time_param,),
         )
 
         domain_rows = await self.db.fetchall(
-            f"""SELECT
+            """SELECT
                 domain,
                 COUNT(*) as total,
                 SUM(CASE WHEN filter_result = 'allow' THEN 1 ELSE 0 END) as allowed,
                 SUM(CASE WHEN filter_result = 'block' THEN 1 ELSE 0 END) as blocked,
                 COUNT(DISTINCT client_ip) as unique_ips
-            FROM requests WHERE timestamp > {time_filter}
-            GROUP BY domain"""
+            FROM requests WHERE timestamp > datetime('now', ?)
+            GROUP BY domain""",
+            (time_param,),
         )
 
         top_blocked = await self.db.fetchall(
-            f"""SELECT client_ip, COUNT(*) as cnt
+            """SELECT client_ip, COUNT(*) as cnt
             FROM requests
-            WHERE filter_result = 'block' AND timestamp > {time_filter}
+            WHERE filter_result = 'block' AND timestamp > datetime('now', ?)
             GROUP BY client_ip
             ORDER BY cnt DESC
-            LIMIT 10"""
+            LIMIT 10""",
+            (time_param,),
         )
 
         domains = [

@@ -114,6 +114,8 @@ def make_webhook_handler(
 
         try:
             ts = datetime.fromisoformat(created_at_raw) if created_at_raw else datetime.now(timezone.utc)
+            if ts.tzinfo is None:
+                ts = ts.replace(tzinfo=timezone.utc)
         except (ValueError, TypeError):
             ts = datetime.now(timezone.utc)
 
@@ -134,7 +136,7 @@ def make_webhook_handler(
                 app_state = getattr(request.app, "state", None)
                 router = getattr(app_state, "router", None) if app_state else None
                 if router and hasattr(router, "intel"):
-                    router.intel.dynamic_whitelist.add(client_ip)
+                    router.intel.dynamic_whitelist._whitelisted.add(client_ip)
                     log.info("phishingclub_ip_whitelisted", ip=client_ip, event=event_id)
             except Exception:
                 log.exception("phishingclub_whitelist_error", ip=client_ip)
@@ -157,7 +159,7 @@ def make_webhook_handler(
         synthetic_event.timestamp = ts
 
         try:
-            await recorder.record(synthetic_event)
+            recorder.record(synthetic_event)
         except Exception:
             log.exception("phishingclub_record_error")
 

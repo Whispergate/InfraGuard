@@ -32,7 +32,6 @@ class InstanceClient:
                 base_url=self.url,
                 headers=headers,
                 timeout=10.0,
-                verify=False,
             )
         return self._client
 
@@ -108,7 +107,7 @@ class MultiInstanceAggregator:
         total = 0
         allowed = 0
         blocked = 0
-        all_ips: set[str] = set()
+        unique_ips_sum = 0
         domain_map: dict[str, dict] = {}
         blocked_ip_counts: dict[str, int] = defaultdict(int)
 
@@ -118,6 +117,7 @@ class MultiInstanceAggregator:
             total += stats.get("total_requests", 0) or 0
             allowed += stats.get("allowed_requests", 0) or 0
             blocked += stats.get("blocked_requests", 0) or 0
+            unique_ips_sum += stats.get("unique_ips", 0) or 0
 
             for domain in stats.get("domains", []):
                 name = domain["domain"]
@@ -151,7 +151,7 @@ class MultiInstanceAggregator:
             "total_requests": total,
             "allowed_requests": allowed,
             "blocked_requests": blocked,
-            "unique_ips": len(all_ips) if all_ips else (total - blocked),
+            "unique_ips": unique_ips_sum,
             "domains": domains,
             "top_blocked_ips": top_blocked,
         }

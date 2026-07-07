@@ -68,7 +68,7 @@ class DNSListener:
         host = self._config.bind
         port = self._config.port
 
-        loop = asyncio.get_event_loop()
+        loop = asyncio.get_running_loop()
         transport, _ = await loop.create_datagram_endpoint(
             lambda: _DNSProtocol(self),
             local_addr=(host, port),
@@ -157,12 +157,8 @@ class DNSListener:
         port = int(port_str)
 
         try:
-            loop = asyncio.get_event_loop()
-            transport, protocol = await loop.create_datagram_endpoint(
-                asyncio.DatagramProtocol,
-                remote_addr=(host, port),
-            )
-            future: asyncio.Future[bytes] = asyncio.get_event_loop().create_future()
+            loop = asyncio.get_running_loop()
+            future: asyncio.Future[bytes] = loop.create_future()
 
             class _Receiver(asyncio.DatagramProtocol):
                 def datagram_received(self, data: bytes, addr: tuple) -> None:
