@@ -502,7 +502,13 @@ def generate_backend(
 def run_dashboard(
     config_path: Path, host: str | None, port: int | None, tls: bool | None
 ) -> None:
-    """Start the InfraGuard web dashboard."""
+    """Start the InfraGuard web dashboard (standalone mode).
+
+    NOTE: In standalone mode the dashboard creates its own IntelManager,
+    so whitelist/blocklist changes do NOT affect a running proxy.
+    Use 'infraguard run' instead -- it embeds the dashboard and shares
+    state so changes take effect immediately.
+    """
     import uvicorn
 
     from infraguard.config.loader import load_config
@@ -510,6 +516,13 @@ def run_dashboard(
     from infraguard.intel.manager import IntelManager
     from infraguard.tracking.database import Database
     from infraguard.ui.api.app import create_api_app
+
+    click.echo(
+        "Warning: standalone dashboard does not share state with the proxy.\n"
+        "Whitelist/blocklist changes won't affect a running proxy.\n"
+        "Use 'infraguard run' for integrated dashboard.",
+        err=True,
+    )
 
     cfg = load_config(config_path)
     db = Database(cfg.tracking.db_path)

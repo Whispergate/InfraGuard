@@ -191,6 +191,37 @@ def create_app(config: InfraGuardConfig) -> Starlette:
                     port=lis.port,
                 )
 
+        # Embed dashboard API in-process so it shares the proxy's IntelManager.
+        # Whitelist/blocklist changes from the dashboard take effect immediately.
+        _dashboard_server = None
+        try:
+            import uvicorn as _uvicorn
+            from infraguard.ui.api.app import create_api_app
+
+            _dashboard_db = Database(config.tracking.db_path)
+            _dashboard_app = create_api_app(
+                config, _dashboard_db, intel=router.intel,
+            )
+            _uvi_cfg = _uvicorn.Config(
+                _dashboard_app,
+                host=config.api.bind,
+                port=config.api.port,
+                log_level="warning",
+                server_header=False,
+                date_header=False,
+            )
+            _dashboard_server = _uvicorn.Server(_uvi_cfg)
+            _background_tasks.append(
+                asyncio.create_task(_dashboard_server.serve())
+            )
+            log.info(
+                "dashboard_embedded",
+                bind=config.api.bind,
+                port=config.api.port,
+            )
+        except Exception:
+            log.exception("dashboard_embed_failed")
+
         log.info(
             "infraguard_started",
             domains=list(config.domains.keys()),
@@ -199,7 +230,11 @@ def create_app(config: InfraGuardConfig) -> Starlette:
         )
         yield
 
-        # 1. Cancel all background tasks (feeds, session cleanup)
+        # 0. Gracefully stop embedded dashboard
+        if _dashboard_server is not None:
+            _dashboard_server.should_exit = True
+
+        # 1. Cancel all background tasks (feeds, session cleanup, dashboard)
         for task in _background_tasks:
             task.cancel()
         if _background_tasks:
