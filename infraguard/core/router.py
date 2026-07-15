@@ -581,9 +581,13 @@ class DomainRouter:
                 path=request.url.path,
                 score=round(result.total_score, 2),
             )
-            # Record valid request for dynamic whitelisting.
-            # If this causes the IP to be newly whitelisted, issue a payload token.
-            newly_whitelisted = self.intel.record_valid_request(str(client_ip))
+            # Record valid request for dynamic whitelisting - C2 domains only.
+            # Phishing/passthrough domains are open by design; letting them
+            # feed the dynamic whitelist would let any target click-through
+            # bypass CIDR-restricted domains (e.g. operator admin panels).
+            newly_whitelisted = False
+            if route.config.profile_type not in PHISHING_PROFILE_TYPES:
+                newly_whitelisted = self.intel.record_valid_request(str(client_ip))
             if newly_whitelisted and self._token_store is not None:
                 pt_cfg = self.config.payload_tokens
                 # Issue tokens for all token-gated content routes on this domain
