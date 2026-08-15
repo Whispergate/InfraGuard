@@ -748,7 +748,7 @@ def deploy_rotate(
         else:
             click.echo("  proxy + dashboard started")
 
-    # 3. Poll health on new instance (skip for Cloudflare — no health endpoint on Workers)
+    # 3. Poll health on new instance (skip for Cloudflare - no health endpoint on Workers)
     if provider != "cloudflare":
         click.echo(f"Polling health at https://{new_ip}:443/health ...")
         try:
