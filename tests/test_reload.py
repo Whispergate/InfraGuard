@@ -1,4 +1,4 @@
-"""Tests for SIGHUP config hot-reload (RESL-04)."""
+"""Tests for SIGHUP config hot-reload."""
 
 from __future__ import annotations
 

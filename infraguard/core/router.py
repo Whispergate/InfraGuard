@@ -246,7 +246,7 @@ class DomainRouter:
             is_tunnel = domain_config.profile_type in TUNNEL_PROFILE_TYPES
 
             if is_tunnel:
-                # Tunnel types are opaque passthrough — no profile, no
+                # Tunnel types are opaque passthrough - no profile, no
                 # ProfileFilter / PhishingFilter, just the base pipeline.
                 filters = self._build_filters()
                 profile = C2Profile(name=domain_config.profile_type.value)
@@ -362,7 +362,7 @@ class DomainRouter:
         from infraguard.pipeline.phishing_filter import PhishingFilter
         from infraguard.profiles.phishing import build_phishing_profile
 
-        # Validate all C2 profile paths in new config first (RESL-03)
+        # Validate all C2 profile paths in new config first
         for domain_name, domain_config in new_config.domains.items():
             if (
                 domain_config.profile_type not in PHISHING_PROFILE_TYPES
@@ -577,7 +577,7 @@ class DomainRouter:
             and request.url.path in route.profile.all_uris()
         )
 
-        # ── IP check before content routes (OPSEC-06) ────────────
+        # ── IP check before content routes ────────────
         if route.content_resolver and not is_beacon_uri:
             if route.config.content_route_filter == "full_pipeline":
                 # Full pipeline evaluation before content routes

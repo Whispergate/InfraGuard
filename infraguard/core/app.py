@@ -224,7 +224,7 @@ def create_app(config: InfraGuardConfig) -> Starlette:
                 )
                 continue
 
-            # Build constructor kwargs — all listeners take (config, intel, recorder).
+            # Build constructor kwargs - all listeners take (config, intel, recorder).
             # DNSListener additionally accepts intel_config.
             kwargs: dict = dict(config=lis, intel=router.intel, recorder=recorder)
             if lis.protocol == "dns":

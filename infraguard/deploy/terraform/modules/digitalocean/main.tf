@@ -4,7 +4,7 @@ terraform {
       source  = "digitalocean/digitalocean"
       version = "~> 2.81"
     }
-}
+  }
   required_version = ">= 1.10"
 }
 

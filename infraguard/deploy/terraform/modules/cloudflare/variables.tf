@@ -8,6 +8,11 @@ variable "upstream_url" {
   description = "Backend VPS URL to relay traffic to (e.g. https://1.2.3.4)"
 }
 
+variable "account_id" {
+  type        = string
+  description = "Cloudflare account ID (found in dashboard URL or API)"
+}
+
 variable "route_pattern" {
   type        = string
   default     = "*"

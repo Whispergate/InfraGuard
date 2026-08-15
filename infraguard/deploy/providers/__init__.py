@@ -15,6 +15,7 @@ from infraguard.deploy.providers.aws import AWSProvider
 from infraguard.deploy.providers.azure import AzureProvider
 from infraguard.deploy.providers.cloudflare import CloudflareProvider
 from infraguard.deploy.providers.digitalocean import DigitalOceanProvider
+from infraguard.deploy.providers.hetzner import HetznerProvider
 from infraguard.deploy.providers.base import TerraformProvider, TerraformError
 
 __all__ = [
@@ -22,6 +23,7 @@ __all__ = [
     "AzureProvider",
     "CloudflareProvider",
     "DigitalOceanProvider",
+    "HetznerProvider",
     "TerraformProvider",
     "TerraformError",
     "get_provider",
@@ -34,6 +36,8 @@ _PROVIDER_MAP: dict[str, type[TerraformProvider]] = {
     "cf": CloudflareProvider,
     "do": DigitalOceanProvider,
     "digitalocean": DigitalOceanProvider,
+    "hetzner": HetznerProvider,
+    "hz": HetznerProvider,
 }
 
 

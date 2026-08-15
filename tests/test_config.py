@@ -188,7 +188,7 @@ class TestSchemaModels:
 
 
 class TestStartupValidation:
-    """Startup profile path validation in DomainRouter (RESL-03)."""
+    """Startup profile path validation in DomainRouter."""
 
     def _make_config(self, domains: dict) -> "InfraGuardConfig":
         from infraguard.config.schema import (

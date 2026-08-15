@@ -1,4 +1,4 @@
-"""Tests for feed retry backoff and staleness tracking (RESL-02)."""
+"""Tests for feed retry backoff and staleness tracking."""
 
 from __future__ import annotations
 

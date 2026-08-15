@@ -1,4 +1,4 @@
-"""Tests for Prometheus metrics module (OPER-02).
+"""Tests for Prometheus metrics module.
 
 TDD-driven: covers metric definitions, update helpers, and ASGI endpoint
 behaviour for both the API app (/metrics exposed) and proxy app (/metrics 404).

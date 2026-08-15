@@ -199,7 +199,7 @@ def deploy_group() -> None:
 @deploy_group.command("run")
 @click.option(
     "--provider",
-    type=click.Choice(["aws", "azure", "do", "cloudflare"]),
+    type=click.Choice(["aws", "azure", "do", "cloudflare", "hetzner"]),
     required=True,
     help="Cloud provider.",
 )
@@ -271,28 +271,36 @@ def deploy_run(
     tf_provider = get_provider(provider, work_dir)
 
     # Build provider-specific tfvars
-    tfvars: dict = {
-        "domain": domain,
-        "operator_ip": operator_ip,
-    }
-    if region:
-        tfvars["region"] = region
-    if instance_size:
-        tfvars["instance_size"] = instance_size
-
-    # Provider-specific tfvars and SSH key handling:
-    # - DO: uses fingerprint (key must already exist on account)
-    # - AWS/Azure: uses raw public key (creates key pair resource)
-    # - Cloudflare: uses upstream_url (no VM, Workers relay only)
     if provider == "cloudflare":
-        tfvars["upstream_url"] = upstream
-    elif provider == "do":
-        tfvars["ssh_key_fingerprint"] = _compute_ssh_fingerprint(ssh_key)
+        import os
+        cf_account_id = os.environ.get("CLOUDFLARE_ACCOUNT_ID", "")
+        if not cf_account_id:
+            raise click.ClickException(
+                "CLOUDFLARE_ACCOUNT_ID environment variable is required for Cloudflare deployments.\n"
+                "Find it in your Cloudflare dashboard URL or via: curl -s -H 'Authorization: Bearer $CLOUDFLARE_API_TOKEN' "
+                "https://api.cloudflare.com/client/v4/accounts | jq '.result[0].id'"
+            )
+        tfvars: dict = {
+            "domain": domain,
+            "upstream_url": upstream,
+            "account_id": cf_account_id,
+        }
     else:
-        tfvars["ssh_public_key"] = ssh_key.read_text(encoding="utf-8").strip()
+        tfvars: dict = {
+            "domain": domain,
+            "operator_ip": operator_ip,
+        }
+        if region:
+            tfvars["region"] = region
+        if instance_size:
+            tfvars["instance_size"] = instance_size
+        if provider == "do":
+            tfvars["ssh_key_fingerprint"] = _compute_ssh_fingerprint(ssh_key)
+        else:
+            tfvars["ssh_public_key"] = ssh_key.read_text(encoding="utf-8").strip()
 
     # SSH user differs by provider
-    _SSH_USERS = {"do": "root", "aws": "ubuntu", "azure": "operator"}
+    _SSH_USERS = {"do": "root", "aws": "ubuntu", "azure": "operator", "hetzner": "root"}
     ssh_user = _SSH_USERS.get(provider, "root")
 
     # ── Step 1: Terraform apply ──────────────────────────────────────
@@ -319,10 +327,44 @@ def deploy_run(
             click.echo(f"  Warning: state encryption failed: {exc}", err=True)
 
     if provider == "cloudflare":
-        # Cloudflare Workers have no VM — skip SSH/SCP/docker steps
-        click.echo(f"  Worker deployed successfully.")
-        click.echo(f"  Worker route: {worker_url}")
-        click.echo(f"  Upstream:     {instance_ip}")
+        # Cloudflare Workers: TF sets up the route with an inline JS relay.
+        # If the Python edge worker (workers/infraguard-edge/) is present,
+        # deploy it via wrangler for full edge filtering (country blocking,
+        # host allowlist, host rewriting).
+        worker_dir = Path(__file__).parent.parent.parent / "workers" / "infraguard-edge"
+        wrangler_toml = worker_dir / "wrangler.toml"
+        if wrangler_toml.exists():
+            import shutil
+            wrangler_bin = shutil.which("wrangler") or shutil.which("npx")
+            if wrangler_bin:
+                click.echo("  Deploying Python edge worker via wrangler...")
+                import subprocess
+                wrangler_cmd = (
+                    [wrangler_bin, "deploy"]
+                    if "wrangler" in str(wrangler_bin)
+                    else [wrangler_bin, "wrangler", "deploy"]
+                )
+                result = subprocess.run(
+                    wrangler_cmd,
+                    cwd=str(worker_dir),
+                    capture_output=True,
+                    text=True,
+                )
+                if result.returncode == 0:
+                    click.echo("  Python edge worker deployed via wrangler.")
+                else:
+                    click.echo(
+                        f"  Warning: wrangler deploy failed (TF relay still active):\n"
+                        f"  {result.stderr.strip()}",
+                        err=True,
+                    )
+            else:
+                click.echo(
+                    "  Note: wrangler not found on PATH. Using TF inline JS relay.\n"
+                    "  Install wrangler for full edge filtering (country blocking, host allowlist):\n"
+                    "    npm install -g wrangler",
+                    err=True,
+                )
 
         click.echo(f"\n{'=' * 50}")
         click.echo(f"  InfraGuard Worker deployed for {domain}")
@@ -432,7 +474,7 @@ def deploy_run(
 @deploy_group.command("destroy")
 @click.option(
     "--provider",
-    type=click.Choice(["aws", "azure", "do", "cloudflare"]),
+    type=click.Choice(["aws", "azure", "do", "cloudflare", "hetzner"]),
     required=True,
     help="Cloud provider.",
 )
@@ -493,7 +535,7 @@ def deploy_destroy(
 @deploy_group.command("rotate")
 @click.option(
     "--provider",
-    type=click.Choice(["aws", "azure", "do", "cloudflare"]),
+    type=click.Choice(["aws", "azure", "do", "cloudflare", "hetzner"]),
     required=True,
     help="Cloud provider.",
 )
@@ -602,16 +644,27 @@ def deploy_rotate(
     new_work_dir.mkdir(parents=True, exist_ok=True)
 
     new_provider = get_provider(provider, new_work_dir)
-    tfvars: dict = {
-        "domain": new_domain,
-        "operator_ip": operator_ip,
-    }
     if provider == "cloudflare":
-        tfvars["upstream_url"] = upstream
-    elif provider == "do":
-        tfvars["ssh_key_fingerprint"] = _compute_ssh_fingerprint(ssh_key)
+        import os
+        cf_account_id = os.environ.get("CLOUDFLARE_ACCOUNT_ID", "")
+        if not cf_account_id:
+            raise click.ClickException(
+                "CLOUDFLARE_ACCOUNT_ID environment variable is required for Cloudflare deployments."
+            )
+        tfvars: dict = {
+            "domain": new_domain,
+            "upstream_url": upstream,
+            "account_id": cf_account_id,
+        }
     else:
-        tfvars["ssh_public_key"] = ssh_key.read_text(encoding="utf-8").strip()
+        tfvars: dict = {
+            "domain": new_domain,
+            "operator_ip": operator_ip,
+        }
+        if provider == "do":
+            tfvars["ssh_key_fingerprint"] = _compute_ssh_fingerprint(ssh_key)
+        else:
+            tfvars["ssh_public_key"] = ssh_key.read_text(encoding="utf-8").strip()
     if region:
         tfvars["region"] = region
     if instance_size:
@@ -627,11 +680,11 @@ def deploy_rotate(
     click.echo(f"New instance provisioned at {new_ip}")
 
     # SSH user differs by provider
-    _SSH_USERS = {"do": "root", "aws": "ubuntu", "azure": "operator"}
+    _SSH_USERS = {"do": "root", "aws": "ubuntu", "azure": "operator", "hetzner": "root"}
     ssh_user = _SSH_USERS.get(provider, "root")
 
     if provider == "cloudflare":
-        # Cloudflare Workers: no VM, no SSH/SCP/docker — just log success
+        # Cloudflare Workers: no VM, no SSH/SCP/docker - just log success
         worker_route = new_outputs.get("worker_route", "")
         click.echo(f"Cloudflare Worker deployed. Route: {worker_route}")
     else:
@@ -695,18 +748,19 @@ def deploy_rotate(
         else:
             click.echo("  proxy + dashboard started")
 
-    # 3. Poll health on new instance
-    click.echo(f"Polling health at https://{new_ip}:443/health ...")
-    try:
-        _poll_health(new_ip, port=443)
-        click.echo(f"New instance healthy at {new_ip}")
-    except RuntimeError as exc:
-        click.echo(
-            f"ERROR: New instance health check failed.\n{exc}\n"
-            "Old instance NOT destroyed. Investigate before retrying.",
-            err=True,
-        )
-        raise click.Abort() from exc
+    # 3. Poll health on new instance (skip for Cloudflare — no health endpoint on Workers)
+    if provider != "cloudflare":
+        click.echo(f"Polling health at https://{new_ip}:443/health ...")
+        try:
+            _poll_health(new_ip, port=443)
+            click.echo(f"New instance healthy at {new_ip}")
+        except RuntimeError as exc:
+            click.echo(
+                f"ERROR: New instance health check failed.\n{exc}\n"
+                "Old instance NOT destroyed. Investigate before retrying.",
+                err=True,
+            )
+            raise click.Abort() from exc
 
     # 4. Preserve data if requested
     if preserve_data:

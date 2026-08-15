@@ -4,14 +4,6 @@
 # to a backend VPS running the full InfraGuard stack.  The Worker itself
 # has NO filtering, scoring, or persistence - it is a transparent relay
 # that adds a CDN/edge layer for infrastructure obfuscation.
-#
-# Limitations:
-#   - No SQLite (Workers have no persistent filesystem)
-#   - No C2 profile matching (CPU time limits)
-#   - No event recording (no database)
-#   - The backend VPS must run InfraGuard with full capabilities
-#
-# Use case: hide the real VPS IP behind Cloudflare's edge network.
 
 terraform {
   required_providers {
@@ -23,20 +15,16 @@ terraform {
 }
 
 # Look up the zone ID from the domain name
-data "cloudflare_zones" "this" {
-  filter {
+data "cloudflare_zone" "this" {
+  filter = {
     name = var.domain
   }
 }
 
-locals {
-  zone_id = data.cloudflare_zones.this.zones[0].id
-}
-
 # Worker script - transparent HTTP relay
 resource "cloudflare_workers_script" "relay" {
-  account_id = data.cloudflare_zones.this.zones[0].account_id
-  name       = var.worker_name
+  account_id  = var.account_id
+  script_name = var.worker_name
 
   content = <<-JS
     export default {
@@ -72,7 +60,7 @@ resource "cloudflare_workers_script" "relay" {
 
 # Route: attach the Worker to the domain pattern
 resource "cloudflare_workers_route" "relay" {
-  zone_id     = local.zone_id
-  pattern     = "${var.domain}/${var.route_pattern}"
-  script_name = cloudflare_workers_script.relay.name
+  zone_id = data.cloudflare_zone.this.zone_id
+  pattern = "${var.domain}/${var.route_pattern}"
+  script  = cloudflare_workers_script.relay.script_name
 }

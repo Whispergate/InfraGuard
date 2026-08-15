@@ -9,7 +9,7 @@ output "worker_url" {
 }
 
 output "instance_id" {
-  value       = cloudflare_workers_script.relay.name
+  value       = cloudflare_workers_script.relay.script_name
   description = "Cloudflare Worker script name"
 }
 

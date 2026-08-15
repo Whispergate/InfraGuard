@@ -1,7 +1,7 @@
 [project]
 name = "infraguard"
-version = "0.3.3"
-description = "Red team infrastructure tracker and C2 redirector"
+version = "0.4.3"
+description = "Red team infrastructure tracker and redirector"
 readme = "README.md"
 requires-python = ">=3.12"
 license = "BSD-2-Clause"
