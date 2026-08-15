@@ -123,7 +123,7 @@ def profile() -> None:
 @click.option(
     "--type",
     "profile_type",
-    type=click.Choice(["auto", "cobalt_strike", "mythic", "brute_ratel", "sliver", "havoc"]),
+    type=click.Choice(["auto", "cobalt_strike", "mythic", "mythic_http", "brute_ratel", "sliver", "havoc", "nighthawk", "poshc2"]),
     default="auto",
     help="Profile type (auto-detected by default).",
 )
@@ -152,7 +152,7 @@ def profile_parse(
 @click.option(
     "--type",
     "profile_type",
-    type=click.Choice(["auto", "cobalt_strike", "mythic", "brute_ratel", "sliver", "havoc"]),
+    type=click.Choice(["auto", "cobalt_strike", "mythic", "mythic_http", "brute_ratel", "sliver", "havoc", "nighthawk", "poshc2"]),
     default="auto",
     help="Source profile type.",
 )
@@ -317,9 +317,26 @@ def run_server(config_path: Path, host: str | None, port: int | None) -> None:
     cfg = load_config(config_path)
     app = create_app(cfg)
 
-    # Determine bind/port from first listener or overrides
-    bind = host or (cfg.listeners[0].bind if cfg.listeners else "0.0.0.0")
-    listen_port = port or (cfg.listeners[0].port if cfg.listeners else 8443)
+    # Find the first HTTP/HTTPS listener for uvicorn binding.
+    # Non-HTTP listeners (dns, mqtt, websocket, tcp_tunnel) are started
+    # inside the ASGI lifespan and must not be used as the uvicorn config.
+    _http_protocols = {"http", "https"}
+    http_listener = None
+    if cfg.listeners:
+        for _lis in cfg.listeners:
+            if _lis.protocol in _http_protocols:
+                http_listener = _lis
+                break
+        if http_listener is None:
+            click.echo(
+                f"Warning: first listener protocol is '{cfg.listeners[0].protocol}', "
+                f"not http/https. Non-HTTP listeners are started automatically "
+                f"inside the ASGI lifespan. Using default bind 0.0.0.0:8443 for uvicorn.",
+                err=True,
+            )
+
+    bind = host or (http_listener.bind if http_listener else "0.0.0.0")
+    listen_port = port or (http_listener.port if http_listener else 8443)
 
     click.echo(f"InfraGuard v{__version__} starting on {bind}:{listen_port}")
     click.echo(f"Domains: {', '.join(cfg.domains.keys())}")
@@ -332,17 +349,16 @@ def run_server(config_path: Path, host: str | None, port: int | None) -> None:
         "server_header": False,
         "date_header": False,
     }
-    if cfg.listeners and cfg.listeners[0].tls:
+    if http_listener and http_listener.tls:
         from infraguard.core.tls import resolve_tls_paths
 
-        listener = cfg.listeners[0]
-        domains = listener.domains or list(cfg.domains.keys())
-        cert_path, key_path = resolve_tls_paths(listener.tls, domains)
+        domains = http_listener.domains or list(cfg.domains.keys())
+        cert_path, key_path = resolve_tls_paths(http_listener.tls, domains)
         uvicorn_kwargs["ssl_certfile"] = cert_path
         uvicorn_kwargs["ssl_keyfile"] = key_path
 
         # HTTP/2 support
-        if listener.http2:
+        if http_listener.http2:
             try:
                 import h2  # noqa: F401
                 uvicorn_kwargs["http"] = "h2"
@@ -703,6 +719,9 @@ def _load_profile_file(file: Path, profile_type: str, name: str | None = None):
     from infraguard.profiles.cobalt_strike import parse_cobalt_strike_file
     from infraguard.profiles.havoc import parse_havoc_file
     from infraguard.profiles.mythic import parse_mythic_file
+    from infraguard.profiles.mythic_http import parse_mythic_http_file
+    from infraguard.profiles.nighthawk import parse_nighthawk_file
+    from infraguard.profiles.poshc2 import parse_poshc2_file
     from infraguard.profiles.sliver import parse_sliver_file
 
     if profile_type == "auto":
@@ -722,8 +741,16 @@ def _load_profile_file(file: Path, profile_type: str, name: str | None = None):
         return parse_sliver_file(file, name)
     elif profile_type == "havoc":
         return parse_havoc_file(file, name)
-    else:
+    elif profile_type == "nighthawk":
+        return parse_nighthawk_file(file)
+    elif profile_type == "poshc2":
+        return parse_poshc2_file(file)
+    elif profile_type == "mythic_http":
+        return parse_mythic_http_file(file, name)
+    elif profile_type == "mythic":
         return parse_mythic_file(file, name)
+    else:
+        raise click.ClickException(f"Unknown profile type: {profile_type!r}")
 
 
 def _print_profile_summary(p: "C2Profile") -> None:  # noqa: F821

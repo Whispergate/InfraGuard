@@ -10,9 +10,21 @@ from starlette.responses import JSONResponse
 from infraguard.intel.manager import IntelManager
 
 
+def _get_intel(request: Request) -> IntelManager | None:
+    """Return the intel manager or None if not initialised."""
+    return getattr(request.app.state, "intel_manager", None)
+
+
+_INTEL_UNAVAILABLE = JSONResponse(
+    {"error": "Intel subsystem not available"}, status_code=503
+)
+
+
 async def classify_ip(request: Request) -> JSONResponse:
     """POST /api/intel/classify - classify an IP address."""
-    intel: IntelManager = request.app.state.intel_manager
+    intel = _get_intel(request)
+    if intel is None:
+        return _INTEL_UNAVAILABLE
     body = await request.json()
     ip_str = body.get("ip", "")
 
@@ -40,7 +52,9 @@ async def classify_ip(request: Request) -> JSONResponse:
 
 async def add_blocklist(request: Request) -> JSONResponse:
     """POST /api/intel/blocklist - add CIDRs to the blocklist."""
-    intel: IntelManager = request.app.state.intel_manager
+    intel = _get_intel(request)
+    if intel is None:
+        return _INTEL_UNAVAILABLE
     body = await request.json()
     cidrs = body.get("cidrs", [])
     intel.blocklist.add_many(cidrs)
@@ -49,7 +63,9 @@ async def add_blocklist(request: Request) -> JSONResponse:
 
 async def remove_blocklist(request: Request) -> JSONResponse:
     """DELETE /api/intel/blocklist - remove an IP/CIDR from the blocklist."""
-    intel: IntelManager = request.app.state.intel_manager
+    intel = _get_intel(request)
+    if intel is None:
+        return _INTEL_UNAVAILABLE
     body = await request.json()
     ip_str = body.get("ip", "")
 
@@ -69,7 +85,9 @@ async def remove_blocklist(request: Request) -> JSONResponse:
 
 async def add_whitelist(request: Request) -> JSONResponse:
     """POST /api/intel/whitelist - dynamically whitelist an IP."""
-    intel: IntelManager = request.app.state.intel_manager
+    intel = _get_intel(request)
+    if intel is None:
+        return _INTEL_UNAVAILABLE
     body = await request.json()
     ip_str = body.get("ip", "")
 

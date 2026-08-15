@@ -170,9 +170,10 @@ class TerraformProvider:
         """Tear down infrastructure.
 
         Sequence:
-        1. Write ``terraform.tfvars.json`` (0o600).
-        2. Run ``terraform destroy -auto-approve -var-file=terraform.tfvars.json``.
-        3. Delete ``terraform.tfvars.json`` regardless of success / failure.
+        1. Stage module files and run ``terraform init``.
+        2. Write ``terraform.tfvars.json`` (0o600).
+        3. Run ``terraform destroy -auto-approve -var-file=terraform.tfvars.json``.
+        4. Delete ``terraform.tfvars.json`` regardless of success / failure.
 
         Args:
             tfvars: Terraform variable values (needed to identify resources).
@@ -180,6 +181,7 @@ class TerraformProvider:
         Raises:
             TerraformError: If Terraform destroy fails.
         """
+        self.init()
         self._write_tfvars(tfvars)
         try:
             self._run_terraform(

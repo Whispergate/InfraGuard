@@ -8,15 +8,19 @@ from typing import Any
 import structlog
 
 from infraguard.plugins.base import InfraGuardPlugin
+from infraguard.plugins.builtin import BUILTIN_PLUGINS
 
 log = structlog.get_logger()
-
 
 def load_plugins(
     module_paths: list[str],
     plugin_settings: dict[str, Any] | None = None,
 ) -> list[InfraGuardPlugin]:
-    """Load plugins from Python module paths.
+    """Load plugins from Python module paths or short builtin names.
+
+    Short names (e.g. ``"discord"``) are automatically resolved to their
+    full builtin module path (``infraguard.plugins.builtin.discord``).
+    Full dotted paths continue to work as before.
 
     If *plugin_settings* is provided, each plugin's ``name`` is looked up
     in the dict. If found and ``enabled`` is False the plugin is skipped.
@@ -25,7 +29,9 @@ def load_plugins(
     settings = plugin_settings or {}
     plugins: list[InfraGuardPlugin] = []
 
-    for path in module_paths:
+    for raw_path in module_paths:
+        # Resolve short names (e.g. "elasticsearch") to full builtin paths
+        path = BUILTIN_PLUGINS.get(raw_path, raw_path) if "." not in raw_path else raw_path
         try:
             module = importlib.import_module(path)
             plugin_obj = getattr(module, "plugin", None)

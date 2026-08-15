@@ -131,10 +131,26 @@ def create_command_post_app(config: CommandPostConfig) -> Starlette:
         async def _stream_instance(client, ws: WebSocket):
             """Connect to one instance's WebSocket and forward events."""
             try:
+                import ssl as _ssl
                 import websockets
                 ws_url = client.url.replace("https://", "wss://").replace("http://", "ws://")
-                ws_url += f"/ws/events?token={client._token}"  # Known limitation: token in URL query param
-                async with websockets.connect(ws_url, ssl=ws_url.startswith("wss://")) as upstream:
+                ws_url += "/ws/events"
+
+                # Authenticate via the first message instead of a query-string
+                # token, so credentials do not leak into server access logs,
+                # proxy logs, or the Referer header.
+
+                # Build an SSL context that tolerates self-signed certs used by
+                # internal InfraGuard instances.
+                ssl_ctx: _ssl.SSLContext | bool = False
+                if ws_url.startswith("wss://"):
+                    ssl_ctx = _ssl.SSLContext(_ssl.PROTOCOL_TLS_CLIENT)
+                    ssl_ctx.check_hostname = False
+                    ssl_ctx.verify_mode = _ssl.CERT_NONE
+
+                async with websockets.connect(ws_url, ssl=ssl_ctx) as upstream:
+                    # Send auth token as the first message
+                    await upstream.send(json.dumps({"type": "auth", "token": client._token}))
                     async for msg in upstream:
                         try:
                             data = json.loads(msg)

@@ -13,12 +13,13 @@ from infraguard.models.common import ProfileType
 
 
 def detect_profile_type(profile_path: Path) -> ProfileType:
-    """Detect C2 profile type from file extension (and content for JSON).
+    """Detect C2 profile type from file extension (and content for JSON/YAML).
 
     Extension rules:
     - ``.profile``  -> COBALT_STRIKE
     - ``.toml``     -> HAVOC
-    - ``.json``     -> inspect keys: BRUTE_RATEL / SLIVER / MYTHIC
+    - ``.yml`` / ``.yaml`` -> inspect keys: POSHC2 (or raises ValueError)
+    - ``.json``     -> inspect keys: BRUTE_RATEL / SLIVER / NIGHTHAWK / MYTHIC
     - anything else -> raises ValueError
 
     For JSON detection the file is read only if it exists locally.  When
@@ -34,6 +35,23 @@ def detect_profile_type(profile_path: Path) -> ProfileType:
     if suffix == ".toml":
         return ProfileType.HAVOC
 
+    if suffix in (".yml", ".yaml"):
+        if profile_path.exists():
+            try:
+                import yaml
+
+                data = yaml.safe_load(profile_path.read_text(encoding="utf-8"))
+                if isinstance(data, dict) and (
+                    "GET_Requests" in data or "POST_Requests" in data
+                ):
+                    return ProfileType.POSHC2
+            except Exception:
+                pass
+        raise ValueError(
+            f"Cannot auto-detect YAML profile type for '{profile_path.name}'. "
+            "Use --profile-type to specify."
+        )
+
     if suffix == ".json":
         if profile_path.exists():
             try:
@@ -42,6 +60,11 @@ def detect_profile_type(profile_path: Path) -> ProfileType:
                     return ProfileType.BRUTE_RATEL
                 if "implant_config" in data and "server_config" in data:
                     return ProfileType.SLIVER
+                # Nighthawk: listener.http.routes + implant
+                if "listener" in data and "implant" in data:
+                    listener = data.get("listener", {})
+                    if isinstance(listener, dict) and "http" in listener:
+                        return ProfileType.NIGHTHAWK
                 if "instances" in data and isinstance(data["instances"], list):
                     return ProfileType.MYTHIC_HTTP
             except Exception:

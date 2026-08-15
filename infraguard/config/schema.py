@@ -3,7 +3,7 @@
 from __future__ import annotations
 
 from pathlib import Path
-from typing import Any
+from typing import Any, Literal
 
 from pydantic import BaseModel, Field
 
@@ -51,7 +51,7 @@ class DropActionConfig(BaseModel):
     type: DropActionType = DropActionType.REDIRECT
     target: str = "https://www.google.com"
     rotation_targets: list[str] = Field(default_factory=list)
-    rotation_strategy: str = "random"  # "random" | "round_robin"
+    rotation_strategy: Literal["random", "round_robin"] = "random"
     persona: PersonaConfig = Field(default_factory=PersonaConfig)
     canary: CanaryConfig = Field(default_factory=CanaryConfig)
 
@@ -165,19 +165,18 @@ class DomainConfig(BaseModel):
     whitelist_cidrs: list[str] = Field(default_factory=list)
     decoy_dir: str | None = None
     drop_action: DropActionConfig = Field(default_factory=DropActionConfig)
-    rules: list[str] = Field(default_factory=list)
     content_routes: list[ContentRouteConfig] = Field(default_factory=list)
     ssl_verify: bool = False
     ssl_ca_bundle: str | None = None
     extra_allowed_headers: list[str] = Field(default_factory=list)
-    content_route_filter: str = "ip_only"  # "ip_only" | "full_pipeline"
+    content_route_filter: Literal["ip_only", "full_pipeline"] = "ip_only"
     circuit_breaker_threshold: int = 5  # consecutive failures before OPEN
     circuit_breaker_cooldown: float = 30.0  # seconds before HALF_OPEN probe
     campaign_token: CampaignTokenConfig = Field(default_factory=CampaignTokenConfig)
 
 
 class ListenerConfig(BaseModel):
-    protocol: str = "https"  # https | http | dns | mqtt | wss | ws
+    protocol: Literal["https", "http", "dns", "mqtt", "websocket", "tcp_tunnel"] = "https"
     bind: str = "0.0.0.0"
     port: int = 443
     tls: TLSConfig | None = None
@@ -240,7 +239,6 @@ class IntelConfig(BaseModel):
     auto_block_scanners: bool = True
     dynamic_whitelist_threshold: int = DEFAULT_DYNAMIC_WHITELIST_THRESHOLD
     banned_ip_file: str | None = None
-    banned_words_file: str | None = None
     rules_dir: str | None = None  # auto-ingest .htaccess / robots.txt on startup
     feeds: FeedConfig = Field(default_factory=FeedConfig)
     cloud_ranges: CloudRangeConfig = Field(default_factory=CloudRangeConfig)
@@ -275,7 +273,7 @@ class JA3FilterConfig(BaseModel):
 
 
 class PipelineConfig(BaseModel):
-    filter_mode: str = "scoring"  # "scoring" | "hard"
+    filter_mode: Literal["scoring", "hard"] = "scoring"
     block_score_threshold: float = DEFAULT_BLOCK_SCORE_THRESHOLD
     enable_ip_filter: bool = True
     enable_bot_filter: bool = True
@@ -305,7 +303,6 @@ class PipelineConfig(BaseModel):
 class LoggingConfig(BaseModel):
     level: str = DEFAULT_LOG_LEVEL
     format: str = DEFAULT_LOG_FORMAT
-    file: str | None = None
 
 
 class EventFilterConfig(BaseModel):
@@ -390,4 +387,3 @@ class InfraGuardConfig(BaseModel):
     decoy_pages_dir: str = "pages"
     plugins: list[str] = Field(default_factory=list)
     plugin_settings: dict[str, PluginSettings] = Field(default_factory=dict)
-    default_persona: PersonaConfig = Field(default_factory=PersonaConfig)

@@ -28,6 +28,7 @@ def _cef_escape(s: str) -> str:
 class Plugin(BatchForwardingPlugin):
     name = "syslog"
     version = "1.0.0"
+    _needs_http_client = False
 
     def __init__(self):
         super().__init__()
@@ -36,7 +37,7 @@ class Plugin(BatchForwardingPlugin):
         self._sock: socket.socket | None = None
 
     async def on_startup(self) -> None:
-        # Don't call super - syslog doesn't use httpx
+        # Connect the syslog transport before super() starts the flush loop
         protocol = self._opt("protocol", "udp")
         host = self._opt("host", "127.0.0.1")
         port = int(self._opt("port", 514))
@@ -65,17 +66,13 @@ class Plugin(BatchForwardingPlugin):
         except Exception:
             log.exception("syslog_connect_error", host=host, port=port)
 
-        # Start flush loop
-        self._flush_task = asyncio.create_task(self._flush_loop())
+        # Let BatchForwardingPlugin start the flush loop (skips httpx
+        # client creation because _needs_http_client is False)
+        await super().on_startup()
 
     async def on_shutdown(self) -> None:
-        if self._flush_task:
-            self._flush_task.cancel()
-            try:
-                await self._flush_task
-            except asyncio.CancelledError:
-                pass
-        await self._flush_batch()
+        # Let parent cancel flush task and flush remaining events
+        await super().on_shutdown()
         if self._transport:
             self._transport.close()
         if self._writer:

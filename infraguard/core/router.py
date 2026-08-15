@@ -28,7 +28,7 @@ from infraguard.core.proxy import ProxyHandler
 from infraguard.core.rate_limiter import ContentRateLimiter
 from infraguard.intel.ip_lists import CIDRList
 from infraguard.intel.manager import IntelManager
-from infraguard.models.common import DropActionType
+from infraguard.models.common import DropActionType, TUNNEL_PROFILE_TYPES
 from infraguard.models.events import RequestEvent, compute_request_hash
 from infraguard.pipeline.base import FilterPipeline, RequestContext
 from infraguard.pipeline.bot_filter import BotFilter
@@ -39,6 +39,7 @@ from infraguard.pipeline.sandbox_filter import SandboxFilter
 from infraguard.pipeline.ip_filter import IPFilter
 from infraguard.pipeline.profile_filter import ProfileFilter
 from infraguard.pipeline.fingerprint_filter import FingerprintFilter
+from infraguard.pipeline.geo_filter import GeoFilter
 from infraguard.pipeline.replay_filter import ReplayFilter
 from infraguard.pipeline.tls_filter import TLSFilter
 from infraguard.profiles.cobalt_strike import parse_cobalt_strike_file
@@ -167,6 +168,8 @@ class DomainRouter:
 
         if pc.enable_ip_filter:
             filters.append(IPFilter(self.intel, self._domain_whitelists))
+        if pc.enable_geo_filter:
+            filters.append(GeoFilter(intel=self.intel))
         if pc.enable_bot_filter:
             filters.append(BotFilter())
         if pc.enable_header_filter:
@@ -180,10 +183,11 @@ class DomainRouter:
                 blocked_fingerprints=set(pc.blocked_fingerprints) if pc.blocked_fingerprints else None,
             ))
 
-        if phishing_filter:
-            filters.append(phishing_filter)
-        else:
-            filters.append(ProfileFilter())
+        if pc.enable_profile_filter:
+            if phishing_filter:
+                filters.append(phishing_filter)
+            else:
+                filters.append(ProfileFilter())
 
         if self._replay_filter is not None:
             filters.append(self._replay_filter)
@@ -205,6 +209,8 @@ class DomainRouter:
         """
         pc = self.config.pipeline
         filters: list = []
+        if self._tls_filter is not None:
+            filters.append(self._tls_filter)
         if pc.enable_ip_filter:
             filters.append(IPFilter(self.intel, self._domain_whitelists))
         if pc.enable_bot_filter:
@@ -223,9 +229,12 @@ class DomainRouter:
         from infraguard.profiles.phishing import build_phishing_profile
 
         # RESL-03: Validate all C2 profile paths before loading any routes
-        # (phishing domains don't need profile files)
+        # (phishing and tunnel domains don't need profile files)
         for domain_name, domain_config in self.config.domains.items():
-            if domain_config.profile_type not in PHISHING_PROFILE_TYPES:
+            if (
+                domain_config.profile_type not in PHISHING_PROFILE_TYPES
+                and domain_config.profile_type not in TUNNEL_PROFILE_TYPES
+            ):
                 profile_path = Path(domain_config.profile_path)
                 if not profile_path.exists():
                     raise FileNotFoundError(
@@ -234,8 +243,14 @@ class DomainRouter:
 
         for domain_name, domain_config in self.config.domains.items():
             is_phishing = domain_config.profile_type in PHISHING_PROFILE_TYPES
+            is_tunnel = domain_config.profile_type in TUNNEL_PROFILE_TYPES
 
-            if is_phishing:
+            if is_tunnel:
+                # Tunnel types are opaque passthrough — no profile, no
+                # ProfileFilter / PhishingFilter, just the base pipeline.
+                filters = self._build_filters()
+                profile = C2Profile(name=domain_config.profile_type.value)
+            elif is_phishing:
                 phishing_prof = build_phishing_profile(
                     domain_config.profile_type,
                     operator_paths=domain_config.allowed_paths or None,
@@ -328,8 +343,14 @@ class DomainRouter:
         elif config.profile_type.value == "mythic_http":
             from infraguard.profiles.mythic_http import parse_mythic_http_file
             return parse_mythic_http_file(path)
-        else:
+        elif config.profile_type.value == "mythic":
             return parse_mythic_file(path)
+        else:
+            raise ValueError(
+                f"Unknown profile type {config.profile_type!r} for domain "
+                f"{config.domain!r}. Supported types: cobalt_strike, brute_ratel, "
+                f"sliver, havoc, nighthawk, poshc2, mythic_http, mythic."
+            )
 
     async def reload(self, new_config: InfraGuardConfig) -> None:
         """Hot-reload domains, profiles, and blocklists atomically.
@@ -343,7 +364,10 @@ class DomainRouter:
 
         # Validate all C2 profile paths in new config first (RESL-03)
         for domain_name, domain_config in new_config.domains.items():
-            if domain_config.profile_type not in PHISHING_PROFILE_TYPES:
+            if (
+                domain_config.profile_type not in PHISHING_PROFILE_TYPES
+                and domain_config.profile_type not in TUNNEL_PROFILE_TYPES
+            ):
                 profile_path = Path(domain_config.profile_path)
                 if not profile_path.exists():
                     raise FileNotFoundError(
@@ -353,6 +377,53 @@ class DomainRouter:
         # Save old state for rollback
         old_config = self.config
         old_breakers = self._breakers
+        old_intel = self.intel
+
+        # Rebuild IntelManager from new config
+        self.intel = IntelManager(new_config.intel)
+
+        # Rebuild shared filters from new config values
+        pc = new_config.pipeline
+        self._replay_filter = (
+            ReplayFilter(
+                window_seconds=pc.replay_window_seconds,
+                max_cache=50000,
+                db=self._db,
+                persist=pc.replay_persist,
+            )
+            if pc.enable_replay_filter
+            else None
+        )
+        self._enumeration_filter = (
+            EnumerationFilter(
+                unique_path_threshold=pc.enumeration_unique_path_threshold,
+                unique_path_suspect_threshold=pc.enumeration_unique_path_suspect_threshold,
+                window_seconds=pc.enumeration_window_seconds,
+            )
+            if pc.enable_enumeration_filter
+            else None
+        )
+        self._sandbox_filter = (
+            SandboxFilter() if pc.enable_sandbox_filter else None
+        )
+        ja3_cfg = pc.ja3_filter
+        self._tls_filter = (
+            TLSFilter(
+                blocked_ja3=set(ja3_cfg.blocked_ja3) if ja3_cfg.blocked_ja3 else None,
+                allowed_ja3=set(ja3_cfg.allowed_ja3) if ja3_cfg.allowed_ja3 is not None else None,
+                log_ja3=ja3_cfg.log_ja3,
+                block_unknown=ja3_cfg.block_unknown,
+            )
+            if pc.enable_ja3_filter
+            else None
+        )
+
+        # Rebuild _token_store if payload_tokens.enabled changed
+        self._token_store = (
+            PayloadTokenStore(self._db)
+            if self._db is not None and new_config.payload_tokens.enabled
+            else None
+        )
 
         self.config = new_config
         try:
@@ -360,8 +431,12 @@ class DomainRouter:
             new_routes: dict[str, DomainRoute] = {}
             for domain_name, domain_config in new_config.domains.items():
                 is_phishing = domain_config.profile_type in PHISHING_PROFILE_TYPES
+                is_tunnel = domain_config.profile_type in TUNNEL_PROFILE_TYPES
 
-                if is_phishing:
+                if is_tunnel:
+                    filters = self._build_filters()
+                    profile = C2Profile(name=domain_config.profile_type.value)
+                elif is_phishing:
                     phishing_prof = build_phishing_profile(
                         domain_config.profile_type,
                         operator_paths=domain_config.allowed_paths or None,
@@ -422,8 +497,9 @@ class DomainRouter:
                                 recovery_timeout=domain_config.circuit_breaker_cooldown,
                             )
         except Exception:
-            # Restore old config on build failure
+            # Restore old config and shared state on build failure
             self.config = old_config
+            self.intel = old_intel
             raise
 
         # Atomic swap under lock
@@ -571,6 +647,29 @@ class DomainRouter:
             },
         )
 
+        # ── Plugin on_request hooks ────────────────────────────────
+        if self._recorder:
+            for plugin in self._recorder._plugins:
+                try:
+                    plugin_result = await plugin.on_request(ctx)
+                    if plugin_result is not None and not plugin_result.allowed:
+                        log.info(
+                            "plugin_blocked_request",
+                            plugin=getattr(plugin, "name", "unknown"),
+                            domain=route.domain,
+                            path=request.url.path,
+                        )
+                        return await handle_drop(
+                            request, route.config.drop_action,
+                            reason=f"plugin:{getattr(plugin, 'name', 'unknown')}",
+                            pages_dir=self.config.decoy_pages_dir,
+                        )
+                except Exception:
+                    log.exception(
+                        "plugin_on_request_error",
+                        plugin=getattr(plugin, "name", "unknown"),
+                    )
+
         result = await route.pipeline.evaluate(ctx)
 
         if result.allowed:
@@ -689,6 +788,19 @@ class DomainRouter:
             filter_result_str = "block"
             filter_reason = "; ".join(result.blocking_reasons) or result.summary
             status_code = response.status_code
+
+        # ── Plugin on_response hooks ───────────────────────────────
+        if self._recorder:
+            for plugin in self._recorder._plugins:
+                try:
+                    modified = await plugin.on_response(ctx, response)
+                    if modified is not None:
+                        response = modified
+                except Exception:
+                    log.exception(
+                        "plugin_on_response_error",
+                        plugin=getattr(plugin, "name", "unknown"),
+                    )
 
         # Timing normalization: add random jitter to prevent side-channel
         # analysis that could distinguish proxied vs locally-generated responses.

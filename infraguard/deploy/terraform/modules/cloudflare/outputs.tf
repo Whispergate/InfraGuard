@@ -3,6 +3,11 @@ output "instance_ip" {
   description = "Backend VPS URL (Workers relay to this address)"
 }
 
+output "worker_url" {
+  value       = "https://${var.domain}"
+  description = "Public URL served by the Cloudflare Worker"
+}
+
 output "instance_id" {
   value       = cloudflare_workers_script.relay.name
   description = "Cloudflare Worker script name"

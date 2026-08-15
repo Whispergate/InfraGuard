@@ -18,7 +18,13 @@ class ForwardingPlugin(BasePlugin):
 
     Provides event filtering, config access, event serialization,
     and an httpx.AsyncClient lifecycle.
+
+    Subclasses that don't need the default httpx client (e.g. syslog)
+    can set ``_needs_http_client = False`` to skip its creation in
+    ``on_startup``.
     """
+
+    _needs_http_client: bool = True
 
     def __init__(self):
         self._settings: Any = None
@@ -70,7 +76,8 @@ class ForwardingPlugin(BasePlugin):
         }
 
     async def on_startup(self) -> None:
-        self._client = httpx.AsyncClient(timeout=httpx.Timeout(10.0))
+        if self._needs_http_client:
+            self._client = httpx.AsyncClient(timeout=httpx.Timeout(10.0))
 
     async def on_shutdown(self) -> None:
         if self._client:

@@ -16,13 +16,12 @@ log = structlog.get_logger()
 class Plugin(BatchForwardingPlugin):
     name = "elasticsearch"
     version = "1.0.0"
+    _needs_http_client = False
 
     async def on_startup(self) -> None:
-        await super().on_startup()
         verify = self._opt("verify_ssl", True)
-        if self._client:
-            await self._client.aclose()
-            self._client = httpx.AsyncClient(timeout=httpx.Timeout(10.0), verify=verify)
+        self._client = httpx.AsyncClient(timeout=httpx.Timeout(10.0), verify=verify)
+        await super().on_startup()
 
     async def _send_batch(self, events: list[RequestEvent]) -> None:
         if not self._client:

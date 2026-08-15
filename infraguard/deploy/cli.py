@@ -199,7 +199,7 @@ def deploy_group() -> None:
 @deploy_group.command("run")
 @click.option(
     "--provider",
-    type=click.Choice(["aws", "azure", "do"]),
+    type=click.Choice(["aws", "azure", "do", "cloudflare"]),
     required=True,
     help="Cloud provider.",
 )
@@ -280,10 +280,13 @@ def deploy_run(
     if instance_size:
         tfvars["instance_size"] = instance_size
 
-    # SSH key handling differs by provider:
+    # Provider-specific tfvars and SSH key handling:
     # - DO: uses fingerprint (key must already exist on account)
     # - AWS/Azure: uses raw public key (creates key pair resource)
-    if provider == "do":
+    # - Cloudflare: uses upstream_url (no VM, Workers relay only)
+    if provider == "cloudflare":
+        tfvars["upstream_url"] = upstream
+    elif provider == "do":
         tfvars["ssh_key_fingerprint"] = _compute_ssh_fingerprint(ssh_key)
     else:
         tfvars["ssh_public_key"] = ssh_key.read_text(encoding="utf-8").strip()
@@ -303,6 +306,9 @@ def deploy_run(
     if not instance_ip:
         raise click.ClickException("Terraform apply succeeded but no instance_ip in outputs")
 
+    # For Cloudflare, instance_ip is actually the upstream URL, not an IP
+    worker_url = outputs.get("worker_route", "") if provider == "cloudflare" else ""
+
     # Encrypt state if age public key provided
     state_file = work_dir / "terraform.tfstate"
     if state_key and state_file.exists():
@@ -311,6 +317,20 @@ def deploy_run(
             click.echo(f"  State encrypted: {enc_path}")
         except RuntimeError as exc:
             click.echo(f"  Warning: state encryption failed: {exc}", err=True)
+
+    if provider == "cloudflare":
+        # Cloudflare Workers have no VM — skip SSH/SCP/docker steps
+        click.echo(f"  Worker deployed successfully.")
+        click.echo(f"  Worker route: {worker_url}")
+        click.echo(f"  Upstream:     {instance_ip}")
+
+        click.echo(f"\n{'=' * 50}")
+        click.echo(f"  InfraGuard Worker deployed for {domain}")
+        click.echo(f"  Route:     {worker_url}")
+        click.echo(f"  Upstream:  {upstream}")
+        click.echo(f"  Work dir:  {work_dir}")
+        click.echo(f"{'=' * 50}")
+        return
 
     click.echo(f"  Instance IP: {instance_ip}")
     click.echo(f"  SSH: ssh {ssh_user}@{instance_ip}")
@@ -412,7 +432,7 @@ def deploy_run(
 @deploy_group.command("destroy")
 @click.option(
     "--provider",
-    type=click.Choice(["aws", "azure", "do"]),
+    type=click.Choice(["aws", "azure", "do", "cloudflare"]),
     required=True,
     help="Cloud provider.",
 )
@@ -473,7 +493,7 @@ def deploy_destroy(
 @deploy_group.command("rotate")
 @click.option(
     "--provider",
-    type=click.Choice(["aws", "azure", "do"]),
+    type=click.Choice(["aws", "azure", "do", "cloudflare"]),
     required=True,
     help="Cloud provider.",
 )
@@ -582,12 +602,16 @@ def deploy_rotate(
     new_work_dir.mkdir(parents=True, exist_ok=True)
 
     new_provider = get_provider(provider, new_work_dir)
-    ssh_fingerprint = _compute_ssh_fingerprint(ssh_key)
     tfvars: dict = {
         "domain": new_domain,
-        "ssh_key_fingerprint": ssh_fingerprint,
         "operator_ip": operator_ip,
     }
+    if provider == "cloudflare":
+        tfvars["upstream_url"] = upstream
+    elif provider == "do":
+        tfvars["ssh_key_fingerprint"] = _compute_ssh_fingerprint(ssh_key)
+    else:
+        tfvars["ssh_public_key"] = ssh_key.read_text(encoding="utf-8").strip()
     if region:
         tfvars["region"] = region
     if instance_size:
@@ -602,10 +626,79 @@ def deploy_rotate(
     new_ip = new_outputs.get("instance_ip", "")
     click.echo(f"New instance provisioned at {new_ip}")
 
+    # SSH user differs by provider
+    _SSH_USERS = {"do": "root", "aws": "ubuntu", "azure": "operator"}
+    ssh_user = _SSH_USERS.get(provider, "root")
+
+    if provider == "cloudflare":
+        # Cloudflare Workers: no VM, no SSH/SCP/docker — just log success
+        worker_route = new_outputs.get("worker_route", "")
+        click.echo(f"Cloudflare Worker deployed. Route: {worker_route}")
+    else:
+        # VM-based providers: bootstrap, config gen, SCP, docker compose
+
+        # Wait for cloud-init bootstrap
+        click.echo("Waiting for cloud-init bootstrap on new instance...")
+        _wait_for_bootstrap(new_ip, ssh_key, user=ssh_user)
+
+        # Generate config bundle
+        from infraguard.deploy.profile_detect import detect_profile_type
+
+        click.echo("Generating config bundle...")
+        detected_type = detect_profile_type(c2_profile)
+        container_profile_path = f"examples/{c2_profile.name}"
+        cfg = generate_config(
+            domain=new_domain,
+            c2_profile_path=container_profile_path,
+            upstream=upstream,
+            profile_type=detected_type.value,
+        )
+        bundle_dir = new_work_dir / "config"
+        write_bundle(
+            cfg, bundle_dir,
+            profile_source=c2_profile,
+            domain=new_domain,
+            upstream=upstream,
+            profile_type=detected_type.value,
+        )
+        click.echo(f"  Bundle: {bundle_dir}/")
+
+        # SCP config files to new instance
+        click.echo(f"Deploying config to {new_ip}...")
+        _run_ssh(new_ip, "mkdir -p /opt/infraguard/config /opt/infraguard/examples", ssh_key, user=ssh_user)
+
+        r = _scp_to(new_ip, bundle_dir / "config.yaml", "/opt/infraguard/config/config.yaml", ssh_key, user=ssh_user)
+        if r.returncode != 0:
+            raise click.ClickException(f"SCP config.yaml failed: {r.stderr}")
+        click.echo("  config.yaml deployed")
+
+        profile_dir = bundle_dir / "profiles"
+        for pfile in profile_dir.iterdir():
+            r = _scp_to(new_ip, pfile, f"/opt/infraguard/examples/{pfile.name}", ssh_key, user=ssh_user)
+            if r.returncode != 0:
+                raise click.ClickException(f"SCP profile failed: {r.stderr}")
+            click.echo(f"  {pfile.name} deployed")
+
+        r = _scp_to(new_ip, bundle_dir / ".env", "/opt/infraguard/.env", ssh_key, user=ssh_user)
+        if r.returncode != 0:
+            raise click.ClickException(f"SCP .env failed: {r.stderr}")
+        click.echo("  .env deployed")
+
+        # Start docker compose services
+        click.echo("Starting InfraGuard services on new instance...")
+        sudo = "" if ssh_user == "root" else "sudo "
+        start_cmd = f"cd /opt/infraguard && {sudo}docker compose up -d proxy dashboard"
+        r = _run_ssh(new_ip, start_cmd, ssh_key, user=ssh_user)
+        if r.returncode != 0:
+            click.echo(f"  Warning: docker compose returned {r.returncode}", err=True)
+            click.echo(f"  stderr: {r.stderr}", err=True)
+        else:
+            click.echo("  proxy + dashboard started")
+
     # 3. Poll health on new instance
-    click.echo(f"Polling health at https://{new_ip}:8080/health ...")
+    click.echo(f"Polling health at https://{new_ip}:443/health ...")
     try:
-        _poll_health(new_ip)
+        _poll_health(new_ip, port=443)
         click.echo(f"New instance healthy at {new_ip}")
     except RuntimeError as exc:
         click.echo(
@@ -638,13 +731,28 @@ def deploy_rotate(
             old_ip = ""
 
         if old_ip and new_ip:
-            scp_cmd = [
-                "scp",
-                f"ubuntu@{old_ip}:/data/infraguard.db",
-                f"ubuntu@{new_ip}:/data/infraguard.db",
+            priv_key = _derive_private_key(ssh_key)
+            # Download from old instance, then upload to new instance
+            local_tmp = new_work_dir / "infraguard.db.tmp"
+            scp_down = [
+                "scp", *_SSH_OPTS,
+                "-i", str(priv_key),
+                f"{ssh_user}@{old_ip}:/data/infraguard.db",
+                str(local_tmp),
+            ]
+            scp_up = [
+                "scp", *_SSH_OPTS,
+                "-i", str(priv_key),
+                str(local_tmp),
+                f"{ssh_user}@{new_ip}:/data/infraguard.db",
             ]
             click.echo(f"Copying database: {old_ip} -> {new_ip} ...")
-            result = subprocess.run(scp_cmd, capture_output=True, text=True)
+            result = subprocess.run(scp_down, capture_output=True, text=True)
+            if result.returncode == 0:
+                result = subprocess.run(scp_up, capture_output=True, text=True)
+            # Clean up temp file
+            if local_tmp.exists():
+                local_tmp.unlink()
             if result.returncode != 0:
                 click.echo(
                     f"Warning: SCP failed: {result.stderr}", err=True

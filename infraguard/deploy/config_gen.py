@@ -28,7 +28,7 @@ _DOCKER_COMPOSE_TEMPLATE = """\
 version: "3.9"
 
 services:
-  infraguard:
+  proxy:
     image: infraguard:latest
     restart: unless-stopped
     command: infraguard run -c /config/config.yaml
@@ -36,10 +36,20 @@ services:
       - .env
     ports:
       - "443:443"
-      - "127.0.0.1:8080:8080"
     volumes:
       - ./config.yaml:/config/config.yaml:ro
       - ./profiles:/config/profiles:ro
+
+  dashboard:
+    image: infraguard:latest
+    restart: unless-stopped
+    command: infraguard dashboard
+    env_file:
+      - .env
+    ports:
+      - "127.0.0.1:8080:8080"
+    volumes:
+      - ./config.yaml:/config/config.yaml:ro
 """
 
 # ── .env template ─────────────────────────────────────────────────────

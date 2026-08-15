@@ -108,6 +108,17 @@ def create_app(config: InfraGuardConfig) -> Starlette:
         # Collect background tasks for structured shutdown
         _background_tasks: list[asyncio.Task] = []
 
+        # Dead man's switch
+        _deadman = None
+        if config.deadman.enabled:
+            from infraguard.core.deadman import DeadManSwitch
+            _deadman = DeadManSwitch(
+                ttl_seconds=config.deadman.ttl_seconds,
+                enabled=True,
+            )
+            _deadman.start()
+            app.state.deadman = _deadman
+
         # Background task: Certificate Transparency monitoring
         _ct_monitor = None
         if config.intel.ct_monitor.enabled:
@@ -172,24 +183,78 @@ def create_app(config: InfraGuardConfig) -> Starlette:
         _cleanup_task = asyncio.create_task(_session_cleanup_loop(db))
         _background_tasks.append(_cleanup_task)
 
-        # ── Tunnel listeners (Ligolo, generic TCP passthrough) ────────
-        # Any listener with protocol "tcp_tunnel" is started here so it
-        # rides alongside the uvicorn HTTP listener in the same loop.
-        _tunnel_listeners: list = []
+        # ── Non-HTTP listeners (DNS, MQTT, WebSocket, TCP tunnel) ────
+        # All non-HTTP listeners are started here so they ride alongside
+        # the uvicorn HTTP listener in the same event loop.
+        from infraguard.listeners.base import ListenerManager
+        _listener_mgr = ListenerManager()
+
+        # Protocol string → listener class mapping (lazy imports)
+        _PROTOCOL_CLASSES = {
+            "tcp_tunnel": ("infraguard.listeners.tcp_tunnel", "TCPTunnelListener"),
+            "dns": ("infraguard.listeners.dns", "DNSListener"),
+            "mqtt": ("infraguard.listeners.mqtt", "MQTTListener"),
+            "websocket": ("infraguard.listeners.websocket", "WebSocketListener"),
+        }
+
         for lis in config.listeners:
-            if lis.protocol != "tcp_tunnel":
+            if lis.protocol in ("http", "https"):
+                # HTTP/HTTPS is served by uvicorn directly, skip here
                 continue
-            from infraguard.listeners.tcp_tunnel import TCPTunnelListener
-            tl = TCPTunnelListener(lis, intel=router.intel, recorder=recorder)
-            try:
-                await tl.start()
-                _tunnel_listeners.append(tl)
-            except Exception:
-                log.exception(
-                    "tcp_tunnel_start_error",
+            entry = _PROTOCOL_CLASSES.get(lis.protocol)
+            if entry is None:
+                log.warning(
+                    "unknown_listener_protocol",
+                    protocol=lis.protocol,
                     bind=lis.bind,
                     port=lis.port,
                 )
+                continue
+
+            module_path, class_name = entry
+            try:
+                import importlib
+                mod = importlib.import_module(module_path)
+                cls = getattr(mod, class_name)
+            except (ImportError, AttributeError):
+                log.exception(
+                    "listener_import_error",
+                    protocol=lis.protocol,
+                    module=module_path,
+                )
+                continue
+
+            # Build constructor kwargs — all listeners take (config, intel, recorder).
+            # DNSListener additionally accepts intel_config.
+            kwargs: dict = dict(config=lis, intel=router.intel, recorder=recorder)
+            if lis.protocol == "dns":
+                kwargs["intel_config"] = config.intel
+
+            try:
+                listener_inst = cls(**kwargs)
+            except Exception:
+                log.exception(
+                    "listener_init_error",
+                    protocol=lis.protocol,
+                    bind=lis.bind,
+                    port=lis.port,
+                )
+                continue
+
+            # WebSocket listeners expose a Starlette route that must be
+            # mounted on the ASGI app before the catch-all proxy handler.
+            if lis.protocol == "websocket":
+                ws_route = listener_inst.get_route()
+                # Insert before the catch-all routes (last two entries)
+                app.routes.insert(len(app.routes) - 2, ws_route)
+                log.info(
+                    "websocket_route_mounted",
+                    path=lis.options.get("path", "/ws"),
+                )
+
+            _listener_mgr.add(listener_inst)
+
+        await _listener_mgr.start_all()
 
         # Embed dashboard API in-process so it shares the proxy's IntelManager.
         # Whitelist/blocklist changes from the dashboard take effect immediately.
@@ -241,12 +306,12 @@ def create_app(config: InfraGuardConfig) -> Starlette:
             await asyncio.gather(*_background_tasks, return_exceptions=True)
         _background_tasks.clear()
 
-        # Stop tunnel listeners
-        for tl in _tunnel_listeners:
-            try:
-                await tl.stop()
-            except Exception:
-                log.exception("tcp_tunnel_stop_error")
+        # Stop all non-HTTP listeners (DNS, MQTT, WebSocket, TCP tunnel)
+        await _listener_mgr.stop_all()
+
+        # Stop dead man's switch
+        if _deadman is not None:
+            await _deadman.stop()
 
         # Stop optional monitors
         if _ct_monitor is not None:
