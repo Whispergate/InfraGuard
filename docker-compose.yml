@@ -13,16 +13,54 @@ services:
       - ./examples:/app/examples:ro
       - ./rules:/app/rules:ro
       - ./pages:/app/pages:ro
-      - ./data:/app/data
+      - ./data:/app/data:rw
       - certs:/app/certs:ro
       - geoip:/app/geoip:ro
-    command: ["run", "-c", "/app/config/config.yaml", "--port", "443"]
+    # ── Security hardening ────────────────────────────────────────────
+    read_only: true
+    tmpfs:
+      # Writable tmpfs for temp files (age-identity, pip cache, etc.)
+      - /tmp:noexec,nosuid,nodev,size=64m,uid=1000,gid=1000
+      # Writable tmpfs for self-signed cert generation
+      - /app/.infraguard:noexec,nosuid,nodev,size=10m,uid=1000,gid=1000
+    security_opt:
+      - no-new-privileges:true
+      # Use the default seccomp profile (blocks ~44 dangerous syscalls)
+      # A custom profile can be layered on top via:
+      #   - seccomp=/path/to/infraguard-seccomp.json
+    cap_drop:
+      - ALL
+    cap_add:
+      # Required to bind to privileged ports 443/80
+      - NET_BIND_SERVICE
+    # ── Resource limits ────────────────────────────────────────────────
+    deploy:
+      resources:
+        limits:
+          cpus: "1.0"
+          memory: 512M
+        reservations:
+          cpus: "0.25"
+          memory: 128M
+    # ── Health check ───────────────────────────────────────────────────
     healthcheck:
-      test: ["CMD", "python3", "-c", "import urllib.request,ssl,os; p=os.environ.get('INFRAGUARD_HEALTH_PATH','health'); urllib.request.urlopen(f'https://127.0.0.1:443/{p}', context=ssl._create_unverified_context())"]
+      test:
+        - "CMD"
+        - "python3"
+        - "-c"
+        - |
+          import urllib.request, ssl, os
+          p = os.environ.get('INFRAGUARD_HEALTH_PATH', 'health').strip('/')
+          # Health check runs against localhost with self-signed cert; unverified context is intentional
+          urllib.request.urlopen(
+              f'https://127.0.0.1:443/{p}',
+              context=ssl._create_unverified_context()
+          )
       interval: 30s
       timeout: 10s
       retries: 5
       start_period: 15s
+    command: ["run", "-c", "/app/config/config.yaml", "--port", "443"]
     networks:
       - infraguard
 
@@ -40,6 +78,42 @@ services:
       - ./data:/app/data
       - certs:/app/certs:ro
       - geoip:/app/geoip:ro
+    # ── Security hardening ────────────────────────────────────────────
+    read_only: true
+    tmpfs:
+      - /tmp:noexec,nosuid,nodev,size=64m,uid=1000,gid=1000
+      - /app/.infraguard:noexec,nosuid,nodev,size=10m,uid=1000,gid=1000
+    security_opt:
+      - no-new-privileges:true
+    cap_drop:
+      - ALL
+    # No cap_add needed: dashboard binds to 8080 (unprivileged)
+    # ── Resource limits ────────────────────────────────────────────────
+    deploy:
+      resources:
+        limits:
+          cpus: "0.5"
+          memory: 256M
+        reservations:
+          cpus: "0.1"
+          memory: 64M
+    # ── Health check ───────────────────────────────────────────────────
+    healthcheck:
+      test:
+        - "CMD"
+        - "python3"
+        - "-c"
+        - |
+          import urllib.request, ssl
+          # Dashboard runs on 8080 with TLS; unverified context is intentional for localhost
+          urllib.request.urlopen(
+              'https://127.0.0.1:8080/',
+              context=ssl._create_unverified_context()
+          )
+      interval: 30s
+      timeout: 10s
+      retries: 5
+      start_period: 20s
     command: ["dashboard", "-c", "/app/config/config.yaml", "--tls"]
     depends_on:
       proxy:
@@ -141,11 +215,23 @@ services:
   #     - ./examples:/app/examples:ro
   #     - ./data:/app/data
   #     - certs:/app/certs:ro
+  #   read_only: true
+  #   tmpfs:
+  #     - /tmp:noexec,nosuid,nodev,size=64m,uid=1000,gid=1000
+  #   security_opt:
+  #     - no-new-privileges:true
+  #   cap_drop:
+  #     - ALL
+  #   cap_add:
+  #     - NET_BIND_SERVICE
+  #   deploy:
+  #     resources:
+  #       limits:
+  #         cpus: "1.0"
+  #         memory: 512M
   #   command: ["run", "-c", "/app/config/config.yaml"]
   #   networks:
   #     - infraguard
-  #   deploy:
-  #     replicas: 2
 
   # ── Command Post (multi-instance aggregator) ─────────────────────────
   # Aggregates stats, requests, and live events from multiple InfraGuard
@@ -163,6 +249,35 @@ services:
     volumes:
       - ./config:/app/config:ro
       - certs:/app/certs:ro
+    # ── Security hardening ────────────────────────────────────────────
+    read_only: true
+    tmpfs:
+      - /tmp:noexec,nosuid,nodev,size=32m,uid=1000,gid=1000
+    security_opt:
+      - no-new-privileges:true
+    cap_drop:
+      - ALL
+    # No cap_add needed: command-post binds to 9090 (unprivileged)
+    # ── Resource limits ────────────────────────────────────────────────
+    deploy:
+      resources:
+        limits:
+          cpus: "0.5"
+          memory: 256M
+        reservations:
+          cpus: "0.1"
+          memory: 64M
+    # ── Health check ───────────────────────────────────────────────────
+    healthcheck:
+      test:
+        - "CMD"
+        - "python3"
+        - "-c"
+        - "import urllib.request; urllib.request.urlopen('http://127.0.0.1:9090/health')"
+      interval: 30s
+      timeout: 10s
+      retries: 5
+      start_period: 15s
     command: ["command-post", "-c", "/app/config/command-post.yaml", "--port", "9090"]
     networks:
       - infraguard
@@ -186,6 +301,25 @@ services:
       - pwndrop-data:/pwndrop/data
       - certs:/pwndrop/certs:ro
       - ./config/pwndrop.ini:/pwndrop/pwndrop.ini
+    # ── Security hardening ────────────────────────────────────────────
+    read_only: true
+    tmpfs:
+      - /tmp:noexec,nosuid,nodev,size=32m
+    security_opt:
+      - no-new-privileges:true
+    cap_drop:
+      - ALL
+    cap_add:
+      - NET_BIND_SERVICE  # pwndrop binds to 443 internally
+    # ── Resource limits ────────────────────────────────────────────────
+    deploy:
+      resources:
+        limits:
+          cpus: "0.5"
+          memory: 256M
+        reservations:
+          cpus: "0.1"
+          memory: 64M
     networks:
       - infraguard
 

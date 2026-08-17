@@ -1,0 +1,11 @@
+---
+- name: Install Docker
+  ansible.builtin.include_tasks: docker.yml
+  when: infraguard_install_docker
+
+- name: Deploy InfraGuard
+  ansible.builtin.include_tasks: deploy.yml
+
+- name: Configure firewall
+  ansible.builtin.include_tasks: firewall.yml
+  when: infraguard_firewall_enabled

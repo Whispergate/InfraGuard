@@ -47,7 +47,8 @@ class TestEnvVarResolution:
 
     def test_unset_var_preserved(self):
         result = _resolve_env_vars("${NONEXISTENT_VAR_XYZ}")
-        assert result == "${NONEXISTENT_VAR_XYZ}"
+        # Unset env vars resolve to empty string (not preserved as literal)
+        assert result == ""
 
 
 class TestConfigLoading:
@@ -299,3 +300,192 @@ class TestStartupValidation:
         error_msg = str(exc_info.value)
         assert "bad.local" in error_msg
         assert "bad.profile" in error_msg
+
+
+# ── Extended schema validation tests ───────────────────────────────────────
+
+class TestExtendedSchemaValidation:
+    """Additional schema validation for newer config models."""
+
+    def test_fronting_rule_config(self):
+        from infraguard.config.schema import FrontingRuleConfig
+        rule = FrontingRuleConfig(
+            domain="c2.evil.com",
+            front_domain="d1234.cloudfront.net",
+            cdn="cloudfront",
+        )
+        assert rule.domain == "c2.evil.com"
+        assert rule.cdn == "cloudfront"
+        assert rule.enabled is True
+        assert rule.ssl_verify is True
+
+    def test_fronting_rule_invalid_cdn(self):
+        from infraguard.config.schema import FrontingRuleConfig
+        with pytest.raises(Exception):
+            FrontingRuleConfig(
+                domain="c2.evil.com",
+                front_domain="cdn.example.com",
+                cdn="invalid_cdn",
+            )
+
+    def test_fronting_config_defaults(self):
+        from infraguard.config.schema import FrontingConfig
+        cfg = FrontingConfig()
+        assert cfg.enabled is False
+        assert cfg.rules == []
+        assert cfg.health_check_interval_seconds == 300.0
+
+    def test_timing_config_defaults(self):
+        from infraguard.config.schema import TimingConfig
+        cfg = TimingConfig()
+        assert cfg.enabled is False
+        assert cfg.min_delay_ms == 50
+        assert cfg.max_delay_ms == 200
+
+    def test_rotation_config_defaults(self):
+        from infraguard.config.schema import RotationConfig
+        cfg = RotationConfig()
+        assert cfg.enabled is False
+        assert cfg.check_interval_seconds == 60
+        assert cfg.policies == []
+
+    def test_rotation_policy_config(self):
+        from infraguard.config.schema import RotationPolicyConfig, RotationPolicyType
+        policy = RotationPolicyConfig(
+            name="weekly-rotate",
+            type=RotationPolicyType.SCHEDULE,
+            provider="aws",
+            interval_hours=168.0,
+        )
+        assert policy.name == "weekly-rotate"
+        assert policy.type == RotationPolicyType.SCHEDULE
+        assert policy.enabled is True
+        assert policy.interval_hours == 168.0
+
+    def test_rotation_policy_types(self):
+        from infraguard.config.schema import RotationPolicyType
+        assert RotationPolicyType.SCHEDULE.value == "schedule"
+        assert RotationPolicyType.ON_BURN_DETECTED.value == "on_burn_detected"
+        assert RotationPolicyType.ON_THRESHOLD.value == "on_threshold"
+        assert RotationPolicyType.STAGGER.value == "stagger"
+
+    def test_payload_token_config(self):
+        from infraguard.config.schema import PayloadTokenConfig
+        cfg = PayloadTokenConfig()
+        assert cfg.enabled is False
+        assert cfg.default_ttl_seconds == 3600
+        assert cfg.default_max_uses == 1
+        assert cfg.token_header == "X-DL-Token"
+
+    def test_campaign_token_config(self):
+        from infraguard.config.schema import CampaignTokenConfig
+        cfg = CampaignTokenConfig()
+        assert cfg.enabled is False
+        assert cfg.token_param == "t"
+        assert cfg.hmac_ttl_seconds == 604800
+
+    def test_content_route_guard_config(self):
+        from infraguard.config.schema import ContentRouteGuardConfig
+        cfg = ContentRouteGuardConfig(
+            require_beacon_ip=True,
+            allowed_user_agents=["^Mozilla"],
+            required_headers={"X-C2": "v2"},
+            forbidden_headers=["X-Scanner"],
+        )
+        assert cfg.require_beacon_ip is True
+        assert len(cfg.allowed_user_agents) == 1
+
+    def test_rate_limit_config(self):
+        from infraguard.config.schema import RateLimitConfig
+        cfg = RateLimitConfig()
+        assert cfg.enabled is True
+        assert cfg.max_downloads == 3
+        assert cfg.window_seconds == 300
+
+    def test_deadman_config(self):
+        from infraguard.config.schema import DeadManConfig
+        cfg = DeadManConfig()
+        assert cfg.enabled is False
+        assert cfg.ttl_seconds == 86400
+
+    def test_phishing_club_config(self):
+        from infraguard.config.schema import PhishingClubConfig
+        cfg = PhishingClubConfig()
+        assert cfg.enabled is False
+        assert cfg.webhook_path == "/wb/pc"
+        assert cfg.whitelist_on_click is False
+
+    def test_api_config_trusted_proxies(self):
+        from infraguard.config.schema import APIConfig
+        cfg = APIConfig(trusted_proxies=["10.0.0.0/8"])
+        assert "10.0.0.0/8" in cfg.trusted_proxies
+        assert cfg.session_ttl == 86400
+
+    def test_intel_config_defaults(self):
+        from infraguard.config.schema import IntelConfig
+        cfg = IntelConfig()
+        assert cfg.auto_block_scanners is True
+        assert cfg.feeds.enabled is True
+        assert cfg.cloud_ranges.enabled is False
+        assert cfg.ct_monitor.enabled is False
+
+    def test_pipeline_config_defaults(self):
+        from infraguard.config.schema import PipelineConfig
+        cfg = PipelineConfig()
+        assert cfg.filter_mode == "scoring"
+        assert cfg.enable_ip_filter is True
+        assert cfg.enable_bot_filter is True
+        assert cfg.enable_header_filter is True
+        assert cfg.enable_geo_filter is True
+        assert cfg.enable_replay_filter is True
+        assert cfg.enable_profile_filter is True
+        assert cfg.enable_enumeration_filter is True
+        assert cfg.enable_sandbox_filter is True
+        assert cfg.enable_ja3_filter is True
+
+    def test_listener_config_protocol_validation(self):
+        from infraguard.config.schema import ListenerConfig
+        # Valid protocols
+        for proto in ("https", "http", "dns", "mqtt", "websocket", "tcp_tunnel"):
+            lc = ListenerConfig(protocol=proto)
+            assert lc.protocol == proto
+        # Invalid protocol
+        with pytest.raises(Exception):
+            ListenerConfig(protocol="gopher")
+
+    def test_domain_config_backup_upstreams(self):
+        from infraguard.config.schema import DomainConfig
+        dc = DomainConfig(
+            upstream="https://primary:443",
+            backup_upstreams=["https://backup1:443", "https://backup2:443"],
+            profile_path="test.profile",
+        )
+        assert len(dc.backup_upstreams) == 2
+
+    def test_domain_config_circuit_breaker_defaults(self):
+        from infraguard.config.schema import DomainConfig
+        dc = DomainConfig(upstream="https://test:443", profile_path="test.profile")
+        assert dc.circuit_breaker_threshold == 5
+        assert dc.circuit_breaker_cooldown == 30.0
+
+    def test_infraguard_config_integrates_all_sections(self):
+        from infraguard.config.schema import (
+            InfraGuardConfig,
+            ListenerConfig,
+            DomainConfig,
+            TimingConfig,
+            RotationConfig,
+            FrontingConfig,
+        )
+        cfg = InfraGuardConfig(
+            listeners=[ListenerConfig()],
+            domains={"test.local": DomainConfig(
+                upstream="https://up:443", profile_path="p.profile"
+            )},
+            timing=TimingConfig(enabled=True),
+            rotation=RotationConfig(enabled=True),
+            fronting=FrontingConfig(enabled=True),
+        )
+        assert cfg.timing.enabled is True
+        assert cfg.rotation.enabled is True
+        assert cfg.fronting.enabled is True

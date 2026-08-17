@@ -32,6 +32,7 @@ class RequestContext:
     domain_config: DomainConfig
     profile: C2Profile
     metadata: dict[str, Any] = field(default_factory=dict)
+    domain: str = ""  # Server-side domain from routing, not client Host header
 
 
 @runtime_checkable

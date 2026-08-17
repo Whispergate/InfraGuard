@@ -1,0 +1,105 @@
+---
+# ── Deployment paths ──────────────────────────────────────────────────
+infraguard_deploy_dir: /opt/infraguard
+infraguard_repo_url: ""
+infraguard_repo_version: "main"
+
+# When infraguard_repo_url is empty the role copies the local project
+# tree (the directory containing this playbook's inventory) instead of
+# cloning a remote repo.  Set infraguard_local_src on the controller
+# to override which directory is synced.
+infraguard_local_src: "{{ playbook_dir }}/../../.."
+
+infraguard_user: infraguard
+infraguard_group: infraguard
+
+# ── Domain / TLS ──────────────────────────────────────────────────────
+infraguard_domain: cdn.example.com
+infraguard_domain_email: operator@example.com
+infraguard_letsencrypt: false
+
+# Bring-your-own cert paths (inside the container).  Leave at defaults
+# if using Let's Encrypt or auto-generated self-signed certs.
+infraguard_tls_cert: "/app/certs/live/{{ infraguard_domain }}/fullchain.pem"
+infraguard_tls_key: "/app/certs/live/{{ infraguard_domain }}/privkey.pem"
+
+# ── Dashboard API ─────────────────────────────────────────────────────
+# Generated automatically if left empty.
+infraguard_api_token: ""
+
+# ── Upstream teamservers ──────────────────────────────────────────────
+infraguard_cs_upstream: "https://10.0.0.5:8443"
+infraguard_mythic_upstream: "https://10.0.0.6:443"
+infraguard_brc4_upstream: "https://10.0.0.7:8443"
+infraguard_sliver_upstream: "https://10.0.0.8:31337"
+infraguard_havoc_upstream: "https://10.0.0.9:40056"
+infraguard_nighthawk_upstream: "https://10.0.0.10:443"
+infraguard_poshc2_upstream: "https://10.0.0.11:4443"
+
+# ── GeoIP ─────────────────────────────────────────────────────────────
+infraguard_geoip_enabled: true
+infraguard_geoip_db: /app/geoip/GeoLite2-City.mmdb
+infraguard_geoip_asn_db: /app/geoip/GeoLite2-ASN.mmdb
+infraguard_geoip_country_db: /app/geoip/GeoLite2-Country.mmdb
+
+# ── Database ──────────────────────────────────────────────────────────
+infraguard_db_path: /app/data/infraguard.db
+
+# ── Filter mode ───────────────────────────────────────────────────────
+infraguard_filter_mode: scoring
+
+# ── OPSEC ─────────────────────────────────────────────────────────────
+infraguard_health_path: health
+infraguard_log_level: INFO
+
+# ── Decoy pages ───────────────────────────────────────────────────────
+infraguard_decoy_pages_dir: /app/pages
+infraguard_decoy_site: ""
+
+# ── Rules / blocklists ────────────────────────────────────────────────
+infraguard_rules_dir: /app/rules
+infraguard_banned_ip_file: /app/rules/banned_ips.txt
+
+# ── Content delivery ─────────────────────────────────────────────────
+infraguard_pwndrop_token: ""
+infraguard_mythic_url: "https://10.0.0.6:7443"
+infraguard_mythic_stage2_file_id: ""
+
+# ── Campaign tokens ──────────────────────────────────────────────────
+infraguard_campaign_token_q1: ""
+infraguard_campaign_token_q2: ""
+infraguard_campaign_hmac_secret: ""
+
+# ── Burn detection ───────────────────────────────────────────────────
+infraguard_google_safebrowsing_api_key: ""
+
+# ── Command Post ─────────────────────────────────────────────────────
+infraguard_command_post_token: ""
+
+# ── SIEM plugins ─────────────────────────────────────────────────────
+infraguard_elasticsearch_url: ""
+infraguard_elasticsearch_api_key: ""
+infraguard_wazuh_api_url: ""
+infraguard_wazuh_indexer_url: ""
+infraguard_wazuh_password: ""
+
+# ── Webhook plugins ──────────────────────────────────────────────────
+infraguard_discord_webhook_url: ""
+infraguard_slack_webhook_url: ""
+infraguard_webhook_url: ""
+infraguard_webhook_token: ""
+
+# ── Docker Compose profiles ──────────────────────────────────────────
+# List of profiles to activate: letsencrypt, geoip, command-post, pwndrop
+infraguard_compose_profiles: []
+
+# ── Firewall ─────────────────────────────────────────────────────────
+infraguard_firewall_enabled: true
+infraguard_ssh_allowed_cidrs:
+  - "0.0.0.0/0"
+infraguard_dashboard_allowed_cidrs: []
+# When empty, dashboard (8080) is NOT exposed to the internet.
+# Add operator CIDRs here to allow remote dashboard access.
+
+# ── Docker install ───────────────────────────────────────────────────
+infraguard_install_docker: true

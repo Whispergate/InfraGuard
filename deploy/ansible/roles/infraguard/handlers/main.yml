@@ -1,0 +1,12 @@
+---
+- name: Restart infraguard
+  community.docker.docker_compose_v2:
+    project_src: "{{ infraguard_deploy_dir }}"
+    state: restarted
+    profiles: "{{ infraguard_compose_profiles }}"
+  become: true
+
+- name: Reload firewall
+  community.general.ufw:
+    state: reloaded
+  become: true

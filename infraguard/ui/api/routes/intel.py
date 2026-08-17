@@ -25,7 +25,10 @@ async def classify_ip(request: Request) -> JSONResponse:
     intel = _get_intel(request)
     if intel is None:
         return _INTEL_UNAVAILABLE
-    body = await request.json()
+    try:
+        body = await request.json()
+    except Exception:
+        return JSONResponse({"error": "Invalid JSON body"}, status_code=400)
     ip_str = body.get("ip", "")
 
     try:
@@ -55,7 +58,10 @@ async def add_blocklist(request: Request) -> JSONResponse:
     intel = _get_intel(request)
     if intel is None:
         return _INTEL_UNAVAILABLE
-    body = await request.json()
+    try:
+        body = await request.json()
+    except Exception:
+        return JSONResponse({"error": "Invalid JSON body"}, status_code=400)
     cidrs = body.get("cidrs", [])
     intel.blocklist.add_many(cidrs)
     return JSONResponse({"status": "ok", "blocklist_size": intel.blocklist.size})
@@ -66,7 +72,10 @@ async def remove_blocklist(request: Request) -> JSONResponse:
     intel = _get_intel(request)
     if intel is None:
         return _INTEL_UNAVAILABLE
-    body = await request.json()
+    try:
+        body = await request.json()
+    except Exception:
+        return JSONResponse({"error": "Invalid JSON body"}, status_code=400)
     ip_str = body.get("ip", "")
 
     # Try exact CIDR match first, then fall back to containing-range removal
@@ -88,7 +97,10 @@ async def add_whitelist(request: Request) -> JSONResponse:
     intel = _get_intel(request)
     if intel is None:
         return _INTEL_UNAVAILABLE
-    body = await request.json()
+    try:
+        body = await request.json()
+    except Exception:
+        return JSONResponse({"error": "Invalid JSON body"}, status_code=400)
     ip_str = body.get("ip", "")
 
     try:

@@ -3,6 +3,7 @@
 from __future__ import annotations
 
 import importlib
+import re
 from typing import Any
 
 import structlog
@@ -11,6 +12,10 @@ from infraguard.plugins.base import InfraGuardPlugin
 from infraguard.plugins.builtin import BUILTIN_PLUGINS
 
 log = structlog.get_logger()
+
+# Allowlist of valid plugin name characters (alphanumeric + underscore only)
+_VALID_PLUGIN_NAME = re.compile(r"^[a-z_][a-z0-9_]*$")
+
 
 def load_plugins(
     module_paths: list[str],
@@ -32,6 +37,16 @@ def load_plugins(
     for raw_path in module_paths:
         # Resolve short names (e.g. "elasticsearch") to full builtin paths
         path = BUILTIN_PLUGINS.get(raw_path, raw_path) if "." not in raw_path else raw_path
+
+        # Security: validate plugin path to prevent arbitrary code execution
+        if not _is_valid_plugin_path(path):
+            log.warning(
+                "plugin_rejected",
+                module=path,
+                reason="Invalid plugin path - must be alphanumeric/underscore or known builtin",
+            )
+            continue
+
         try:
             module = importlib.import_module(path)
             plugin_obj = getattr(module, "plugin", None)
@@ -65,3 +80,24 @@ def load_plugins(
             log.exception("plugin_load_error", module=path)
 
     return plugins
+
+
+def _is_valid_plugin_path(path: str) -> bool:
+    """Validate that a plugin path is safe to import.
+
+    Only allows:
+    - Short builtin names (e.g. "discord", "slack") that exist in BUILTIN_PLUGINS
+    - Full dotted paths under infraguard.plugins.builtin (e.g. "infraguard.plugins.builtin.discord")
+    """
+    # Check if it's a known builtin short name
+    if path in BUILTIN_PLUGINS.values():
+        return True
+
+    # Check if it's a full path under the builtin namespace
+    if path.startswith("infraguard.plugins.builtin."):
+        # Validate the final component is a valid identifier
+        final = path.rsplit(".", 1)[-1]
+        return bool(_VALID_PLUGIN_NAME.match(final))
+
+    # Reject everything else (no arbitrary module paths)
+    return False

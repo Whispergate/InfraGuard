@@ -18,7 +18,10 @@ async def list_nodes(request: Request) -> JSONResponse:
 async def register_node(request: Request) -> JSONResponse:
     """POST /api/nodes/register - register a new node."""
     registry: NodeRegistry = request.app.state.node_registry
-    body = await request.json()
+    try:
+        body = await request.json()
+    except Exception:
+        return JSONResponse({"error": "Invalid JSON body"}, status_code=400)
     node_id = await registry.register(
         name=body.get("name", "unknown"),
         address=body.get("address", ""),

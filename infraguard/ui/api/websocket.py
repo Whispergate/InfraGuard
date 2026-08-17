@@ -58,43 +58,44 @@ class EventBroadcaster:
     async def _receive_loop(self, ws: WebSocket) -> None:
         """Read messages from *ws* and send periodic keepalive pings."""
         ping_interval = 30  # seconds
-        while True:
-            receive_task = asyncio.ensure_future(ws.receive_text())
-            done, _ = await asyncio.wait(
-                {receive_task}, timeout=ping_interval
-            )
-            if done:
-                # Client sent a message (or disconnect raised); consume it
-                receive_task.result()
-            else:
-                # Timeout: send a ping frame to keep the connection alive
-                try:
-                    await asyncio.wait_for(
-                        ws.send_json({"type": "ping"}),
-                        timeout=self._SEND_TIMEOUT,
-                    )
-                except Exception:
-                    receive_task.cancel()
-                    break
+        receive_task = asyncio.ensure_future(ws.receive_text())
+        try:
+            while True:
+                done, _ = await asyncio.wait(
+                    {receive_task}, timeout=ping_interval
+                )
+                if done:
+                    receive_task.result()
+                    receive_task = asyncio.ensure_future(ws.receive_text())
+                else:
+                    try:
+                        await asyncio.wait_for(
+                            ws.send_json({"type": "ping"}),
+                            timeout=self._SEND_TIMEOUT,
+                        )
+                    except Exception:
+                        break
+        finally:
+            receive_task.cancel()
+            try:
+                await receive_task
+            except (asyncio.CancelledError, WebSocketDisconnect):
+                pass
 
     async def handler(self, ws: WebSocket) -> None:
         """WebSocket endpoint handler with authentication."""
         expected_token = ws.app.state.config.api.auth_token
         if expected_token:
-            # Check query param: ws://host/ws/events?token=xxx
-            token = ws.query_params.get("token", "")
             # Check session cookie
             session_id = ws.cookies.get(SESSION_COOKIE, "")
 
-            token_ok = token and hmac.compare_digest(token, expected_token)
             db = ws.app.state.db
             session_ok = session_id and await validate_session(db, session_id, expected_token)
 
-            if not token_ok and not session_ok:
-                # Neither query-param nor cookie auth succeeded.  Accept the
-                # connection and allow the client to authenticate by sending an
-                # auth message as the first frame (used by the Command Post to
-                # avoid leaking tokens in URL query strings / logs).
+            if not session_ok:
+                # No valid session cookie. Accept the connection and allow the
+                # client to authenticate by sending an auth message as the first
+                # frame. This avoids leaking tokens in URL query strings / logs.
                 await ws.accept()
                 try:
                     first_msg = await asyncio.wait_for(ws.receive_text(), timeout=10.0)

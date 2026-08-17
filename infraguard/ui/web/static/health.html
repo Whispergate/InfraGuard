@@ -1,0 +1,504 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+    <meta charset="UTF-8">
+    <meta name="viewport" content="width=device-width, initial-scale=1.0">
+    <title>InfraGuard — Infrastructure Health</title>
+    <link rel="icon" type="image/svg+xml" href="/static/infraguard_icon.svg">
+    <style>
+        :root {
+            --bg: #0d1117;
+            --surface: #161b22;
+            --border: #30363d;
+            --text: #c9d1d9;
+            --text-dim: #8b949e;
+            --accent: #58a6ff;
+            --green: #3fb950;
+            --red: #f85149;
+            --yellow: #d29922;
+        }
+        * { margin: 0; padding: 0; box-sizing: border-box; }
+        body { font-family: 'SF Mono', 'Cascadia Code', monospace; background: var(--bg); color: var(--text); }
+
+        /* ── Header ─────────────────────────────────────────── */
+        .header {
+            background: var(--surface);
+            border-bottom: 1px solid var(--border);
+            padding: 16px 24px;
+            display: flex;
+            justify-content: space-between;
+            align-items: center;
+        }
+        .header-brand { display: flex; align-items: center; gap: 10px; }
+        .header-icon { width: 28px; height: 28px; }
+        .header h1 { font-size: 18px; color: var(--accent); }
+        .header-right { display: flex; gap: 12px; align-items: center; }
+        .status-dot { font-size: 12px; }
+        .status-dot.ok { color: var(--green); }
+        .status-dot.warning { color: var(--yellow); }
+        .status-dot.critical { color: var(--red); }
+
+        /* ── Layout ─────────────────────────────────────────── */
+        .grid { display: grid; grid-template-columns: repeat(4, 1fr); gap: 16px; padding: 24px; }
+        .card {
+            background: var(--surface);
+            border: 1px solid var(--border);
+            border-radius: 8px;
+            padding: 20px;
+        }
+        .card h3 { font-size: 12px; text-transform: uppercase; color: var(--text-dim); margin-bottom: 8px; }
+        .card .value { font-size: 28px; font-weight: bold; }
+        .card .value.green { color: var(--green); }
+        .card .value.red { color: var(--red); }
+        .card .value.yellow { color: var(--yellow); }
+        .card .sub { font-size: 11px; color: var(--text-dim); margin-top: 4px; }
+        .full-width { grid-column: 1 / -1; }
+        .two-col { grid-column: span 2; }
+
+        /* ── Alerts ─────────────────────────────────────────── */
+        .alert-banner {
+            border-radius: 6px;
+            padding: 10px 14px;
+            margin-bottom: 8px;
+            font-size: 13px;
+            display: flex;
+            gap: 10px;
+            align-items: center;
+        }
+        .alert-banner.critical { background: rgba(248,81,73,0.12); border: 1px solid rgba(248,81,73,0.35); }
+        .alert-banner.warning  { background: rgba(210,153,34,0.10); border: 1px solid rgba(210,153,34,0.35); }
+        .alert-banner .badge-severity {
+            font-size: 10px;
+            font-weight: bold;
+            text-transform: uppercase;
+            padding: 2px 6px;
+            border-radius: 3px;
+            min-width: 58px;
+            text-align: center;
+        }
+        .badge-severity.critical { background: var(--red); color: var(--bg); }
+        .badge-severity.warning  { background: var(--yellow); color: var(--bg); }
+        .alert-banner .alert-detail { color: var(--text-dim); font-size: 11px; }
+        .no-alerts { color: var(--green); font-size: 13px; padding: 8px 0; }
+
+        /* ── Tables ─────────────────────────────────────────── */
+        table { width: 100%; border-collapse: collapse; font-size: 13px; }
+        th {
+            text-align: left;
+            padding: 8px 12px;
+            color: var(--text-dim);
+            font-size: 11px;
+            text-transform: uppercase;
+            border-bottom: 1px solid var(--border);
+        }
+        td { padding: 8px 12px; border-bottom: 1px solid var(--border); }
+
+        /* ── Status badges ──────────────────────────────────── */
+        .badge {
+            display: inline-block;
+            padding: 2px 8px;
+            border-radius: 4px;
+            font-size: 11px;
+            font-weight: bold;
+        }
+        .badge.ok      { background: rgba(63,185,80,0.15);  color: var(--green); }
+        .badge.warning { background: rgba(210,153,34,0.15); color: var(--yellow); }
+        .badge.error,
+        .badge.critical,
+        .badge.down,
+        .badge.stale,
+        .badge.expired,
+        .badge.missing,
+        .badge.never_refreshed,
+        .badge.never_seen { background: rgba(248,81,73,0.15); color: var(--red); }
+        .badge.unknown { background: rgba(139,148,158,0.15); color: var(--text-dim); }
+
+        /* ── Progress bar ───────────────────────────────────── */
+        .progress-wrap { background: var(--border); border-radius: 4px; height: 6px; margin-top: 8px; }
+        .progress-bar  { height: 6px; border-radius: 4px; transition: width 0.4s; }
+        .progress-bar.green  { background: var(--green); }
+        .progress-bar.yellow { background: var(--yellow); }
+        .progress-bar.red    { background: var(--red); }
+
+        /* ── Cert ring ──────────────────────────────────────── */
+        .cert-days { font-size: 22px; font-weight: bold; }
+
+        /* ── Buttons ────────────────────────────────────────── */
+        .btn {
+            background: var(--accent);
+            color: var(--bg);
+            border: none;
+            padding: 8px 16px;
+            border-radius: 4px;
+            cursor: pointer;
+            font-family: inherit;
+            font-size: 12px;
+        }
+        .btn:hover { opacity: 0.8; }
+        .btn-ghost {
+            background: transparent;
+            color: var(--text-dim);
+            border: 1px solid var(--border);
+        }
+        .btn-ghost:hover { color: var(--text); border-color: var(--text-dim); }
+
+        /* ── Nav tabs ───────────────────────────────────────── */
+        .nav { display: flex; gap: 4px; padding: 0 24px; background: var(--surface); border-bottom: 1px solid var(--border); }
+        .nav a {
+            padding: 10px 16px;
+            font-size: 12px;
+            color: var(--text-dim);
+            text-decoration: none;
+            border-bottom: 2px solid transparent;
+        }
+        .nav a.active, .nav a:hover { color: var(--accent); border-bottom-color: var(--accent); }
+
+        /* ── Refresh indicator ──────────────────────────────── */
+        .refresh-info { font-size: 11px; color: var(--text-dim); }
+    </style>
+</head>
+<body>
+
+    <!-- ── Header ──────────────────────────────────────────── -->
+    <div class="header">
+        <div class="header-brand">
+            <img src="/static/infraguard_icon.svg" alt="" class="header-icon">
+            <h1>InfraGuard — Infrastructure Health</h1>
+        </div>
+        <div class="header-right">
+            <span class="status-dot ok" id="overall-dot">&#9679;</span>
+            <span id="overall-label" style="font-size:12px;">Loading...</span>
+            <span class="refresh-info" id="last-refresh"></span>
+            <button class="btn" onclick="refresh()">Refresh</button>
+            <a href="/" style="text-decoration:none;"><button class="btn btn-ghost">Dashboard</button></a>
+        </div>
+    </div>
+
+    <!-- ── Nav ─────────────────────────────────────────────── -->
+    <div class="nav">
+        <a href="/">Overview</a>
+        <a href="/static/health.html" class="active">Health</a>
+    </div>
+
+    <div class="grid">
+
+        <!-- ── Top-level metric cards ─────────────────────── -->
+        <div class="card">
+            <h3>Uptime</h3>
+            <div class="value green" id="uptime">—</div>
+            <div class="sub" id="uptime-seconds"></div>
+        </div>
+
+        <div class="card">
+            <h3>Request Rate (24h)</h3>
+            <div class="value" id="req-rate">—</div>
+            <div class="sub">req/min</div>
+        </div>
+
+        <div class="card">
+            <h3>Block Rate (24h)</h3>
+            <div class="value" id="block-rate">—</div>
+            <div class="progress-wrap"><div class="progress-bar green" id="block-rate-bar" style="width:0%"></div></div>
+            <div class="sub" id="block-rate-detail"></div>
+        </div>
+
+        <div class="card">
+            <h3>Avg Upstream Latency (1h)</h3>
+            <div class="value" id="avg-latency">—</div>
+            <div class="sub">milliseconds</div>
+        </div>
+
+        <!-- ── Alerts ─────────────────────────────────────── -->
+        <div class="card full-width">
+            <h3>Active Alerts <span id="alert-count" style="color:var(--text-dim);font-weight:normal;"></span></h3>
+            <div id="alerts-container">
+                <div class="no-alerts">&#10003; No active alerts</div>
+            </div>
+        </div>
+
+        <!-- ── Certificates ────────────────────────────────── -->
+        <div class="card two-col">
+            <h3>TLS Certificates</h3>
+            <table>
+                <thead>
+                    <tr>
+                        <th>Listener</th>
+                        <th>Cert Path</th>
+                        <th>Expires</th>
+                        <th>Days Left</th>
+                        <th>Status</th>
+                    </tr>
+                </thead>
+                <tbody id="cert-table">
+                    <tr><td colspan="5" style="color:var(--text-dim)">Loading...</td></tr>
+                </tbody>
+            </table>
+        </div>
+
+        <!-- ── Feed freshness ─────────────────────────────── -->
+        <div class="card two-col">
+            <h3>Threat Feed Freshness</h3>
+            <table>
+                <thead>
+                    <tr>
+                        <th>Feed</th>
+                        <th>Last Refresh</th>
+                        <th>Age (h)</th>
+                        <th>Status</th>
+                    </tr>
+                </thead>
+                <tbody id="feed-table">
+                    <tr><td colspan="4" style="color:var(--text-dim)">Loading...</td></tr>
+                </tbody>
+            </table>
+        </div>
+
+        <!-- ── Per-domain latency ─────────────────────────── -->
+        <div class="card two-col">
+            <h3>Upstream Latency by Domain (1h)</h3>
+            <table>
+                <thead>
+                    <tr>
+                        <th>Domain</th>
+                        <th>Avg Latency</th>
+                        <th>Requests</th>
+                    </tr>
+                </thead>
+                <tbody id="latency-table">
+                    <tr><td colspan="3" style="color:var(--text-dim)">Loading...</td></tr>
+                </tbody>
+            </table>
+        </div>
+
+        <!-- ── Node health ────────────────────────────────── -->
+        <div class="card two-col">
+            <h3>Node / Upstream Health</h3>
+            <table>
+                <thead>
+                    <tr>
+                        <th>Node</th>
+                        <th>Address</th>
+                        <th>Last Heartbeat</th>
+                        <th>Age</th>
+                        <th>Status</th>
+                    </tr>
+                </thead>
+                <tbody id="node-table">
+                    <tr><td colspan="5" style="color:var(--text-dim)">Loading...</td></tr>
+                </tbody>
+            </table>
+        </div>
+
+    </div><!-- /grid -->
+
+    <script>
+        const API_BASE = window.location.origin;
+        let pollInterval = null;
+
+        // ── Auth guard ────────────────────────────────────────
+        async function checkAuth() {
+            try {
+                const resp = await fetch(API_BASE + '/api/auth/check', {credentials: 'same-origin'});
+                const data = await resp.json();
+                if (data.auth_required && !data.authenticated) {
+                    window.location.href = '/';
+                }
+            } catch(e) {
+                window.location.href = '/';
+            }
+        }
+
+        // ── HTML escaping ─────────────────────────────────────
+        function esc(s) {
+            if (s == null) return '';
+            const d = document.createElement('div');
+            d.textContent = String(s);
+            return d.innerHTML.replace(/'/g, '&#39;');
+        }
+
+        // ── Fetch helper ──────────────────────────────────────
+        async function fetchJSON(path) {
+            const resp = await fetch(API_BASE + path, {credentials: 'same-origin'});
+            if (resp.status === 401 || resp.status === 403) {
+                window.location.href = '/';
+                throw new Error('Session expired');
+            }
+            return resp.json();
+        }
+
+        // ── Formatters ────────────────────────────────────────
+        function fmtAgo(seconds) {
+            if (seconds == null) return '—';
+            if (seconds < 60) return seconds + 's ago';
+            if (seconds < 3600) return Math.floor(seconds / 60) + 'm ago';
+            return Math.floor(seconds / 3600) + 'h ago';
+        }
+
+        function fmtIso(isoStr) {
+            if (!isoStr) return '—';
+            try {
+                return new Date(isoStr).toLocaleString();
+            } catch(e) { return isoStr; }
+        }
+
+        // ── Overall status ────────────────────────────────────
+        function setOverall(status) {
+            const dot = document.getElementById('overall-dot');
+            const label = document.getElementById('overall-label');
+            dot.className = 'status-dot ' + status;
+            const labels = { ok: 'Healthy', warning: 'Warning', critical: 'Critical' };
+            label.textContent = labels[status] || status;
+            label.style.color = status === 'ok' ? 'var(--green)' : status === 'warning' ? 'var(--yellow)' : 'var(--red)';
+        }
+
+        // ── Render: alerts ────────────────────────────────────
+        function renderAlerts(alerts) {
+            const container = document.getElementById('alerts-container');
+            const countEl = document.getElementById('alert-count');
+            if (!alerts || alerts.length === 0) {
+                container.innerHTML = '<div class="no-alerts">&#10003; No active alerts</div>';
+                countEl.textContent = '';
+                return;
+            }
+            countEl.textContent = `(${alerts.length})`;
+            container.innerHTML = alerts.map(a => `
+                <div class="alert-banner ${esc(a.severity)}">
+                    <span class="badge-severity ${esc(a.severity)}">${esc(a.severity)}</span>
+                    <span>${esc(a.message)}</span>
+                    ${a.detail ? `<span class="alert-detail">${esc(a.detail)}</span>` : ''}
+                </div>
+            `).join('');
+        }
+
+        // ── Render: certificates ──────────────────────────────
+        function renderCerts(certs) {
+            const tbody = document.getElementById('cert-table');
+            if (!certs || certs.length === 0) {
+                tbody.innerHTML = '<tr><td colspan="5" style="color:var(--text-dim)">No TLS listeners configured</td></tr>';
+                return;
+            }
+            tbody.innerHTML = certs.map(c => `
+                <tr>
+                    <td>${esc(c.listener)}</td>
+                    <td style="max-width:200px;overflow:hidden;text-overflow:ellipsis;white-space:nowrap;" title="${esc(c.cert_path)}">${esc(c.cert_path)}</td>
+                    <td>${c.expires_at ? fmtIso(c.expires_at) : '—'}</td>
+                    <td>
+                        <span class="cert-days" style="color:${c.days_until_expiry == null ? 'var(--text-dim)' : c.days_until_expiry < 0 ? 'var(--red)' : c.days_until_expiry < 7 ? 'var(--yellow)' : 'var(--green)'}">
+                            ${c.days_until_expiry != null ? c.days_until_expiry : '—'}
+                        </span>
+                    </td>
+                    <td><span class="badge ${esc(c.status)}">${esc(c.status)}</span></td>
+                </tr>
+            `).join('');
+        }
+
+        // ── Render: feeds ─────────────────────────────────────
+        function renderFeeds(feeds) {
+            const tbody = document.getElementById('feed-table');
+            if (!feeds || feeds.length === 0) {
+                tbody.innerHTML = '<tr><td colspan="4" style="color:var(--text-dim)">No feeds configured</td></tr>';
+                return;
+            }
+            tbody.innerHTML = feeds.map(f => {
+                const shortUrl = f.url.replace(/^https?:\/\//, '').split('/').slice(0, 2).join('/');
+                return `<tr>
+                    <td title="${esc(f.url)}" style="max-width:220px;overflow:hidden;text-overflow:ellipsis;white-space:nowrap;">${esc(shortUrl)}</td>
+                    <td>${f.last_refresh ? fmtIso(f.last_refresh) : '—'}</td>
+                    <td>${f.hours_since != null ? f.hours_since : '—'}</td>
+                    <td><span class="badge ${esc(f.status)}">${esc(f.status)}</span></td>
+                </tr>`;
+            }).join('');
+        }
+
+        // ── Render: latency ───────────────────────────────────
+        function renderLatency(byDomain) {
+            const tbody = document.getElementById('latency-table');
+            if (!byDomain || byDomain.length === 0) {
+                tbody.innerHTML = '<tr><td colspan="3" style="color:var(--text-dim)">No traffic in the last hour</td></tr>';
+                return;
+            }
+            tbody.innerHTML = byDomain.map(d => `
+                <tr>
+                    <td>${esc(d.domain)}</td>
+                    <td>${d.avg_ms != null ? d.avg_ms + ' ms' : '—'}</td>
+                    <td>${esc(d.requests)}</td>
+                </tr>
+            `).join('');
+        }
+
+        // ── Render: nodes ─────────────────────────────────────
+        function renderNodes(nodes) {
+            const tbody = document.getElementById('node-table');
+            if (!nodes || nodes.length === 0) {
+                tbody.innerHTML = '<tr><td colspan="5" style="color:var(--text-dim)">No nodes registered</td></tr>';
+                return;
+            }
+            tbody.innerHTML = nodes.map(n => `
+                <tr>
+                    <td>${esc(n.name)}</td>
+                    <td>${esc(n.address)}</td>
+                    <td>${n.last_heartbeat ? fmtIso(n.last_heartbeat) : '—'}</td>
+                    <td>${n.seconds_since_heartbeat != null ? fmtAgo(n.seconds_since_heartbeat) : '—'}</td>
+                    <td><span class="badge ${esc(n.status)}">${esc(n.status)}</span></td>
+                </tr>
+            `).join('');
+        }
+
+        // ── Main refresh ──────────────────────────────────────
+        async function refresh() {
+            try {
+                const data = await fetchJSON('/api/health');
+
+                // Overall status
+                setOverall(data.status);
+
+                // Uptime
+                document.getElementById('uptime').textContent = data.uptime.human;
+                document.getElementById('uptime-seconds').textContent = data.uptime.seconds.toLocaleString() + 's total';
+
+                // Traffic
+                document.getElementById('req-rate').textContent = data.traffic.request_rate_per_minute;
+                const br = (data.traffic.block_rate_24h * 100).toFixed(1);
+                document.getElementById('block-rate').textContent = br + '%';
+                document.getElementById('block-rate-bar').style.width = Math.min(br, 100) + '%';
+                const barColor = br < 30 ? 'green' : br < 60 ? 'yellow' : 'red';
+                document.getElementById('block-rate-bar').className = 'progress-bar ' + barColor;
+                document.getElementById('block-rate-detail').textContent =
+                    data.traffic.blocked_requests_24h.toLocaleString() + ' blocked / ' +
+                    data.traffic.total_requests_24h.toLocaleString() + ' total';
+
+                // Latency
+                document.getElementById('avg-latency').textContent =
+                    data.upstream_latency.avg_ms_1h != null ? data.upstream_latency.avg_ms_1h : '—';
+
+                // Sections
+                renderAlerts(data.alerts);
+                renderCerts(data.certificates);
+                renderFeeds(data.feeds);
+                renderLatency(data.upstream_latency.by_domain);
+                renderNodes(data.nodes);
+
+                // Timestamp
+                document.getElementById('last-refresh').textContent =
+                    'Updated ' + new Date().toLocaleTimeString();
+
+            } catch(e) {
+                if (e.message !== 'Session expired') console.error('Health refresh failed:', e);
+            }
+        }
+
+        // ── Polling ───────────────────────────────────────────
+        function startPolling() {
+            if (pollInterval) clearInterval(pollInterval);
+            pollInterval = setInterval(refresh, 15000);
+        }
+
+        // ── Init ──────────────────────────────────────────────
+        (async () => {
+            await checkAuth();
+            refresh();
+            startPolling();
+        })();
+    </script>
+</body>
+</html>

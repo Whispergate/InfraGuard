@@ -2,6 +2,7 @@
 
 from __future__ import annotations
 
+from enum import Enum
 from pathlib import Path
 from typing import Any, Literal
 
@@ -18,6 +19,40 @@ from infraguard.config.defaults import (
     DEFAULT_RETENTION_DAYS,
 )
 from infraguard.models.common import ContentBackendType, DropActionType, ProfileType
+
+
+class FrontingRuleConfig(BaseModel):
+    """A single domain fronting rule: real domain → CDN front domain mapping.
+
+    The ``domain`` is the real C2 domain (the one the implant is configured
+    to reach).  The ``front_domain`` is a high-reputation domain on the CDN
+    that fronts the C2 traffic.  TLS SNI goes to ``front_domain``; the HTTP
+    ``Host`` header carries ``domain``.
+    """
+
+    domain: str  # Real C2 domain (used in Host header)
+    front_domain: str  # CDN edge domain (used in TLS SNI)
+    cdn: Literal["cloudfront", "azure", "google", "fastly"]
+    enabled: bool = True
+    ssl_verify: bool = True  # Fronted domains use public CA - should verify
+    ssl_ca_bundle: str | None = None
+    timeout_seconds: float | None = None  # Per-rule timeout override
+    health_probe_url: str | None = None  # Custom probe URL; defaults per-CDN
+    custom_headers: dict[str, str] = Field(default_factory=dict)
+    # Extra headers injected into fronted requests.  Can override the Host
+    # rewrite - use with caution.  Example: {"X-Custom-Origin": "true"}
+
+
+class FrontingConfig(BaseModel):
+    """Root-level domain fronting configuration.
+
+    Contains a list of fronting rules and global health-check settings.
+    """
+
+    enabled: bool = False
+    rules: list[FrontingRuleConfig] = Field(default_factory=list)
+    health_check_interval_seconds: float = 300.0  # 5 minutes
+    health_check_timeout: float = 10.0
 
 
 class TLSConfig(BaseModel):
@@ -228,6 +263,35 @@ class ReputationMonitorConfig(BaseModel):
     google_safebrowsing_api_key: str | None = None
 
 
+class PassiveDNSConfig(BaseModel):
+    """Passive DNS monitoring - track historical DNS resolutions for C2 domains.
+
+    Alerts when: a domain appears in PDNS at all (external visibility),
+    new A/AAAA records are observed (sinkhole / hijack / unplanned change),
+    or NXDOMAIN responses spike locally (possible zone takedown).
+    """
+
+    enabled: bool = False
+    interval_hours: float = 6.0
+    monitored_domains: list[str] = Field(default_factory=list)
+    # Empty = auto-populate from config.domains keys at startup
+
+    provider: Literal["circl", "local"] = "circl"
+    # "circl" = poll https://www.circl.lu/pdns/ (requires free account)
+    # "local" = no upstream; only ingest observations from the DNS listener
+
+    circl_user: str | None = None
+    circl_password: str | None = None
+
+    # NXDOMAIN spike detection (local observations via DNS listener)
+    nxdomain_spike_threshold: int = 5      # NXDOMAINs per window before alert
+    nxdomain_window_seconds: int = 3600    # 1h window
+
+    # If True, alert once on the first PDNS poll when the domain already
+    # has any historical records (indicates pre-existing PDNS visibility).
+    alert_on_first_seen: bool = True
+
+
 class IntelConfig(BaseModel):
     geoip_db: str | None = None
     geoip_asn_db: str | None = None
@@ -246,11 +310,25 @@ class IntelConfig(BaseModel):
     dns_enum_window_seconds: int = 30
     ct_monitor: CTMonitorConfig = Field(default_factory=CTMonitorConfig)
     reputation_monitor: ReputationMonitorConfig = Field(default_factory=ReputationMonitorConfig)
+    passive_dns: PassiveDNSConfig = Field(default_factory=PassiveDNSConfig)
 
 
 class TrackingConfig(BaseModel):
     db_path: str = DEFAULT_DB_PATH
     retention_days: int = DEFAULT_RETENTION_DAYS
+
+
+class APIRateLimitConfig(BaseModel):
+    """Rate limiting configuration for the dashboard API."""
+
+    enabled: bool = True
+    backend: Literal["memory", "redis"] = "memory"
+    redis_url: str = "redis://localhost:6379/0"
+    default_capacity: float = 60.0  # max tokens per bucket
+    default_refill_rate: float = 1.0  # tokens per second
+    # Quota defaults (applied to API keys without explicit overrides)
+    default_quota_limit: int | None = None
+    default_quota_window_seconds: int = 86400  # 24 hours
 
 
 class APIConfig(BaseModel):
@@ -259,6 +337,8 @@ class APIConfig(BaseModel):
     auth_token: str | None = None
     health_path: str = "/health"
     session_ttl: int = 86400  # seconds, default 24h
+    trusted_proxies: list[str] = Field(default_factory=list)  # CIDRs allowed to send X-Forwarded-For
+    rate_limit: APIRateLimitConfig = Field(default_factory=APIRateLimitConfig)
 
 
 class JA3FilterConfig(BaseModel):
@@ -370,6 +450,106 @@ class PhishingClubConfig(BaseModel):
     event_result_label: str = "allow"
 
 
+class RotationPolicyType(str, Enum):
+    """Type of rotation trigger."""
+
+    SCHEDULE = "schedule"            # time-based (cron-like interval)
+    ON_BURN_DETECTED = "on_burn_detected"  # trigger when burn detection fires
+    ON_THRESHOLD = "on_threshold"    # trigger at request count threshold
+    STAGGER = "stagger"              # staggered rotation across domains
+
+
+class RotationPolicyConfig(BaseModel):
+    """A single rotation policy for automated redirector cycling."""
+
+    name: str
+    type: RotationPolicyType = RotationPolicyType.SCHEDULE
+    enabled: bool = True
+
+    # Domains this policy applies to (empty = all domains)
+    domains: list[str] = Field(default_factory=list)
+
+    # Provider + deploy settings (used to provision replacement)
+    provider: str = "do"  # aws, azure, do, cloudflare, hetzner
+    region: str | None = None
+    instance_size: str | None = None
+    ssh_key: str = ""  # path to SSH public key
+    operator_ip: str = ""  # CIDR for firewall rules
+    upstream: str = ""  # C2 teamserver URL
+    c2_profile: str = ""  # path to C2 profile file
+    state_key: str | None = None  # age public key for state encryption
+    state_identity: str | None = None  # age identity file for state decryption
+
+    # --- schedule policy ---
+    interval_hours: float = 24.0  # how often to rotate (schedule type)
+
+    # --- on_threshold policy ---
+    request_threshold: int = 10000  # requests before triggering rotation
+    threshold_window_seconds: int = 3600  # rolling window for counting
+
+    # --- stagger policy ---
+    stagger_delay_minutes: int = 30  # delay between rotating each domain
+
+    # --- on_burn_detected policy ---
+    burn_cooldown_minutes: int = 5  # wait after burn detection before rotating
+
+    # Metadata
+    last_rotated: float | None = None  # epoch timestamp of last rotation
+    rotation_count: int = 0  # total rotations performed
+
+
+class RotationConfig(BaseModel):
+    """Top-level rotation scheduler configuration."""
+
+    enabled: bool = False
+    check_interval_seconds: int = 60  # how often the scheduler loop ticks
+    work_dir_base: str = ".infraguard-rotations"  # base dir for rotation work dirs
+    policies: list[RotationPolicyConfig] = Field(default_factory=list)
+
+
+class ReportEmailConfig(BaseModel):
+    """SMTP delivery settings for scheduled reports."""
+
+    enabled: bool = False
+    smtp_host: str = "localhost"
+    smtp_port: int = 465
+    use_tls: bool = True            # SMTP_SSL (implicit TLS)
+    use_starttls: bool = False      # STARTTLS upgrade on plaintext connection
+    username: str | None = None
+    password: str | None = None     # pulled from env / secrets manager in practice
+    from_addr: str = "infraguard@localhost"
+    to_addrs: list[str] = Field(default_factory=list)
+
+
+class ReportDeliveryConfig(BaseModel):
+    """Delivery channels for scheduled reports."""
+
+    webhook_urls: list[str] = Field(default_factory=list)
+    # When True and the JSON format is generated, embed the full JSON report
+    # in the webhook payload under the "report" key. Otherwise a summary only.
+    webhook_include_full_json: bool = False
+    email: ReportEmailConfig = Field(default_factory=ReportEmailConfig)
+
+
+class ReportScheduleConfig(BaseModel):
+    """Scheduled engagement report generation.
+
+    When enabled, a background task generates an engagement report every
+    ``interval_hours`` in each of ``formats``, writes it to ``output_dir``,
+    and delivers it via the configured email / webhook channels.
+    """
+
+    enabled: bool = False
+    interval_hours: float = 24.0
+    check_interval_seconds: int = 300  # how often the scheduler loop ticks
+    formats: list[str] = Field(default_factory=lambda: ["html"])
+    # Valid values: "html", "pdf", "json", "csv" (unknown values are skipped)
+    output_dir: str = "reports"
+    title: str = "InfraGuard Engagement Report"
+    audit_limit: int = 200  # audit log entries included per report
+    delivery: ReportDeliveryConfig = Field(default_factory=ReportDeliveryConfig)
+
+
 class InfraGuardConfig(BaseModel):
     """Root configuration model for InfraGuard."""
 
@@ -384,6 +564,9 @@ class InfraGuardConfig(BaseModel):
     deadman: DeadManConfig = Field(default_factory=DeadManConfig)
     payload_tokens: PayloadTokenConfig = Field(default_factory=PayloadTokenConfig)
     phishingclub: PhishingClubConfig = Field(default_factory=PhishingClubConfig)
+    rotation: RotationConfig = Field(default_factory=RotationConfig)
+    fronting: FrontingConfig = Field(default_factory=FrontingConfig)
+    reporting: ReportScheduleConfig = Field(default_factory=ReportScheduleConfig)
     decoy_pages_dir: str = "pages"
     plugins: list[str] = Field(default_factory=list)
     plugin_settings: dict[str, PluginSettings] = Field(default_factory=dict)

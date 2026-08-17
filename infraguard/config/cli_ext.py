@@ -813,3 +813,148 @@ def ja3_list(config_path: Path) -> None:
             click.echo(f"  {h}")
     else:
         click.echo("Allowed: (none - block list only, no allowlist)")
+
+
+# ---------------------------------------------------------------------------
+# config diff
+# ---------------------------------------------------------------------------
+
+
+@click.command("diff")
+@_CONFIG_OPT
+@click.argument("other", type=click.Path(path_type=Path), required=False)
+@click.option(
+    "--against-defaults",
+    is_flag=True,
+    help="Diff against the generated default config instead of another file.",
+)
+@click.option(
+    "--ignore",
+    multiple=True,
+    help="Dot-path to ignore (repeatable), e.g. api.auth_token.",
+)
+@click.option("--no-color", is_flag=True, help="Disable colored output.")
+def config_diff(
+    config_path: Path,
+    other: Path | None,
+    against_defaults: bool,
+    ignore: tuple[str, ...],
+    no_color: bool,
+) -> None:
+    """Diff the active config against another file (or defaults).
+
+    \b
+    Examples:
+      infraguard config diff other-config.yaml
+      infraguard config diff --against-defaults
+      infraguard -c prod.yaml config diff staging.yaml --ignore api.auth_token
+    """
+    from infraguard.config.diff import ConfigDiffer
+
+    differ = ConfigDiffer(ignore_paths=ignore)
+    try:
+        if against_defaults:
+            result = differ.diff_against_defaults(config_path)
+            left_label = "defaults"
+            right_label = str(config_path)
+        else:
+            if other is None:
+                click.echo(
+                    "Provide a file to diff against, or pass --against-defaults.",
+                    err=True,
+                )
+                sys.exit(2)
+            result = differ.diff_files(other, config_path)
+            left_label = str(other)
+            right_label = str(config_path)
+    except FileNotFoundError as e:
+        click.echo(str(e), err=True)
+        sys.exit(1)
+
+    color = not no_color
+    click.secho(f"--- {left_label}", fg="red" if color else None)
+    click.secho(f"+++ {right_label}", fg="green" if color else None)
+    click.echo(differ.render(result, color=color))
+    sys.exit(0 if not result else 1)
+
+
+# ---------------------------------------------------------------------------
+# config validate
+# ---------------------------------------------------------------------------
+
+
+@click.command("validate")
+@_CONFIG_OPT
+@click.option("--no-color", is_flag=True, help="Disable colored output.")
+@click.option(
+    "--strict",
+    is_flag=True,
+    help="Exit non-zero on warnings as well as errors.",
+)
+def config_validate(config_path: Path, no_color: bool, strict: bool) -> None:
+    """Validate a config file (schema + security/best-practice checks).
+
+    \b
+    Checks for:
+      - Empty or weak auth tokens
+      - Disabled TLS verification on HTTPS upstreams/backends
+      - Overly broad whitelist CIDRs (e.g. /8)
+      - Missing rate limits on content routes
+      - Listener TLS misconfiguration, filter coverage, and more
+    """
+    from infraguard.config.validator import validate_file
+
+    report = validate_file(config_path)
+    click.secho(f"Validating {config_path}\n", bold=True)
+    click.echo(report.render(color=not no_color))
+
+    if report.schema_error is not None or report.errors:
+        sys.exit(1)
+    if strict and report.warnings:
+        sys.exit(1)
+    sys.exit(0)
+
+
+# ---------------------------------------------------------------------------
+# config test
+# ---------------------------------------------------------------------------
+
+
+@click.command("test")
+@_CONFIG_OPT
+@click.option("--no-color", is_flag=True, help="Disable colored output.")
+def config_test(config_path: Path, no_color: bool) -> None:
+    """Full pre-flight test: schema load, semantic validation, diff vs defaults.
+
+    Use this in CI or before restarting a production redirector.
+    Exits 0 only when the config loads cleanly AND has no errors.
+    """
+    from infraguard.config.diff import ConfigDiffer
+    from infraguard.config.validator import validate_file
+
+    color = not no_color
+
+    # 1. Schema + semantic validation
+    click.secho(f"[1/2] Validating {config_path}", bold=True)
+    report = validate_file(config_path)
+    click.echo(report.render(color=color))
+
+    # 2. Diff against defaults to surface non-standard settings
+    click.secho("\n[2/2] Drift from defaults", bold=True)
+    try:
+        result = ConfigDiffer().diff_against_defaults(config_path)
+        if result:
+            click.echo(
+                f"{len(result.changes)} setting(s) differ from generated defaults "
+                "(informational only)."
+            )
+        else:
+            click.echo("Config matches generated defaults.")
+    except FileNotFoundError as e:
+        click.echo(str(e), err=True)
+
+    if report.schema_error is not None or report.errors:
+        click.secho("\nTEST FAILED", fg="red" if color else None, bold=True)
+        sys.exit(1)
+    click.secho("\nTEST PASSED", fg="green" if color else None, bold=True)
+    sys.exit(0)

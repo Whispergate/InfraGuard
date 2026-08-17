@@ -1,0 +1,131 @@
+---
+# ── System user ───────────────────────────────────────────────────────
+- name: Create infraguard group
+  ansible.builtin.group:
+    name: "{{ infraguard_group }}"
+    system: true
+  become: true
+
+- name: Create infraguard user
+  ansible.builtin.user:
+    name: "{{ infraguard_user }}"
+    group: "{{ infraguard_group }}"
+    groups: docker
+    system: true
+    shell: /usr/sbin/nologin
+    home: "{{ infraguard_deploy_dir }}"
+    create_home: false
+  become: true
+
+# ── Project files ─────────────────────────────────────────────────────
+- name: Create deploy directory
+  ansible.builtin.file:
+    path: "{{ infraguard_deploy_dir }}"
+    state: directory
+    owner: "{{ infraguard_user }}"
+    group: "{{ infraguard_group }}"
+    mode: "0750"
+  become: true
+
+- name: Clone repository
+  ansible.builtin.git:
+    repo: "{{ infraguard_repo_url }}"
+    dest: "{{ infraguard_deploy_dir }}"
+    version: "{{ infraguard_repo_version }}"
+    force: true
+  become: true
+  become_user: "{{ infraguard_user }}"
+  when: infraguard_repo_url | length > 0
+  notify: Restart infraguard
+
+- name: Synchronize local project tree
+  ansible.posix.synchronize:
+    src: "{{ infraguard_local_src }}/"
+    dest: "{{ infraguard_deploy_dir }}/"
+    delete: true
+    rsync_opts:
+      - "--exclude=.git"
+      - "--exclude=.env"
+      - "--exclude=data/"
+      - "--exclude=__pycache__"
+      - "--exclude=*.pyc"
+      - "--exclude=.venv"
+      - "--exclude=deploy/ansible"
+  become: true
+  when: infraguard_repo_url | length == 0
+  notify: Restart infraguard
+
+- name: Fix ownership after sync
+  ansible.builtin.file:
+    path: "{{ infraguard_deploy_dir }}"
+    owner: "{{ infraguard_user }}"
+    group: "{{ infraguard_group }}"
+    recurse: true
+  become: true
+  when: infraguard_repo_url | length == 0
+
+# ── Data directories ─────────────────────────────────────────────────
+- name: Ensure writable directories exist
+  ansible.builtin.file:
+    path: "{{ infraguard_deploy_dir }}/{{ item }}"
+    state: directory
+    owner: "{{ infraguard_user }}"
+    group: "{{ infraguard_group }}"
+    mode: "0750"
+  loop:
+    - data
+    - config
+    - rules
+    - pages
+  become: true
+
+# ── Generate API token if not provided ────────────────────────────────
+- name: Generate API token
+  ansible.builtin.set_fact:
+    infraguard_api_token: "{{ lookup('password', '/dev/null chars=ascii_letters,digits length=44') }}"
+  when: infraguard_api_token | length == 0
+  no_log: true
+
+# ── Template .env ─────────────────────────────────────────────────────
+- name: Template .env file
+  ansible.builtin.template:
+    src: env.j2
+    dest: "{{ infraguard_deploy_dir }}/.env"
+    owner: "{{ infraguard_user }}"
+    group: "{{ infraguard_group }}"
+    mode: "0600"
+  become: true
+  no_log: true
+  notify: Restart infraguard
+
+# ── Download GeoIP databases ─────────────────────────────────────────
+- name: Download GeoIP databases
+  community.docker.docker_compose_v2:
+    project_src: "{{ infraguard_deploy_dir }}"
+    profiles: ["geoip"]
+    services: ["geoip-update"]
+    state: present
+  become: true
+  become_user: "{{ infraguard_user }}"
+  when: infraguard_geoip_enabled
+
+# ── Build and start ──────────────────────────────────────────────────
+- name: Build and start InfraGuard
+  community.docker.docker_compose_v2:
+    project_src: "{{ infraguard_deploy_dir }}"
+    state: present
+    build: always
+    profiles: "{{ infraguard_compose_profiles }}"
+  become: true
+  become_user: "{{ infraguard_user }}"
+  register: _compose_result
+
+- name: Wait for proxy health check
+  ansible.builtin.uri:
+    url: "https://127.0.0.1:443/{{ infraguard_health_path }}"
+    validate_certs: false
+    status_code: 200
+  register: _health
+  until: _health.status == 200
+  retries: 10
+  delay: 5

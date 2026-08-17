@@ -101,6 +101,36 @@ CREATE TABLE IF NOT EXISTS payload_tokens (
 );
 
 CREATE INDEX IF NOT EXISTS idx_payload_tokens_expires ON payload_tokens(expires_at);
+
+CREATE TABLE IF NOT EXISTS api_keys (
+    key_id TEXT PRIMARY KEY,
+    key_hash TEXT NOT NULL UNIQUE,
+    name TEXT NOT NULL,
+    created_at TEXT NOT NULL,
+    created_by TEXT NOT NULL,
+    last_used_at TEXT,
+    revoked INTEGER NOT NULL DEFAULT 0,
+    revoked_at TEXT,
+    revoked_by TEXT,
+    rate_limit_capacity REAL,
+    rate_limit_refill_rate REAL,
+    quota_limit INTEGER,
+    quota_window_seconds INTEGER
+);
+
+CREATE INDEX IF NOT EXISTS idx_api_keys_hash ON api_keys(key_hash);
+CREATE INDEX IF NOT EXISTS idx_api_keys_revoked ON api_keys(revoked);
+
+CREATE TABLE IF NOT EXISTS api_usage (
+    id INTEGER PRIMARY KEY AUTOINCREMENT,
+    key_id TEXT NOT NULL,
+    timestamp TEXT NOT NULL,
+    endpoint TEXT NOT NULL,
+    status_code INTEGER DEFAULT 0
+);
+
+CREATE INDEX IF NOT EXISTS idx_api_usage_key_id ON api_usage(key_id);
+CREATE INDEX IF NOT EXISTS idx_api_usage_timestamp ON api_usage(timestamp);
 """
 
 

@@ -104,7 +104,12 @@ class PhishingFilter:
                 return False
             payload, ts_str, sig_hex = parts
             ts = int(ts_str)
-            if abs(time.time() - ts) > ct.hmac_ttl_seconds:
+            now = time.time()
+            # Reject tokens from the future (clock skew tolerance: 60s)
+            if ts > now + 60:
+                return False
+            # Reject expired tokens
+            if now - ts > ct.hmac_ttl_seconds:
                 return False
             expected = hmac.new(
                 ct.hmac_secret.encode(),
