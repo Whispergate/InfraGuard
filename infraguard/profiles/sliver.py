@@ -69,8 +69,8 @@ class SliverParser:
             implant.get("close_file_ext", ".png"),
         )
         stager_uris = self._generate_uris(
-            implant.get("poll_paths", []),
-            implant.get("poll_files", []),
+            implant.get("stager_paths") or implant.get("poll_paths", []),
+            implant.get("stager_files") or implant.get("poll_files", []),
             implant.get("stager_file_ext", ".woff"),
         )
 
