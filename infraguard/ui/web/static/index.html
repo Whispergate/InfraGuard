@@ -139,28 +139,6 @@
         /* ── Export buttons ─────────────────────────────────── */
         .export-row { display: flex; gap: 10px; flex-wrap: wrap; }
 
-        /* ── Decoy & profile management ────────────────────── */
-        .mgmt-select, .mgmt-input {
-            background: var(--bg); border: 1px solid var(--border);
-            border-radius: 4px; color: var(--text); font-family: inherit;
-            font-size: 12px; padding: 4px 8px;
-        }
-        .mgmt-select:focus, .mgmt-input:focus { outline: none; border-color: var(--accent); }
-        .mgmt-input { width: 180px; }
-        .canary-toggles { display: flex; gap: 8px; flex-wrap: wrap; align-items: center; }
-        .canary-toggles label { font-size: 11px; color: var(--text-dim); display: flex; align-items: center; gap: 3px; cursor: pointer; white-space: nowrap; }
-        .btn-save { background: rgba(63,185,80,0.2); color: var(--green); border: none; border-radius: 4px; padding: 2px 8px; font-size: 10px; font-family: inherit; cursor: pointer; font-weight: bold; }
-        .btn-save:hover { background: rgba(63,185,80,0.4); }
-        .btn-preview { background: rgba(88,166,255,0.15); color: var(--accent); border: none; border-radius: 4px; padding: 2px 8px; font-size: 10px; font-family: inherit; cursor: pointer; font-weight: bold; }
-        .btn-preview:hover { background: rgba(88,166,255,0.3); }
-        .btn-swap { background: rgba(210,153,34,0.2); color: var(--yellow); border: none; border-radius: 4px; padding: 2px 8px; font-size: 10px; font-family: inherit; cursor: pointer; font-weight: bold; }
-        .btn-swap:hover { background: rgba(210,153,34,0.4); }
-        .badge.type-badge { background: rgba(88,166,255,0.15); color: var(--accent); }
-        .badge.canary-on { background: rgba(63,185,80,0.15); color: var(--green); }
-        .badge.canary-off { background: rgba(139,148,158,0.15); color: var(--text-dim); }
-        html[data-theme="light"] .btn-save { background: rgba(26,127,55,0.12); color: var(--green); }
-        html[data-theme="light"] .btn-swap { background: rgba(154,103,0,0.12); color: var(--yellow); }
-
         /* ── Responsive design ──────────────────────────────── */
         @media (max-width: 1100px) {
             .grid { grid-template-columns: repeat(2, 1fr); padding: 16px; }
@@ -207,6 +185,7 @@
             <div class="header-right">
                 <span class="status disconnected" id="ws-status">&#9679; Connecting...</span>
                 <button class="theme-toggle" id="theme-toggle" onclick="toggleTheme()" title="Toggle dark/light mode">&#9789; Theme</button>
+                <button class="btn" onclick="window.open('/static/decoys.html','_blank','noopener,noreferrer')">Decoys</button>
                 <button class="btn" onclick="window.open('/static/health.html','_blank','noopener,noreferrer')">Health</button>
                 <button class="btn" onclick="refresh()">Refresh</button>
                 <button class="btn btn-ghost" onclick="doLogout()">Logout</button>
@@ -247,44 +226,6 @@
                 <table>
                     <thead><tr><th></th><th>Domain</th><th>Total</th><th>Blocked</th><th>Block Rate</th></tr></thead>
                     <tbody id="domain-stats"></tbody>
-                </table>
-                </div>
-            </div>
-
-            <div class="card full-width">
-                <h3>
-                    <span>Decoy &amp; Drop Action Management</span>
-                    <button class="btn-sm btn-info" onclick="refreshDecoyPanel()">Refresh</button>
-                </h3>
-                <p style="color: var(--text-dim); font-size: 12px; margin-bottom: 12px;">
-                    Configure how blocked requests are handled per domain. Changes apply at runtime only.
-                </p>
-                <div class="table-wrap">
-                <table>
-                    <thead><tr>
-                        <th>Domain</th><th>Drop Action</th><th>Target</th>
-                        <th>Canary</th><th>Canary Options</th><th>Actions</th>
-                    </tr></thead>
-                    <tbody id="decoy-rows"></tbody>
-                </table>
-                </div>
-            </div>
-
-            <div class="card full-width">
-                <h3>
-                    <span>Profile Management</span>
-                    <button class="btn-sm btn-info" onclick="refreshProfilePanel()">Refresh</button>
-                </h3>
-                <p style="color: var(--text-dim); font-size: 12px; margin-bottom: 12px;">
-                    Hot-swap C2 profiles without restarting the proxy. Changes take effect immediately.
-                </p>
-                <div class="table-wrap">
-                <table>
-                    <thead><tr>
-                        <th>Domain</th><th>Current Profile</th><th>Type</th>
-                        <th>URIs</th><th>New Profile</th><th>Actions</th>
-                    </tr></thead>
-                    <tbody id="profile-rows"></tbody>
                 </table>
                 </div>
             </div>
@@ -522,9 +463,6 @@
         const selectedIPs = new Set();
         const selectedDomains = new Set();
         let lastRequests = [];
-        let availableDecoyPages = [];
-        let domainConfigs = {};
-        let availableProfiles = [];
 
         function rowKey(r) { return r.id != null ? 'id:' + r.id : r.client_ip + '|' + r.timestamp; }
 
@@ -787,204 +725,6 @@
             return resp.json();
         }
 
-        // ── Decoy & Drop Action Management ────────────────────
-        async function refreshDecoyPanel() {
-            try {
-                const [pagesResp, domainsResp] = await Promise.all([
-                    fetchJSON('/api/decoys/pages'),
-                    fetchJSON('/api/config/domains'),
-                ]);
-                availableDecoyPages = pagesResp.pages || [];
-                domainConfigs = domainsResp.domains || {};
-                renderDecoyTable();
-                renderProfileTable();
-            } catch(e) {
-                if (e.message !== 'Session expired') console.error('Decoy panel refresh failed:', e);
-            }
-        }
-
-        function renderDecoyTable() {
-            const tbody = document.getElementById('decoy-rows');
-            if (!tbody) return;
-            const types = ['redirect','reset','proxy','tarpit','decoy'];
-            tbody.innerHTML = Object.entries(domainConfigs).map(([domain, cfg]) => {
-                const da = cfg.drop_action || {};
-                const curType = da.type || 'redirect';
-                const canary = da.canary || {};
-                const d = esc(domain);
-                const typeOpts = types.map(t =>
-                    `<option value="${t}" ${t === curType ? 'selected' : ''}>${t}</option>`
-                ).join('');
-
-                let targetCell;
-                if (curType === 'decoy') {
-                    const pageOpts = availableDecoyPages.map(p =>
-                        `<option value="${esc(p.name)}" ${p.name === (da.target||'') ? 'selected' : ''}>${esc(p.name)}${p.has_index ? '' : ' (no index)'}</option>`
-                    ).join('');
-                    targetCell = `<select class="mgmt-select" id="target-${d}">${pageOpts}</select>`;
-                } else if (curType === 'redirect' || curType === 'proxy') {
-                    targetCell = `<input class="mgmt-input" id="target-${d}" value="${esc(da.target||'')}" placeholder="https://...">`;
-                } else {
-                    targetCell = `<span style="color:var(--text-dim)">N/A</span><input type="hidden" id="target-${d}" value="${esc(da.target||'')}">`;
-                }
-
-                const isDecoy = curType === 'decoy';
-                const canaryBadge = isDecoy
-                    ? (canary.enabled ? '<span class="badge canary-on">ON</span>' : '<span class="badge canary-off">OFF</span>')
-                    : '<span style="color:var(--text-dim)">N/A</span>';
-                const canaryToggle = isDecoy
-                    ? `<input type="checkbox" id="canary-enabled-${d}" ${canary.enabled ? 'checked' : ''}> ${canaryBadge}`
-                    : canaryBadge;
-
-                const canaryOpts = isDecoy
-                    ? `<div class="canary-toggles">
-                        <label><input type="checkbox" id="canary-pixel-${d}" ${canary.tracking_pixel !== false ? 'checked' : ''}> Pixel</label>
-                        <label><input type="checkbox" id="canary-link-${d}" ${canary.honeypot_link !== false ? 'checked' : ''}> Link</label>
-                        <label><input type="checkbox" id="canary-form-${d}" ${canary.honeypot_form ? 'checked' : ''}> Form</label>
-                       </div>`
-                    : '<span style="color:var(--text-dim)">-</span>';
-
-                const previewBtn = isDecoy
-                    ? ` <button class="btn-preview" onclick="previewDecoy('${d}')">Preview</button>`
-                    : '';
-
-                return `<tr>
-                    <td>${d}</td>
-                    <td><select class="mgmt-select" id="type-${d}" onchange="onDropTypeChange('${d}',this.value)">${typeOpts}</select></td>
-                    <td>${targetCell}</td>
-                    <td>${canaryToggle}</td>
-                    <td>${canaryOpts}</td>
-                    <td><button class="btn-save" onclick="saveDropAction('${d}')">Save</button>${previewBtn}</td>
-                </tr>`;
-            }).join('');
-        }
-
-        function onDropTypeChange(domain, newType) {
-            if (domainConfigs[domain]) {
-                domainConfigs[domain].drop_action.type = newType;
-                renderDecoyTable();
-            }
-        }
-
-        async function saveDropAction(domain) {
-            const typeEl = document.getElementById('type-' + domain);
-            const targetEl = document.getElementById('target-' + domain);
-            if (!typeEl) return;
-
-            const payload = {
-                type: typeEl.value,
-                target: targetEl ? targetEl.value : undefined,
-            };
-
-            if (typeEl.value === 'decoy') {
-                const enabledEl = document.getElementById('canary-enabled-' + domain);
-                const pixelEl = document.getElementById('canary-pixel-' + domain);
-                const linkEl = document.getElementById('canary-link-' + domain);
-                const formEl = document.getElementById('canary-form-' + domain);
-                payload.canary = {
-                    enabled: enabledEl ? enabledEl.checked : false,
-                    tracking_pixel: pixelEl ? pixelEl.checked : true,
-                    honeypot_link: linkEl ? linkEl.checked : true,
-                    honeypot_form: formEl ? formEl.checked : false,
-                };
-            }
-
-            try {
-                const resp = await fetch(API_BASE + '/api/config/domains/' + encodeURIComponent(domain) + '/drop-action', {
-                    method: 'PATCH',
-                    headers: {'Content-Type': 'application/json'},
-                    body: JSON.stringify(payload),
-                    credentials: 'same-origin',
-                });
-                if (resp.status === 401 || resp.status === 403) { showLogin(); return; }
-                const data = await resp.json();
-                if (resp.ok) {
-                    toast('Drop action updated for ' + domain, 'ok');
-                    if (domainConfigs[domain]) domainConfigs[domain].drop_action = data.drop_action;
-                    renderDecoyTable();
-                } else {
-                    toast(data.error || 'Failed to update drop action', 'err');
-                }
-            } catch(e) { toast('Error: ' + e.message, 'err'); }
-        }
-
-        function previewDecoy(domain) {
-            const targetEl = document.getElementById('target-' + domain);
-            const page = targetEl ? targetEl.value : '';
-            if (!page) { toast('No decoy page selected', 'err'); return; }
-            window.open(API_BASE + '/api/decoys/pages/' + encodeURIComponent(page) + '/preview', '_blank', 'noopener,noreferrer');
-        }
-
-        // ── Profile Management ────────────────────────────────
-        async function refreshProfilePanel() {
-            try {
-                const resp = await fetchJSON('/api/profiles');
-                availableProfiles = resp.profiles || [];
-                renderProfileTable();
-            } catch(e) {
-                if (e.message !== 'Session expired') console.error('Profile panel refresh failed:', e);
-            }
-        }
-
-        function renderProfileTable() {
-            const tbody = document.getElementById('profile-rows');
-            if (!tbody) return;
-            tbody.innerHTML = Object.entries(domainConfigs).map(([domain, cfg]) => {
-                const d = esc(domain);
-                const curProfile = cfg.profile_path ? cfg.profile_path.split(/[/\\]/).pop() : 'N/A';
-                const curType = cfg.profile_type || 'unknown';
-                const uriCount = (cfg.uris || []).length;
-
-                const profileOpts = availableProfiles.map(p =>
-                    `<option value="${esc(p.path)}" ${p.path === cfg.profile_path ? 'selected' : ''}>${esc(p.name)} (${esc(p.type)})</option>`
-                ).join('');
-                const selectHtml = profileOpts
-                    ? `<select class="mgmt-select" id="profile-${d}">${profileOpts}</select>`
-                    : '<span style="color:var(--text-dim)">No profiles found</span>';
-
-                return `<tr>
-                    <td>${d}</td>
-                    <td>${esc(curProfile)}</td>
-                    <td><span class="badge type-badge">${esc(curType)}</span></td>
-                    <td>${uriCount > 0 ? uriCount : '-'}</td>
-                    <td>${selectHtml}</td>
-                    <td><button class="btn-swap" onclick="swapProfile('${d}')">Swap</button></td>
-                </tr>`;
-            }).join('');
-        }
-
-        async function swapProfile(domain) {
-            const selectEl = document.getElementById('profile-' + domain);
-            if (!selectEl) return;
-            const newPath = selectEl.value;
-            if (!newPath) { toast('No profile selected', 'err'); return; }
-
-            if (!confirm('Swap profile for ' + domain + '?\nThis affects live traffic immediately.')) return;
-
-            try {
-                const resp = await fetch(API_BASE + '/api/config/domains/' + encodeURIComponent(domain) + '/profile', {
-                    method: 'PATCH',
-                    headers: {'Content-Type': 'application/json'},
-                    body: JSON.stringify({profile_path: newPath}),
-                    credentials: 'same-origin',
-                });
-                if (resp.status === 401 || resp.status === 403) { showLogin(); return; }
-                const data = await resp.json();
-                if (resp.ok) {
-                    const p = data.profile || {};
-                    toast('Profile swapped: ' + (p.name || newPath) + ' (' + (p.uris||[]).length + ' URIs)', 'ok');
-                    if (domainConfigs[domain]) {
-                        domainConfigs[domain].profile_path = p.path || newPath;
-                        domainConfigs[domain].profile_type = p.type || 'unknown';
-                        domainConfigs[domain].uris = p.uris || [];
-                    }
-                    renderProfileTable();
-                } else {
-                    toast(data.error || 'Failed to swap profile', 'err');
-                }
-            } catch(e) { toast('Error: ' + e.message, 'err'); }
-        }
-
         async function refresh() {
             try {
                 const stats = await fetchJSON('/api/stats?hours=24');
@@ -1028,8 +768,6 @@
                     </tr>`;
                 }).join('');
                 updateBulkBar();
-                refreshDecoyPanel();
-                refreshProfilePanel();
             } catch(e) {
                 if (e.message !== 'Session expired') console.error('Refresh failed:', e);
             }

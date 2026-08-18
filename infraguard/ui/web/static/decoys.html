@@ -1,0 +1,470 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+    <meta charset="UTF-8">
+    <meta name="viewport" content="width=device-width, initial-scale=1.0">
+    <title>InfraGuard — Decoys &amp; Profiles</title>
+    <link rel="icon" type="image/svg+xml" href="/static/infraguard_icon.svg">
+    <style>
+        :root {
+            --bg: #0d1117;
+            --surface: #161b22;
+            --border: #30363d;
+            --text: #c9d1d9;
+            --text-dim: #8b949e;
+            --accent: #58a6ff;
+            --green: #3fb950;
+            --red: #f85149;
+            --yellow: #d29922;
+        }
+        * { margin: 0; padding: 0; box-sizing: border-box; }
+        body { font-family: 'SF Mono', 'Cascadia Code', monospace; background: var(--bg); color: var(--text); }
+
+        /* ── Header ─────────────────────────────────────────── */
+        .header {
+            background: var(--surface);
+            border-bottom: 1px solid var(--border);
+            padding: 16px 24px;
+            display: flex;
+            justify-content: space-between;
+            align-items: center;
+        }
+        .header-brand { display: flex; align-items: center; gap: 10px; }
+        .header-icon { width: 28px; height: 28px; }
+        .header h1 { font-size: 18px; color: var(--accent); }
+        .header-right { display: flex; gap: 12px; align-items: center; }
+
+        /* ── Nav ─────────────────────────────────────────────── */
+        .nav { display: flex; gap: 4px; padding: 0 24px; background: var(--surface); border-bottom: 1px solid var(--border); }
+        .nav a {
+            padding: 10px 16px;
+            font-size: 12px;
+            color: var(--text-dim);
+            text-decoration: none;
+            border-bottom: 2px solid transparent;
+        }
+        .nav a.active, .nav a:hover { color: var(--accent); border-bottom-color: var(--accent); }
+
+        /* ── Layout ─────────────────────────────────────────── */
+        .grid { display: grid; grid-template-columns: 1fr; gap: 16px; padding: 24px; }
+        .card {
+            background: var(--surface);
+            border: 1px solid var(--border);
+            border-radius: 8px;
+            padding: 20px;
+        }
+        .card h3 {
+            font-size: 12px;
+            text-transform: uppercase;
+            color: var(--text-dim);
+            margin-bottom: 8px;
+            display: flex;
+            justify-content: space-between;
+            align-items: center;
+        }
+
+        /* ── Tables ─────────────────────────────────────────── */
+        .table-wrap { overflow-x: auto; }
+        table { width: 100%; border-collapse: collapse; font-size: 13px; }
+        th {
+            text-align: left;
+            padding: 8px 12px;
+            color: var(--text-dim);
+            font-size: 11px;
+            text-transform: uppercase;
+            border-bottom: 1px solid var(--border);
+        }
+        td { padding: 8px 12px; border-bottom: 1px solid var(--border); }
+
+        /* ── Badges ─────────────────────────────────────────── */
+        .badge {
+            display: inline-block;
+            padding: 2px 8px;
+            border-radius: 4px;
+            font-size: 11px;
+            font-weight: bold;
+        }
+        .badge.type-badge { background: rgba(88,166,255,0.15); color: var(--accent); }
+        .badge.canary-on { background: rgba(63,185,80,0.15); color: var(--green); }
+        .badge.canary-off { background: rgba(139,148,158,0.15); color: var(--text-dim); }
+
+        /* ── Buttons ────────────────────────────────────────── */
+        .btn {
+            background: var(--accent);
+            color: var(--bg);
+            border: none;
+            padding: 8px 16px;
+            border-radius: 4px;
+            cursor: pointer;
+            font-family: inherit;
+            font-size: 12px;
+        }
+        .btn:hover { opacity: 0.8; }
+        .btn-ghost {
+            background: transparent;
+            color: var(--text-dim);
+            border: 1px solid var(--border);
+        }
+        .btn-ghost:hover { color: var(--text); border-color: var(--text-dim); }
+        .btn-sm { padding: 2px 8px; font-size: 10px; }
+        .btn-save { background: rgba(63,185,80,0.2); color: var(--green); border: none; border-radius: 4px; padding: 4px 12px; font-size: 11px; font-family: inherit; cursor: pointer; font-weight: bold; }
+        .btn-save:hover { background: rgba(63,185,80,0.4); }
+        .btn-preview { background: rgba(88,166,255,0.15); color: var(--accent); border: none; border-radius: 4px; padding: 4px 12px; font-size: 11px; font-family: inherit; cursor: pointer; font-weight: bold; }
+        .btn-preview:hover { background: rgba(88,166,255,0.3); }
+        .btn-swap { background: rgba(210,153,34,0.2); color: var(--yellow); border: none; border-radius: 4px; padding: 4px 12px; font-size: 11px; font-family: inherit; cursor: pointer; font-weight: bold; }
+        .btn-swap:hover { background: rgba(210,153,34,0.4); }
+
+        /* ── Form controls ──────────────────────────────────── */
+        .mgmt-select, .mgmt-input {
+            background: var(--bg); border: 1px solid var(--border);
+            border-radius: 4px; color: var(--text); font-family: inherit;
+            font-size: 12px; padding: 4px 8px;
+        }
+        .mgmt-select:focus, .mgmt-input:focus { outline: none; border-color: var(--accent); }
+        .mgmt-input { width: 180px; }
+        .canary-toggles { display: flex; gap: 8px; flex-wrap: wrap; align-items: center; }
+        .canary-toggles label { font-size: 11px; color: var(--text-dim); display: flex; align-items: center; gap: 3px; cursor: pointer; white-space: nowrap; }
+
+        /* ── Toast ──────────────────────────────────────────── */
+        #toast-container { position: fixed; bottom: 20px; right: 20px; z-index: 200; display: flex; flex-direction: column; gap: 8px; max-width: 90vw; }
+        .toast { background: var(--surface); border: 1px solid var(--border); border-left: 3px solid var(--accent); padding: 10px 16px; border-radius: 6px; font-size: 12px; box-shadow: 0 4px 16px rgba(0,0,0,0.45); animation: toast-in .2s ease-out; max-width: 360px; }
+        .toast.ok { border-left-color: var(--green); }
+        .toast.err { border-left-color: var(--red); }
+        @keyframes toast-in { from { opacity: 0; transform: translateY(8px); } to { opacity: 1; transform: none; } }
+
+        /* ── Refresh info ───────────────────────────────────── */
+        .refresh-info { font-size: 11px; color: var(--text-dim); }
+
+        /* ── Responsive ─────────────────────────────────────── */
+        @media (max-width: 640px) {
+            .grid { padding: 12px; gap: 12px; }
+            .header { padding: 12px 16px; }
+            .header h1 { font-size: 15px; }
+            .card { padding: 16px; }
+            .mgmt-input { width: 120px; }
+        }
+    </style>
+</head>
+<body>
+
+    <!-- ── Header ──────────────────────────────────────────── -->
+    <div class="header">
+        <div class="header-brand">
+            <img src="/static/infraguard_icon.svg" alt="" class="header-icon">
+            <h1>InfraGuard — Decoys &amp; Profiles</h1>
+        </div>
+        <div class="header-right">
+            <span class="refresh-info" id="last-refresh"></span>
+            <button class="btn" onclick="refresh()">Refresh</button>
+            <a href="/" style="text-decoration:none;"><button class="btn btn-ghost">Dashboard</button></a>
+        </div>
+    </div>
+
+    <!-- ── Nav ─────────────────────────────────────────────── -->
+    <div class="nav">
+        <a href="/">Overview</a>
+        <a href="/static/decoys.html" class="active">Decoys</a>
+        <a href="/static/health.html">Health</a>
+    </div>
+
+    <div class="grid">
+
+        <!-- ── Drop Action Management ─────────────────────── -->
+        <div class="card">
+            <h3>
+                <span>Decoy &amp; Drop Action Management</span>
+            </h3>
+            <p style="color: var(--text-dim); font-size: 12px; margin-bottom: 12px;">
+                Configure how blocked requests are handled per domain. Changes apply at runtime only.
+            </p>
+            <div class="table-wrap">
+            <table>
+                <thead><tr>
+                    <th>Domain</th><th>Drop Action</th><th>Target</th>
+                    <th>Canary</th><th>Canary Options</th><th>Actions</th>
+                </tr></thead>
+                <tbody id="decoy-rows"></tbody>
+            </table>
+            </div>
+        </div>
+
+        <!-- ── Profile Management ─────────────────────────── -->
+        <div class="card">
+            <h3>
+                <span>Profile Management</span>
+            </h3>
+            <p style="color: var(--text-dim); font-size: 12px; margin-bottom: 12px;">
+                Hot-swap C2 profiles without restarting the proxy. Changes take effect immediately.
+            </p>
+            <div class="table-wrap">
+            <table>
+                <thead><tr>
+                    <th>Domain</th><th>Current Profile</th><th>Type</th>
+                    <th>URIs</th><th>New Profile</th><th>Actions</th>
+                </tr></thead>
+                <tbody id="profile-rows"></tbody>
+            </table>
+            </div>
+        </div>
+
+    </div><!-- /grid -->
+
+    <div id="toast-container"></div>
+
+    <script>
+        const API_BASE = window.location.origin;
+        let pollInterval = null;
+        let availableDecoyPages = [];
+        let domainConfigs = {};
+        let availableProfiles = [];
+
+        // ── Auth guard ────────────────────────────────────────
+        async function checkAuth() {
+            try {
+                const resp = await fetch(API_BASE + '/api/auth/check', {credentials: 'same-origin'});
+                const data = await resp.json();
+                if (data.auth_required && !data.authenticated) {
+                    window.location.href = '/';
+                }
+            } catch(e) {
+                window.location.href = '/';
+            }
+        }
+
+        // ── HTML escaping ─────────────────────────────────────
+        function esc(s) {
+            if (s == null) return '';
+            const d = document.createElement('div');
+            d.textContent = String(s);
+            return d.innerHTML.replace(/'/g, '&#39;');
+        }
+
+        // ── Toast ─────────────────────────────────────────────
+        function toast(msg, kind) {
+            const c = document.getElementById('toast-container');
+            const el = document.createElement('div');
+            el.className = 'toast ' + (kind || '');
+            el.textContent = msg;
+            c.appendChild(el);
+            setTimeout(() => el.remove(), 4000);
+        }
+
+        // ── Fetch helper ──────────────────────────────────────
+        async function fetchJSON(path) {
+            const resp = await fetch(API_BASE + path, {credentials: 'same-origin'});
+            if (resp.status === 401 || resp.status === 403) {
+                window.location.href = '/';
+                throw new Error('Session expired');
+            }
+            return resp.json();
+        }
+
+        // ── Decoy & Drop Action Management ────────────────────
+        function renderDecoyTable() {
+            const tbody = document.getElementById('decoy-rows');
+            if (!tbody) return;
+            const types = ['redirect','reset','proxy','tarpit','decoy'];
+            tbody.innerHTML = Object.entries(domainConfigs).map(([domain, cfg]) => {
+                const da = cfg.drop_action || {};
+                const curType = da.type || 'redirect';
+                const canary = da.canary || {};
+                const d = esc(domain);
+                const typeOpts = types.map(t =>
+                    `<option value="${t}" ${t === curType ? 'selected' : ''}>${t}</option>`
+                ).join('');
+
+                let targetCell;
+                if (curType === 'decoy') {
+                    const pageOpts = availableDecoyPages.map(p =>
+                        `<option value="${esc(p.name)}" ${p.name === (da.target||'') ? 'selected' : ''}>${esc(p.name)}${p.has_index ? '' : ' (no index)'}</option>`
+                    ).join('');
+                    targetCell = `<select class="mgmt-select" id="target-${d}">${pageOpts}</select>`;
+                } else if (curType === 'redirect' || curType === 'proxy') {
+                    targetCell = `<input class="mgmt-input" id="target-${d}" value="${esc(da.target||'')}" placeholder="https://...">`;
+                } else {
+                    targetCell = `<span style="color:var(--text-dim)">N/A</span><input type="hidden" id="target-${d}" value="${esc(da.target||'')}">`;
+                }
+
+                const isDecoy = curType === 'decoy';
+                const canaryBadge = isDecoy
+                    ? (canary.enabled ? '<span class="badge canary-on">ON</span>' : '<span class="badge canary-off">OFF</span>')
+                    : '<span style="color:var(--text-dim)">N/A</span>';
+                const canaryToggle = isDecoy
+                    ? `<input type="checkbox" id="canary-enabled-${d}" ${canary.enabled ? 'checked' : ''}> ${canaryBadge}`
+                    : canaryBadge;
+
+                const canaryOpts = isDecoy
+                    ? `<div class="canary-toggles">
+                        <label><input type="checkbox" id="canary-pixel-${d}" ${canary.tracking_pixel !== false ? 'checked' : ''}> Pixel</label>
+                        <label><input type="checkbox" id="canary-link-${d}" ${canary.honeypot_link !== false ? 'checked' : ''}> Link</label>
+                        <label><input type="checkbox" id="canary-form-${d}" ${canary.honeypot_form ? 'checked' : ''}> Form</label>
+                       </div>`
+                    : '<span style="color:var(--text-dim)">-</span>';
+
+                const previewBtn = isDecoy
+                    ? ` <button class="btn-preview" onclick="previewDecoy('${d}')">Preview</button>`
+                    : '';
+
+                return `<tr>
+                    <td>${d}</td>
+                    <td><select class="mgmt-select" id="type-${d}" onchange="onDropTypeChange('${d}',this.value)">${typeOpts}</select></td>
+                    <td>${targetCell}</td>
+                    <td>${canaryToggle}</td>
+                    <td>${canaryOpts}</td>
+                    <td><button class="btn-save" onclick="saveDropAction('${d}')">Save</button>${previewBtn}</td>
+                </tr>`;
+            }).join('');
+        }
+
+        function onDropTypeChange(domain, newType) {
+            if (domainConfigs[domain]) {
+                domainConfigs[domain].drop_action.type = newType;
+                renderDecoyTable();
+            }
+        }
+
+        async function saveDropAction(domain) {
+            const typeEl = document.getElementById('type-' + domain);
+            const targetEl = document.getElementById('target-' + domain);
+            if (!typeEl) return;
+
+            const payload = {
+                type: typeEl.value,
+                target: targetEl ? targetEl.value : undefined,
+            };
+
+            if (typeEl.value === 'decoy') {
+                const enabledEl = document.getElementById('canary-enabled-' + domain);
+                const pixelEl = document.getElementById('canary-pixel-' + domain);
+                const linkEl = document.getElementById('canary-link-' + domain);
+                const formEl = document.getElementById('canary-form-' + domain);
+                payload.canary = {
+                    enabled: enabledEl ? enabledEl.checked : false,
+                    tracking_pixel: pixelEl ? pixelEl.checked : true,
+                    honeypot_link: linkEl ? linkEl.checked : true,
+                    honeypot_form: formEl ? formEl.checked : false,
+                };
+            }
+
+            try {
+                const resp = await fetch(API_BASE + '/api/config/domains/' + encodeURIComponent(domain) + '/drop-action', {
+                    method: 'PATCH',
+                    headers: {'Content-Type': 'application/json'},
+                    body: JSON.stringify(payload),
+                    credentials: 'same-origin',
+                });
+                if (resp.status === 401 || resp.status === 403) { window.location.href = '/'; return; }
+                const data = await resp.json();
+                if (resp.ok) {
+                    toast('Drop action updated for ' + domain, 'ok');
+                    if (domainConfigs[domain]) domainConfigs[domain].drop_action = data.drop_action;
+                    renderDecoyTable();
+                } else {
+                    toast(data.error || 'Failed to update drop action', 'err');
+                }
+            } catch(e) { toast('Error: ' + e.message, 'err'); }
+        }
+
+        function previewDecoy(domain) {
+            const targetEl = document.getElementById('target-' + domain);
+            const page = targetEl ? targetEl.value : '';
+            if (!page) { toast('No decoy page selected', 'err'); return; }
+            window.open(API_BASE + '/api/decoys/pages/' + encodeURIComponent(page) + '/preview', '_blank', 'noopener,noreferrer');
+        }
+
+        // ── Profile Management ────────────────────────────────
+        function renderProfileTable() {
+            const tbody = document.getElementById('profile-rows');
+            if (!tbody) return;
+            tbody.innerHTML = Object.entries(domainConfigs).map(([domain, cfg]) => {
+                const d = esc(domain);
+                const curProfile = cfg.profile_path ? cfg.profile_path.split(/[/\\]/).pop() : 'N/A';
+                const curType = cfg.profile_type || 'unknown';
+                const uriCount = (cfg.uris || []).length;
+
+                const profileOpts = availableProfiles.map(p =>
+                    `<option value="${esc(p.path)}" ${p.path === cfg.profile_path ? 'selected' : ''}>${esc(p.name)} (${esc(p.type)})</option>`
+                ).join('');
+                const selectHtml = profileOpts
+                    ? `<select class="mgmt-select" id="profile-${d}">${profileOpts}</select>`
+                    : '<span style="color:var(--text-dim)">No profiles found</span>';
+
+                return `<tr>
+                    <td>${d}</td>
+                    <td>${esc(curProfile)}</td>
+                    <td><span class="badge type-badge">${esc(curType)}</span></td>
+                    <td>${uriCount > 0 ? uriCount : '-'}</td>
+                    <td>${selectHtml}</td>
+                    <td><button class="btn-swap" onclick="swapProfile('${d}')">Swap</button></td>
+                </tr>`;
+            }).join('');
+        }
+
+        async function swapProfile(domain) {
+            const selectEl = document.getElementById('profile-' + domain);
+            if (!selectEl) return;
+            const newPath = selectEl.value;
+            if (!newPath) { toast('No profile selected', 'err'); return; }
+
+            if (!confirm('Swap profile for ' + domain + '?\nThis affects live traffic immediately.')) return;
+
+            try {
+                const resp = await fetch(API_BASE + '/api/config/domains/' + encodeURIComponent(domain) + '/profile', {
+                    method: 'PATCH',
+                    headers: {'Content-Type': 'application/json'},
+                    body: JSON.stringify({profile_path: newPath}),
+                    credentials: 'same-origin',
+                });
+                if (resp.status === 401 || resp.status === 403) { window.location.href = '/'; return; }
+                const data = await resp.json();
+                if (resp.ok) {
+                    const p = data.profile || {};
+                    toast('Profile swapped: ' + (p.name || newPath) + ' (' + (p.uris||[]).length + ' URIs)', 'ok');
+                    if (domainConfigs[domain]) {
+                        domainConfigs[domain].profile_path = p.path || newPath;
+                        domainConfigs[domain].profile_type = p.type || 'unknown';
+                        domainConfigs[domain].uris = p.uris || [];
+                    }
+                    renderProfileTable();
+                } else {
+                    toast(data.error || 'Failed to swap profile', 'err');
+                }
+            } catch(e) { toast('Error: ' + e.message, 'err'); }
+        }
+
+        // ── Main refresh ──────────────────────────────────────
+        async function refresh() {
+            try {
+                const [pagesResp, domainsResp, profilesResp] = await Promise.all([
+                    fetchJSON('/api/decoys/pages'),
+                    fetchJSON('/api/config/domains'),
+                    fetchJSON('/api/profiles'),
+                ]);
+                availableDecoyPages = pagesResp.pages || [];
+                domainConfigs = domainsResp.domains || {};
+                availableProfiles = profilesResp.profiles || [];
+                renderDecoyTable();
+                renderProfileTable();
+
+                document.getElementById('last-refresh').textContent =
+                    'Updated ' + new Date().toLocaleTimeString();
+            } catch(e) {
+                if (e.message !== 'Session expired') console.error('Refresh failed:', e);
+            }
+        }
+
+        // ── Polling ───────────────────────────────────────────
+        function startPolling() {
+            if (pollInterval) clearInterval(pollInterval);
+            pollInterval = setInterval(refresh, 15000);
+        }
+
+        // ── Init ──────────────────────────────────────────────
+        (async () => {
+            await checkAuth();
+            refresh();
+            startPolling();
+        })();
+    </script>
+</body>
+</html>
