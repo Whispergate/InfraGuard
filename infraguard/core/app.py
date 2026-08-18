@@ -318,7 +318,7 @@ def create_app(config: InfraGuardConfig) -> Starlette:
 
             _dashboard_db = Database(config.tracking.db_path)
             _dashboard_app = create_api_app(
-                config, _dashboard_db, intel=router.intel,
+                config, _dashboard_db, intel=router.intel, router=router,
             )
             _dashboard_app.state.burn_scorer = _burn_scorer
             if _pdns_monitor is not None:

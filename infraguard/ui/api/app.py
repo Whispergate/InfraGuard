@@ -38,8 +38,20 @@ from infraguard.ui.api.rate_limit import (
     revoke_api_key,
     rotate_api_key,
 )
-from infraguard.ui.api.routes.config import get_config, get_domains
-from infraguard.ui.api.routes.decoys import get_decoy_file, list_decoys, update_decoy_file
+from infraguard.ui.api.routes.config import (
+    get_config,
+    get_domains,
+    list_profiles,
+    swap_profile,
+    update_drop_action,
+)
+from infraguard.ui.api.routes.decoys import (
+    get_decoy_file,
+    list_decoy_pages,
+    list_decoys,
+    preview_decoy_page,
+    update_decoy_file,
+)
 from infraguard.ui.api.routes.intel import add_blocklist, add_whitelist, classify_ip, remove_blocklist
 from infraguard.ui.api.routes.health import get_health, get_health_summary
 from infraguard.ui.api.routes.nodes import heartbeat_node, list_nodes, register_node
@@ -143,6 +155,7 @@ def create_api_app(
     config: InfraGuardConfig,
     db: Database,
     intel: IntelManager | None = None,
+    router=None,
 ) -> Starlette:
     """Create the dashboard API application."""
     broadcaster = EventBroadcaster()
@@ -261,7 +274,12 @@ def create_api_app(
         Route("/api/intel/pdns/history/{domain}", get_pdns_history, methods=["GET"]),
         Route("/api/intel/pdns/history", clear_pdns_history, methods=["DELETE"]),
         Route("/api/config", get_config, methods=["GET"]),
+        Route("/api/config/domains/{domain}/drop-action", update_drop_action, methods=["PATCH"]),
+        Route("/api/config/domains/{domain}/profile", swap_profile, methods=["PATCH"]),
         Route("/api/config/domains", get_domains, methods=["GET"]),
+        Route("/api/profiles", list_profiles, methods=["GET"]),
+        Route("/api/decoys/pages/{page_name}/preview", preview_decoy_page, methods=["GET"]),
+        Route("/api/decoys/pages", list_decoy_pages, methods=["GET"]),
         Route("/api/decoys", list_decoys, methods=["GET"]),
         Route("/api/decoys/{domain}/{filename}", get_decoy_file, methods=["GET"]),
         Route("/api/decoys/{domain}/{filename}", update_decoy_file, methods=["PUT"]),
@@ -288,6 +306,7 @@ def create_api_app(
     app.state.stats_query = stats_query
     app.state.node_registry = node_registry
     app.state.broadcaster = broadcaster
+    app.state.router = router
     if intel:
         app.state.intel_manager = intel
 

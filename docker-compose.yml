@@ -1,10 +1,25 @@
 services:
+  # ── Certificate permission fixer ────────────────────────────────────
+  # Certbot writes certs as root; the proxy runs as UID 1000 and needs
+  # read access.  This runs once before the proxy starts.
+  cert-init:
+    image: alpine:latest
+    container_name: infraguard-cert-init
+    volumes:
+      - certs:/etc/letsencrypt
+    entrypoint: /bin/sh
+    command: ["-c", "chmod -R a+rX /etc/letsencrypt 2>/dev/null; true"]
+    restart: "no"
+
   # ── Reverse proxy (core redirector) ─────────────────────────────────
   proxy:
     build: .
     container_name: infraguard-proxy
     restart: unless-stopped
     env_file: .env
+    depends_on:
+      cert-init:
+        condition: service_completed_successfully
     ports:
       - "443:443"
       - "80:80"
@@ -154,6 +169,7 @@ services:
             --email $${INFRAGUARD_DOMAIN_EMAIL} \
             -d $${INFRAGUARD_DOMAIN} \
             --preferred-challenges http \
+          && chmod -R a+rX /etc/letsencrypt/live /etc/letsencrypt/archive \
           && echo "Certificate obtained for $${INFRAGUARD_DOMAIN}"
         else
           echo "Let's Encrypt disabled (INFRAGUARD_LETSENCRYPT != true)"
@@ -173,7 +189,7 @@ services:
       - certs:/etc/letsencrypt
       - certbot-www:/var/www/certbot
     entrypoint: /bin/sh
-    command: -c 'trap exit TERM; while :; do certbot renew --quiet; sleep 43200; done'
+    command: -c 'trap exit TERM; while :; do certbot renew --quiet --deploy-hook "chmod -R a+rX /etc/letsencrypt/live /etc/letsencrypt/archive"; sleep 43200; done'
     depends_on:
       certbot:
         condition: service_completed_successfully
