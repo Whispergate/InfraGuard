@@ -17,6 +17,7 @@ from infraguard.deploy.providers.cloudflare import CloudflareProvider
 from infraguard.deploy.providers.digitalocean import DigitalOceanProvider
 from infraguard.deploy.providers.hetzner import HetznerProvider
 from infraguard.deploy.providers.base import TerraformProvider, TerraformError
+from infraguard.deploy.providers.pulumi import PulumiProvider, PulumiError
 
 __all__ = [
     "AWSProvider",
@@ -26,6 +27,8 @@ __all__ = [
     "HetznerProvider",
     "TerraformProvider",
     "TerraformError",
+    "PulumiProvider",
+    "PulumiError",
     "get_provider",
 ]
 

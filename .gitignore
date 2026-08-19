@@ -232,3 +232,5 @@ images/.$InfraGuard Infrastructure Diagram.drawio.bkp
 .claude
 .infraguard-deploy
 .infraguard
+pulumi_deploy/*
+terraform_deploy/*
