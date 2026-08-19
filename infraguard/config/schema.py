@@ -550,6 +550,15 @@ class ReportScheduleConfig(BaseModel):
     delivery: ReportDeliveryConfig = Field(default_factory=ReportDeliveryConfig)
 
 
+class OllamaConfig(BaseModel):
+    """Optional Ollama AI assistant for profile generation."""
+
+    enabled: bool = False
+    url: str = "http://ollama:11434"
+    model: str = "qwen3:8b"
+    timeout: int = 120
+
+
 class InfraGuardConfig(BaseModel):
     """Root configuration model for InfraGuard."""
 
@@ -567,6 +576,7 @@ class InfraGuardConfig(BaseModel):
     rotation: RotationConfig = Field(default_factory=RotationConfig)
     fronting: FrontingConfig = Field(default_factory=FrontingConfig)
     reporting: ReportScheduleConfig = Field(default_factory=ReportScheduleConfig)
+    ollama: OllamaConfig = Field(default_factory=OllamaConfig)
     decoy_pages_dir: str = "pages"
     plugins: list[str] = Field(default_factory=list)
     plugin_settings: dict[str, PluginSettings] = Field(default_factory=dict)

@@ -17,6 +17,12 @@ services:
     container_name: infraguard-proxy
     restart: unless-stopped
     env_file: .env
+    environment:
+      # Bind embedded API to all interfaces so the dashboard container
+      # can reach it over the Docker network for forwarding mutations.
+      # Port 8080 is NOT exposed to the host — only reachable within
+      # the infraguard bridge network.
+      - INFRAGUARD_API_BIND=0.0.0.0
     depends_on:
       cert-init:
         condition: service_completed_successfully
@@ -85,6 +91,9 @@ services:
     container_name: infraguard-dashboard
     restart: unless-stopped
     env_file: .env
+    environment:
+      - INFRAGUARD_PROXY_API=http://infraguard-proxy:8080
+      - INFRAGUARD_OLLAMA_URL=http://infraguard-ollama:11434
     ports:
       - "8080:8080"
     volumes:
@@ -339,11 +348,37 @@ services:
     networks:
       - infraguard
 
+  # ── Ollama AI assistant (optional) ────────────────────────────────────
+  # Provides AI-assisted C2 profile generation and troubleshooting via
+  # the dashboard's chat panel.
+  # Enable with: docker compose --profile ollama up -d ollama
+  # First run will pull the model (~5 GB): docker compose --profile ollama exec ollama ollama pull qwen3:8b
+  ollama:
+    image: ollama/ollama:latest
+    container_name: infraguard-ollama
+    profiles: ["ollama"]
+    restart: unless-stopped
+    ports:
+      - "11434:11434"
+    volumes:
+      - ollama-data:/root/.ollama
+    deploy:
+      resources:
+        limits:
+          cpus: "4.0"
+          memory: 8G
+        reservations:
+          cpus: "0.5"
+          memory: 1G
+    networks:
+      - infraguard
+
 volumes:
   certs:
   certbot-www:
   geoip:
   pwndrop-data:
+  ollama-data:
 
 networks:
   infraguard:

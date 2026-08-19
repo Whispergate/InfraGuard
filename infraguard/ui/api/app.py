@@ -38,12 +38,15 @@ from infraguard.ui.api.rate_limit import (
     revoke_api_key,
     rotate_api_key,
 )
+from infraguard.ui.api.routes.ai import ai_chat, ai_status
 from infraguard.ui.api.routes.config import (
+    generate_profile_endpoint,
     get_config,
     get_domains,
     list_profiles,
     swap_profile,
     update_drop_action,
+    upload_profile,
 )
 from infraguard.ui.api.routes.decoys import (
     get_decoy_file,
@@ -277,7 +280,11 @@ def create_api_app(
         Route("/api/config/domains/{domain}/drop-action", update_drop_action, methods=["PATCH"]),
         Route("/api/config/domains/{domain}/profile", swap_profile, methods=["PATCH"]),
         Route("/api/config/domains", get_domains, methods=["GET"]),
+        Route("/api/profiles/upload", upload_profile, methods=["POST"]),
+        Route("/api/profiles/generate", generate_profile_endpoint, methods=["POST"]),
         Route("/api/profiles", list_profiles, methods=["GET"]),
+        Route("/api/ai/chat", ai_chat, methods=["POST"]),
+        Route("/api/ai/status", ai_status, methods=["GET"]),
         Route("/api/decoys/pages/{page_name}/preview", preview_decoy_page, methods=["GET"]),
         Route("/api/decoys/pages", list_decoy_pages, methods=["GET"]),
         Route("/api/decoys", list_decoys, methods=["GET"]),

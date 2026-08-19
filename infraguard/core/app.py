@@ -323,9 +323,10 @@ def create_app(config: InfraGuardConfig) -> Starlette:
             _dashboard_app.state.burn_scorer = _burn_scorer
             if _pdns_monitor is not None:
                 _dashboard_app.state.pdns_monitor = _pdns_monitor
+            _api_bind = os.environ.get("INFRAGUARD_API_BIND", config.api.bind)
             _uvi_cfg = _uvicorn.Config(
                 _dashboard_app,
-                host=config.api.bind,
+                host=_api_bind,
                 port=config.api.port,
                 log_level="warning",
                 server_header=False,
