@@ -11,6 +11,18 @@ services:
     command: ["-c", "chmod -R a+rX /etc/letsencrypt 2>/dev/null; true"]
     restart: "no"
 
+  # ── Data directory permission fixer ──────────────────────────────────
+  # The bind-mounted ./data directory may be created by Docker as root.
+  # This runs once to ensure UID 1000 (infraguard) can read/write it.
+  data-init:
+    image: alpine:latest
+    container_name: infraguard-data-init
+    volumes:
+      - ./data:/app/data
+    entrypoint: /bin/sh
+    command: ["-c", "mkdir -p /app/data/profiles && chown -R 1000:1000 /app/data"]
+    restart: "no"
+
   # ── Reverse proxy (core redirector) ─────────────────────────────────
   proxy:
     build: .
@@ -25,6 +37,8 @@ services:
       - INFRAGUARD_API_BIND=0.0.0.0
     depends_on:
       cert-init:
+        condition: service_completed_successfully
+      data-init:
         condition: service_completed_successfully
     ports:
       - "443:443"
@@ -140,6 +154,8 @@ services:
       start_period: 20s
     command: ["dashboard", "-c", "/app/config/config.yaml", "--tls"]
     depends_on:
+      data-init:
+        condition: service_completed_successfully
       proxy:
         condition: service_healthy
     networks:
