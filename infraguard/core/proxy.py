@@ -43,7 +43,12 @@ class ProxyHandler:
         timeout = timeout or self.default_timeout
 
         # Build the upstream URL
-        upstream_url = upstream.rstrip("/") + request.url.path
+        # Security: validate that the path doesn't contain absolute URLs or traversal
+        path = request.url.path
+        if path.startswith(("http://", "https://", "//")):
+            log.warning("ssrf_attempt_blocked", path=path, upstream=upstream)
+            return Response(status_code=400, content=b"Bad Request")
+        upstream_url = upstream.rstrip("/") + path
         if request.url.query:
             upstream_url += f"?{request.url.query}"
 

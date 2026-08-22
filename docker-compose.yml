@@ -1,10 +1,45 @@
 services:
+  # ── Certificate permission fixer ────────────────────────────────────
+  # Certbot writes certs as root; the proxy runs as UID 1000 and needs
+  # read access.  This runs once before the proxy starts.
+  cert-init:
+    image: alpine:latest
+    container_name: infraguard-cert-init
+    volumes:
+      - certs:/etc/letsencrypt
+    entrypoint: /bin/sh
+    command: ["-c", "chmod -R a+rX /etc/letsencrypt 2>/dev/null; true"]
+    restart: "no"
+
+  # ── Data directory permission fixer ──────────────────────────────────
+  # The bind-mounted ./data directory may be created by Docker as root.
+  # This runs once to ensure UID 1000 (infraguard) can read/write it.
+  data-init:
+    image: alpine:latest
+    container_name: infraguard-data-init
+    volumes:
+      - ./data:/app/data
+    entrypoint: /bin/sh
+    command: ["-c", "mkdir -p /app/data/profiles && chown -R 1000:1000 /app/data"]
+    restart: "no"
+
   # ── Reverse proxy (core redirector) ─────────────────────────────────
   proxy:
     build: .
     container_name: infraguard-proxy
     restart: unless-stopped
     env_file: .env
+    environment:
+      # Bind embedded API to all interfaces so the dashboard container
+      # can reach it over the Docker network for forwarding mutations.
+      # Port 8080 is NOT exposed to the host — only reachable within
+      # the infraguard bridge network.
+      - INFRAGUARD_API_BIND=0.0.0.0
+    depends_on:
+      cert-init:
+        condition: service_completed_successfully
+      data-init:
+        condition: service_completed_successfully
     ports:
       - "443:443"
       - "80:80"
@@ -13,16 +48,54 @@ services:
       - ./examples:/app/examples:ro
       - ./rules:/app/rules:ro
       - ./pages:/app/pages:ro
-      - ./data:/app/data
+      - ./data:/app/data:rw
       - certs:/app/certs:ro
       - geoip:/app/geoip:ro
-    command: ["run", "-c", "/app/config/config.yaml", "--port", "443"]
+    # ── Security hardening ────────────────────────────────────────────
+    read_only: true
+    tmpfs:
+      # Writable tmpfs for temp files (age-identity, pip cache, etc.)
+      - /tmp:noexec,nosuid,nodev,size=64m,uid=1000,gid=1000
+      # Writable tmpfs for self-signed cert generation
+      - /app/.infraguard:noexec,nosuid,nodev,size=10m,uid=1000,gid=1000
+    security_opt:
+      - no-new-privileges:true
+      # Use the default seccomp profile (blocks ~44 dangerous syscalls)
+      # A custom profile can be layered on top via:
+      #   - seccomp=/path/to/infraguard-seccomp.json
+    cap_drop:
+      - ALL
+    cap_add:
+      # Required to bind to privileged ports 443/80
+      - NET_BIND_SERVICE
+    # ── Resource limits ────────────────────────────────────────────────
+    deploy:
+      resources:
+        limits:
+          cpus: "1.0"
+          memory: 512M
+        reservations:
+          cpus: "0.25"
+          memory: 128M
+    # ── Health check ───────────────────────────────────────────────────
     healthcheck:
-      test: ["CMD", "python3", "-c", "import urllib.request,ssl,os; p=os.environ.get('INFRAGUARD_HEALTH_PATH','health'); urllib.request.urlopen(f'https://127.0.0.1:443/{p}', context=ssl._create_unverified_context())"]
+      test:
+        - "CMD"
+        - "python3"
+        - "-c"
+        - |
+          import urllib.request, ssl, os
+          p = os.environ.get('INFRAGUARD_HEALTH_PATH', 'health').strip('/')
+          # Health check runs against localhost with self-signed cert; unverified context is intentional
+          urllib.request.urlopen(
+              f'https://127.0.0.1:443/{p}',
+              context=ssl._create_unverified_context()
+          )
       interval: 30s
       timeout: 10s
       retries: 5
       start_period: 15s
+    command: ["run", "-c", "/app/config/config.yaml", "--port", "443"]
     networks:
       - infraguard
 
@@ -32,6 +105,9 @@ services:
     container_name: infraguard-dashboard
     restart: unless-stopped
     env_file: .env
+    environment:
+      - INFRAGUARD_PROXY_API=http://infraguard-proxy:8080
+      - INFRAGUARD_OLLAMA_URL=http://infraguard-ollama:11434
     ports:
       - "8080:8080"
     volumes:
@@ -40,8 +116,46 @@ services:
       - ./data:/app/data
       - certs:/app/certs:ro
       - geoip:/app/geoip:ro
+    # ── Security hardening ────────────────────────────────────────────
+    read_only: true
+    tmpfs:
+      - /tmp:noexec,nosuid,nodev,size=64m,uid=1000,gid=1000
+      - /app/.infraguard:noexec,nosuid,nodev,size=10m,uid=1000,gid=1000
+    security_opt:
+      - no-new-privileges:true
+    cap_drop:
+      - ALL
+    # No cap_add needed: dashboard binds to 8080 (unprivileged)
+    # ── Resource limits ────────────────────────────────────────────────
+    deploy:
+      resources:
+        limits:
+          cpus: "0.5"
+          memory: 256M
+        reservations:
+          cpus: "0.1"
+          memory: 64M
+    # ── Health check ───────────────────────────────────────────────────
+    healthcheck:
+      test:
+        - "CMD"
+        - "python3"
+        - "-c"
+        - |
+          import urllib.request, ssl
+          # Dashboard runs on 8080 with TLS; unverified context is intentional for localhost
+          urllib.request.urlopen(
+              'https://127.0.0.1:8080/',
+              context=ssl._create_unverified_context()
+          )
+      interval: 30s
+      timeout: 10s
+      retries: 5
+      start_period: 20s
     command: ["dashboard", "-c", "/app/config/config.yaml", "--tls"]
     depends_on:
+      data-init:
+        condition: service_completed_successfully
       proxy:
         condition: service_healthy
     networks:
@@ -80,6 +194,7 @@ services:
             --email $${INFRAGUARD_DOMAIN_EMAIL} \
             -d $${INFRAGUARD_DOMAIN} \
             --preferred-challenges http \
+          && chmod -R a+rX /etc/letsencrypt/live /etc/letsencrypt/archive \
           && echo "Certificate obtained for $${INFRAGUARD_DOMAIN}"
         else
           echo "Let's Encrypt disabled (INFRAGUARD_LETSENCRYPT != true)"
@@ -99,7 +214,7 @@ services:
       - certs:/etc/letsencrypt
       - certbot-www:/var/www/certbot
     entrypoint: /bin/sh
-    command: -c 'trap exit TERM; while :; do certbot renew --quiet; sleep 43200; done'
+    command: -c 'trap exit TERM; while :; do certbot renew --quiet --deploy-hook "chmod -R a+rX /etc/letsencrypt/live /etc/letsencrypt/archive"; sleep 43200; done'
     depends_on:
       certbot:
         condition: service_completed_successfully
@@ -141,11 +256,23 @@ services:
   #     - ./examples:/app/examples:ro
   #     - ./data:/app/data
   #     - certs:/app/certs:ro
+  #   read_only: true
+  #   tmpfs:
+  #     - /tmp:noexec,nosuid,nodev,size=64m,uid=1000,gid=1000
+  #   security_opt:
+  #     - no-new-privileges:true
+  #   cap_drop:
+  #     - ALL
+  #   cap_add:
+  #     - NET_BIND_SERVICE
+  #   deploy:
+  #     resources:
+  #       limits:
+  #         cpus: "1.0"
+  #         memory: 512M
   #   command: ["run", "-c", "/app/config/config.yaml"]
   #   networks:
   #     - infraguard
-  #   deploy:
-  #     replicas: 2
 
   # ── Command Post (multi-instance aggregator) ─────────────────────────
   # Aggregates stats, requests, and live events from multiple InfraGuard
@@ -163,6 +290,35 @@ services:
     volumes:
       - ./config:/app/config:ro
       - certs:/app/certs:ro
+    # ── Security hardening ────────────────────────────────────────────
+    read_only: true
+    tmpfs:
+      - /tmp:noexec,nosuid,nodev,size=32m,uid=1000,gid=1000
+    security_opt:
+      - no-new-privileges:true
+    cap_drop:
+      - ALL
+    # No cap_add needed: command-post binds to 9090 (unprivileged)
+    # ── Resource limits ────────────────────────────────────────────────
+    deploy:
+      resources:
+        limits:
+          cpus: "0.5"
+          memory: 256M
+        reservations:
+          cpus: "0.1"
+          memory: 64M
+    # ── Health check ───────────────────────────────────────────────────
+    healthcheck:
+      test:
+        - "CMD"
+        - "python3"
+        - "-c"
+        - "import urllib.request; urllib.request.urlopen('http://127.0.0.1:9090/health')"
+      interval: 30s
+      timeout: 10s
+      retries: 5
+      start_period: 15s
     command: ["command-post", "-c", "/app/config/command-post.yaml", "--port", "9090"]
     networks:
       - infraguard
@@ -186,6 +342,50 @@ services:
       - pwndrop-data:/pwndrop/data
       - certs:/pwndrop/certs:ro
       - ./config/pwndrop.ini:/pwndrop/pwndrop.ini
+    # ── Security hardening ────────────────────────────────────────────
+    read_only: true
+    tmpfs:
+      - /tmp:noexec,nosuid,nodev,size=32m
+    security_opt:
+      - no-new-privileges:true
+    cap_drop:
+      - ALL
+    cap_add:
+      - NET_BIND_SERVICE  # pwndrop binds to 443 internally
+    # ── Resource limits ────────────────────────────────────────────────
+    deploy:
+      resources:
+        limits:
+          cpus: "0.5"
+          memory: 256M
+        reservations:
+          cpus: "0.1"
+          memory: 64M
+    networks:
+      - infraguard
+
+  # ── Ollama AI assistant (optional) ────────────────────────────────────
+  # Provides AI-assisted C2 profile generation and troubleshooting via
+  # the dashboard's chat panel.
+  # Enable with: docker compose --profile ollama up -d ollama
+  # First run will pull the model (~5 GB): docker compose --profile ollama exec ollama ollama pull qwen3:8b
+  ollama:
+    image: ollama/ollama:latest
+    container_name: infraguard-ollama
+    profiles: ["ollama"]
+    restart: unless-stopped
+    ports:
+      - "11434:11434"
+    volumes:
+      - ollama-data:/root/.ollama
+    deploy:
+      resources:
+        limits:
+          cpus: "4.0"
+          memory: 8G
+        reservations:
+          cpus: "0.5"
+          memory: 1G
     networks:
       - infraguard
 
@@ -194,6 +394,7 @@ volumes:
   certbot-www:
   geoip:
   pwndrop-data:
+  ollama-data:
 
 networks:
   infraguard:

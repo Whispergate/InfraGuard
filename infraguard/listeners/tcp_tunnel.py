@@ -91,6 +91,16 @@ class TCPTunnelListener:
             opts.get("require_client_cert", bool(self._allowed_fps))
         )
 
+        # ── Connection limits ─────────────────────────────────────────
+        self._max_connections: int = int(opts.get("max_connections", 100))
+        self._max_bytes_per_conn: int = int(opts.get("max_bytes_per_conn", 100 * 1024 * 1024))  # 100MB
+        self._active_connections: int = 0
+        self._conn_lock = asyncio.Lock()
+
+        # ── Upstream allowlist ────────────────────────────────────────
+        # If configured, only these upstream hosts are allowed
+        self._allowed_upstreams: set[str] = set(opts.get("allowed_upstreams", []))
+
         # TLS termination (client-facing). If a cert/key is configured on the
         # listener, terminate TLS; otherwise pass raw bytes through.
         self._ssl_ctx: ssl.SSLContext | None = None
@@ -153,6 +163,35 @@ class TCPTunnelListener:
         peer = writer.get_extra_info("peername")
         client_ip_str = peer[0] if peer else "0.0.0.0"
 
+        # Connection limit check
+        async with self._conn_lock:
+            if self._active_connections >= self._max_connections:
+                log.warning(
+                    "tcp_tunnel_connection_limit",
+                    client=client_ip_str,
+                    max=self._max_connections,
+                )
+                writer.close()
+                try:
+                    await writer.wait_closed()
+                except Exception:
+                    pass
+                return
+            self._active_connections += 1
+
+        try:
+            await self._handle_connection(reader, writer, client_ip_str, start)
+        finally:
+            async with self._conn_lock:
+                self._active_connections -= 1
+
+    async def _handle_connection(
+        self,
+        reader: asyncio.StreamReader,
+        writer: asyncio.StreamWriter,
+        client_ip_str: str,
+        start: float,
+    ) -> None:
         # IP intel filter
         try:
             client_ip = ip_address(client_ip_str)
@@ -213,6 +252,21 @@ class TCPTunnelListener:
                 fp=fp,
             )
 
+        # Upstream allowlist check
+        if self._allowed_upstreams and self._upstream_host not in self._allowed_upstreams:
+            log.warning(
+                "tcp_tunnel_upstream_not_allowed",
+                client=client_ip_str,
+                upstream=self._upstream_host,
+            )
+            writer.close()
+            try:
+                await writer.wait_closed()
+            except Exception:
+                pass
+            self._record(client_ip_str, "block", "upstream_not_allowed", start, 0, 0)
+            return
+
         # Dial upstream
         try:
             up_reader, up_writer = await asyncio.open_connection(
@@ -264,6 +318,14 @@ class TCPTunnelListener:
                         bytes_c2u += len(data)
                     else:
                         bytes_u2c += len(data)
+                    # Enforce per-connection byte limit
+                    if bytes_c2u + bytes_u2c > self._max_bytes_per_conn:
+                        log.warning(
+                            "tcp_tunnel_byte_limit_exceeded",
+                            client=client_ip_str,
+                            bytes=bytes_c2u + bytes_u2c,
+                        )
+                        return
                     dst.write(data)
                     await dst.drain()
             except (ConnectionResetError, BrokenPipeError):

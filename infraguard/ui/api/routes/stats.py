@@ -14,6 +14,7 @@ async def get_content_stats(request: Request) -> JSONResponse:
     stats_query: StatsQuery = request.app.state.stats_query
     try:
         hours = int(request.query_params.get("hours", "24"))
+        hours = max(1, min(hours, 8760))  # Clamp to 1 hour - 1 year
     except (ValueError, TypeError):
         return JSONResponse({"error": "Invalid hours parameter"}, status_code=400)
     rows = await stats_query.content_stats(hours=hours)
@@ -25,6 +26,7 @@ async def get_stats(request: Request) -> JSONResponse:
     stats_query: StatsQuery = request.app.state.stats_query
     try:
         hours = int(request.query_params.get("hours", "24"))
+        hours = max(1, min(hours, 8760))  # Clamp to 1 hour - 1 year
     except (ValueError, TypeError):
         return JSONResponse({"error": "Invalid hours parameter"}, status_code=400)
     stats = await stats_query.overview(hours=hours)

@@ -182,6 +182,22 @@ def _poll_health(instance_ip: str, port: int = 8080) -> bool:
 
 
 # ---------------------------------------------------------------------------
+# Engine helper
+# ---------------------------------------------------------------------------
+
+
+def _make_provider(engine: str, cloud_provider: str, work_dir: Path):
+    """Return a TerraformProvider or PulumiProvider based on *engine*."""
+    if engine == "pulumi":
+        from infraguard.deploy.providers.pulumi import PulumiProvider, PulumiError
+        try:
+            return PulumiProvider(cloud_provider, work_dir)
+        except PulumiError as exc:
+            raise click.ClickException(str(exc)) from exc
+    return get_provider(cloud_provider, work_dir)
+
+
+# ---------------------------------------------------------------------------
 # Deploy CLI group
 # ---------------------------------------------------------------------------
 
@@ -240,6 +256,12 @@ def deploy_group() -> None:
     default=Path("./.infraguard-deploy"),
     help="Working directory for Terraform state files.",
 )
+@click.option(
+    "--engine",
+    type=click.Choice(["terraform", "pulumi"]),
+    default="terraform",
+    help="IaC engine (terraform or pulumi).",
+)
 def deploy_run(
     provider: str,
     domain: str,
@@ -251,6 +273,7 @@ def deploy_run(
     operator_ip: str,
     state_key: str | None,
     work_dir: Path,
+    engine: str,
 ) -> None:
     """Provision a new cloud redirector instance.
 
@@ -268,7 +291,7 @@ def deploy_run(
     work_dir = Path(work_dir)
     work_dir.mkdir(parents=True, exist_ok=True)
 
-    tf_provider = get_provider(provider, work_dir)
+    iac = _make_provider(engine, provider, work_dir)
 
     # Build provider-specific tfvars
     if provider == "cloudflare":
@@ -294,7 +317,7 @@ def deploy_run(
             tfvars["region"] = region
         if instance_size:
             tfvars["instance_size"] = instance_size
-        if provider == "do":
+        if provider == "do" and engine == "terraform":
             tfvars["ssh_key_fingerprint"] = _compute_ssh_fingerprint(ssh_key)
         else:
             tfvars["ssh_public_key"] = ssh_key.read_text(encoding="utf-8").strip()
@@ -306,7 +329,7 @@ def deploy_run(
     # ── Step 1: Terraform apply ──────────────────────────────────────
     click.echo(f"[1/6] Provisioning {provider} instance for {domain}...")
     try:
-        outputs = tf_provider.apply(tfvars)
+        outputs = iac.apply(tfvars)
     except Exception as exc:
         raise click.ClickException(str(exc)) from exc
 
@@ -495,32 +518,38 @@ def deploy_run(
     type=click.Path(exists=True, path_type=Path),
     help="age identity file for decrypting existing state.",
 )
+@click.option(
+    "--engine",
+    type=click.Choice(["terraform", "pulumi"]),
+    default="terraform",
+    help="IaC engine (terraform or pulumi).",
+)
 @click.confirmation_option(prompt="Destroy all infrastructure in this work directory?")
 def deploy_destroy(
     provider: str,
     work_dir: Path,
     state_key: str | None,
     state_identity: Path | None,
+    engine: str,
 ) -> None:
     """Tear down infrastructure managed by a previous deploy run."""
     work_dir = Path(work_dir)
-    tf_provider = get_provider(provider, work_dir)
+    iac = _make_provider(engine, provider, work_dir)
 
-    # Decrypt state if it was encrypted
+    # Decrypt state if it was encrypted (Terraform only; Pulumi manages its own state)
     _dec_path: Path | None = None
     enc_state = work_dir / "terraform.tfstate.age"
     if enc_state.exists() and state_identity:
         try:
             _dec_path = decrypt_state(enc_state, state_identity)
-            # Move decrypted state to expected location for Terraform
             import shutil
             shutil.move(str(_dec_path), str(work_dir / "terraform.tfstate"))
         except RuntimeError as exc:
             raise click.ClickException(f"State decryption failed: {exc}") from exc
 
-    tfvars: dict = {}  # Minimal - domain not required for destroy
+    tfvars: dict = {}
     try:
-        tf_provider.destroy(tfvars)
+        iac.destroy(tfvars)
     except Exception as exc:
         raise click.ClickException(str(exc)) from exc
 
@@ -599,6 +628,12 @@ def deploy_destroy(
     is_flag=True,
     help="Skip confirmation prompt before destroying old instance.",
 )
+@click.option(
+    "--engine",
+    type=click.Choice(["terraform", "pulumi"]),
+    default="terraform",
+    help="IaC engine (terraform or pulumi).",
+)
 def deploy_rotate(
     provider: str,
     new_domain: str,
@@ -614,6 +649,7 @@ def deploy_rotate(
     new_work_dir: Path | None,
     preserve_data: bool,
     yes: bool,
+    engine: str,
 ) -> None:
     """Rotate to a new redirector instance (deploy-then-destroy pattern).
 
@@ -643,7 +679,7 @@ def deploy_rotate(
     new_work_dir = Path(new_work_dir)
     new_work_dir.mkdir(parents=True, exist_ok=True)
 
-    new_provider = get_provider(provider, new_work_dir)
+    new_iac = _make_provider(engine, provider, new_work_dir)
     if provider == "cloudflare":
         import os
         cf_account_id = os.environ.get("CLOUDFLARE_ACCOUNT_ID", "")
@@ -661,7 +697,7 @@ def deploy_rotate(
             "domain": new_domain,
             "operator_ip": operator_ip,
         }
-        if provider == "do":
+        if provider == "do" and engine == "terraform":
             tfvars["ssh_key_fingerprint"] = _compute_ssh_fingerprint(ssh_key)
         else:
             tfvars["ssh_public_key"] = ssh_key.read_text(encoding="utf-8").strip()
@@ -672,7 +708,7 @@ def deploy_rotate(
 
     click.echo(f"Provisioning new instance for domain: {new_domain} ...")
     try:
-        new_outputs = new_provider.apply(tfvars)
+        new_outputs = new_iac.apply(tfvars)
     except Exception as exc:
         raise click.ClickException(f"Failed to provision new instance: {exc}") from exc
 
@@ -764,7 +800,7 @@ def deploy_rotate(
 
     # 4. Preserve data if requested
     if preserve_data:
-        old_provider = get_provider(provider, old_work_dir)
+        old_provider = _make_provider(engine, provider, old_work_dir)
         # Decrypt old state if needed to get old IP
         enc_old_state = old_work_dir / "terraform.tfstate.age"
         if enc_old_state.exists() and state_identity:
@@ -832,7 +868,7 @@ def deploy_rotate(
 
     # 6. Destroy old instance
     click.echo("Destroying old instance ...")
-    old_provider_for_destroy = get_provider(provider, old_work_dir)
+    old_provider_for_destroy = _make_provider(engine, provider, old_work_dir)
 
     # Decrypt old state if still encrypted (might already be decrypted by --preserve-data)
     enc_old_state = old_work_dir / "terraform.tfstate.age"

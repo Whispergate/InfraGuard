@@ -307,7 +307,14 @@ def validate_config(config_path: Path) -> None:
 )
 @click.option("--host", default=None, help="Override bind address.")
 @click.option("--port", default=None, type=int, help="Override listen port.")
-def run_server(config_path: Path, host: str | None, port: int | None) -> None:
+@click.option(
+    "--ollama-url",
+    default=None,
+    envvar="INFRAGUARD_OLLAMA_URL",
+    help="URL of the Ollama API for AI-assisted profile generation (e.g. http://ollama:11434). "
+    "Also settable via INFRAGUARD_OLLAMA_URL env var.",
+)
+def run_server(config_path: Path, host: str | None, port: int | None, ollama_url: str | None) -> None:
     """Start the InfraGuard reverse proxy server."""
     import uvicorn
 
@@ -315,6 +322,9 @@ def run_server(config_path: Path, host: str | None, port: int | None) -> None:
     from infraguard.core.app import create_app
 
     cfg = load_config(config_path)
+    if ollama_url:
+        cfg.ollama.enabled = True
+        cfg.ollama.url = ollama_url
     app = create_app(cfg)
 
     # Find the first HTTP/HTTPS listener for uvicorn binding.
@@ -515,8 +525,27 @@ def generate_backend(
 @click.option("--host", default=None, help="Override bind address.")
 @click.option("--port", default=None, type=int, help="Override listen port.")
 @click.option("--tls/--no-tls", default=None, help="Enable/disable TLS (default: auto from config).")
+@click.option(
+    "--proxy-url",
+    default=None,
+    envvar="INFRAGUARD_PROXY_API",
+    help="URL of the proxy's embedded API for forwarding mutations (e.g. https://infraguard-proxy:8080). "
+    "Also settable via INFRAGUARD_PROXY_API env var.",
+)
+@click.option(
+    "--ollama-url",
+    default=None,
+    envvar="INFRAGUARD_OLLAMA_URL",
+    help="URL of the Ollama API for AI-assisted profile generation (e.g. http://ollama:11434). "
+    "Also settable via INFRAGUARD_OLLAMA_URL env var.",
+)
 def run_dashboard(
-    config_path: Path, host: str | None, port: int | None, tls: bool | None
+    config_path: Path,
+    host: str | None,
+    port: int | None,
+    tls: bool | None,
+    proxy_url: str | None,
+    ollama_url: str | None,
 ) -> None:
     """Start the InfraGuard web dashboard (standalone mode).
 
@@ -524,6 +553,9 @@ def run_dashboard(
     so whitelist/blocklist changes do NOT affect a running proxy.
     Use 'infraguard run' instead -- it embeds the dashboard and shares
     state so changes take effect immediately.
+
+    Set --proxy-url (or INFRAGUARD_PROXY_API) to forward profile swaps
+    and drop-action changes to the running proxy's embedded API.
     """
     import uvicorn
 
@@ -533,17 +565,28 @@ def run_dashboard(
     from infraguard.tracking.database import Database
     from infraguard.ui.api.app import create_api_app
 
-    click.echo(
-        "Warning: standalone dashboard does not share state with the proxy.\n"
-        "Whitelist/blocklist changes won't affect a running proxy.\n"
-        "Use 'infraguard run' for integrated dashboard.",
-        err=True,
-    )
+    if proxy_url:
+        click.echo(
+            f"Standalone dashboard — mutations forwarded to proxy at {proxy_url}",
+            err=True,
+        )
+    else:
+        click.echo(
+            "Warning: standalone dashboard does not share state with the proxy.\n"
+            "Whitelist/blocklist changes won't affect a running proxy.\n"
+            "Set INFRAGUARD_PROXY_API or use 'infraguard run' for integrated dashboard.",
+            err=True,
+        )
 
     cfg = load_config(config_path)
     db = Database(cfg.tracking.db_path)
     intel = IntelManager(cfg.intel)
+    if ollama_url:
+        cfg.ollama.enabled = True
+        cfg.ollama.url = ollama_url
+
     app = create_api_app(cfg, db, intel)
+    app.state.proxy_api_url = proxy_url
 
     bind = host or cfg.api.bind
     listen_port = port or cfg.api.port
@@ -1021,18 +1064,259 @@ def test_request(
 from infraguard.deploy.cli import deploy_group
 cli.add_command(deploy_group)
 
+from infraguard.deploy.schedule_cli import schedule_group
+cli.add_command(schedule_group)
+
+
+# ── One-click rotation (top-level) ──────────────────────────────────────
+
+
+@cli.command("rotate")
+@click.option("--domain", required=True, help="Domain to rotate.")
+@click.option(
+    "--strategy",
+    type=click.Choice(["blue-green"]),
+    default="blue-green",
+    show_default=True,
+    help="Rotation strategy.",
+)
+@click.option(
+    "--provider",
+    type=click.Choice(["aws", "azure", "do", "cloudflare", "hetzner"]),
+    required=True,
+    help="Cloud provider.",
+)
+@click.option(
+    "--upstream",
+    required=True,
+    help="C2 teamserver URL (e.g. https://10.0.0.5:8443).",
+)
+@click.option(
+    "--profile",
+    "c2_profile",
+    required=True,
+    type=click.Path(exists=True, path_type=Path),
+    help="Path to C2 profile file.",
+)
+@click.option(
+    "--blue-work-dir",
+    type=click.Path(exists=True, path_type=Path),
+    required=True,
+    help="Work dir of the existing (blue) deployment.",
+)
+@click.option(
+    "--green-work-dir",
+    type=click.Path(path_type=Path),
+    default=None,
+    help="Work dir for the new (green) deployment (auto-generated if omitted).",
+)
+@click.option(
+    "--ssh-key",
+    required=True,
+    type=click.Path(exists=True, path_type=Path),
+    help="Path to SSH public key file.",
+)
+@click.option(
+    "--operator-ip",
+    required=True,
+    help="Your IP in CIDR notation (e.g. 1.2.3.4/32).",
+)
+@click.option("--region", default=None, help="Cloud region override.")
+@click.option("--instance-size", default=None, help="Instance size override.")
+@click.option("--state-key", default=None, help="age public key for state encryption.")
+@click.option(
+    "--state-identity",
+    default=None,
+    type=click.Path(exists=True, path_type=Path),
+    help="age identity file for decrypting existing state.",
+)
+@click.option(
+    "--skip-preflight",
+    is_flag=True,
+    help="Skip DNS/cert/upstream pre-flight checks (not recommended).",
+)
+@click.option(
+    "--keep-blue",
+    is_flag=True,
+    help="Do not destroy the blue instance after successful rotation.",
+)
+@click.option("--yes", "-y", is_flag=True, help="Skip confirmation prompt.")
+def rotate_cmd(
+    domain: str,
+    strategy: str,
+    provider: str,
+    upstream: str,
+    c2_profile: Path,
+    blue_work_dir: Path,
+    green_work_dir: Path | None,
+    ssh_key: Path,
+    operator_ip: str,
+    region: str | None,
+    instance_size: str | None,
+    state_key: str | None,
+    state_identity: Path | None,
+    skip_preflight: bool,
+    keep_blue: bool,
+    yes: bool,
+) -> None:
+    """One-click blue-green infrastructure rotation.
+
+    \b
+    Example:
+      infraguard rotate --domain evil.com --strategy blue-green \\
+        --provider do --upstream https://10.0.0.5:8443 \\
+        --profile cs.profile --blue-work-dir .infraguard-deploy \\
+        --ssh-key ~/.ssh/id_rsa.pub --operator-ip 1.2.3.4/32
+    """
+    from infraguard.deploy.rotation import (
+        PreFlightError,
+        RotationError,
+        RotationManager,
+    )
+
+    if not yes:
+        click.confirm(
+            f"Rotate {domain} on {provider} using strategy '{strategy}'?",
+            abort=True,
+        )
+
+    mgr = RotationManager(
+        provider_name=provider,
+        blue_work_dir=blue_work_dir,
+        green_work_dir=green_work_dir,
+        ssh_key=ssh_key,
+        state_key=state_key,
+        state_identity=state_identity,
+        operator_ip=operator_ip,
+    )
+
+    # ── Pre-flight ────────────────────────────────────────────────────
+    if not skip_preflight:
+        click.echo("[pre-flight] DNS propagation, certificate, upstream health...")
+        try:
+            blue_ip: str | None = None
+            try:
+                blue_ip = mgr._get_blue_ip()
+            except RotationError:
+                pass
+            pf = mgr.preflight(domain, upstream, expected_ip=blue_ip)
+            click.echo(
+                f"  DNS:      OK ({', '.join(pf.resolved_ips)})\n"
+                f"  Cert:     OK ({pf.cert_expiry_days} days remaining)\n"
+                f"  Upstream: OK"
+            )
+        except PreFlightError as exc:
+            raise click.ClickException(str(exc)) from exc
+    else:
+        click.echo("[pre-flight] Skipped (--skip-preflight)")
+
+    # ── Rotation ──────────────────────────────────────────────────────
+    click.echo(f"[rotate] Provisioning green instance for {domain}...")
+    try:
+        result = mgr.rotate(
+            domain=domain,
+            upstream=upstream,
+            c2_profile=c2_profile,
+            strategy=strategy,
+            region=region,
+            instance_size=instance_size,
+            skip_preflight=True,  # already ran above
+            destroy_blue=not keep_blue,
+        )
+    except RotationError as exc:
+        raise click.ClickException(str(exc)) from exc
+
+    # ── Report ────────────────────────────────────────────────────────
+    if result.success:
+        click.echo(f"\n{'=' * 50}")
+        click.echo(f"  Rotation complete ({result.strategy})")
+        click.echo(f"  Domain:    {result.domain}")
+        click.echo(f"  Green IP:  {result.green_ip}")
+        if result.blue_ip:
+            click.echo(f"  Blue IP:   {result.blue_ip} ({'kept' if keep_blue else 'destroyed'})")
+        if result.green_work_dir:
+            click.echo(f"  Work dir:  {result.green_work_dir}")
+        click.echo(f"  Elapsed:   {result.elapsed_seconds:.1f}s")
+        click.echo(f"{'=' * 50}")
+    else:
+        click.echo("\nRotation FAILED.", err=True)
+        if result.rollback_performed:
+            click.echo("  Rollback performed: green destroyed, traffic reverted to blue.", err=True)
+        raise click.ClickException(result.error or "unknown error")
+
 from infraguard.config.cli_ext import (
     show_config,
     set_value,
     domain_group,
     intel_group,
     pipeline_group,
+    config_diff,
+    config_validate,
+    config_test,
 )
 config_group.add_command(show_config, "show")
 config_group.add_command(set_value, "set")
 config_group.add_command(domain_group)
 config_group.add_command(intel_group)
 config_group.add_command(pipeline_group)
+config_group.add_command(config_diff, "diff")
+config_group.add_command(config_validate, "validate")
+config_group.add_command(config_test, "test")
+
+# ── Wizard commands ─────────────────────────────────────────────────
+
+from infraguard.config.wizard import wizard_group
+
+cli.add_command(wizard_group)
+
+
+# ── Shell completions ──────────────────────────────────────────────────
+
+
+@cli.command("completions")
+@click.argument(
+    "shell",
+    type=click.Choice(["bash", "zsh", "fish"]),
+    required=False,
+    default=None,
+)
+def completions(shell: str | None) -> None:
+    """Generate shell completion script.
+
+    \b
+    Activate in current session:
+        eval "$(infraguard completions bash)"
+    \b
+    Persist across sessions:
+        infraguard completions bash >> ~/.bashrc
+        infraguard completions zsh  >> ~/.zshrc
+        infraguard completions fish >  ~/.config/fish/completions/infraguard.fish
+    """
+    import os
+    from click.shell_completion import BashComplete, ZshComplete, FishComplete
+
+    shells = {
+        "bash": BashComplete,
+        "zsh": ZshComplete,
+        "fish": FishComplete,
+    }
+
+    if shell is None:
+        shell_env = os.environ.get("SHELL", "")
+        if "zsh" in shell_env:
+            shell = "zsh"
+        elif "fish" in shell_env:
+            shell = "fish"
+        else:
+            shell = "bash"
+
+    comp = shells[shell](
+        cli=cli,
+        ctx_args={},
+        prog_name="infraguard",
+        complete_var="_INFRAGUARD_COMPLETE",
+    )
+    click.echo(comp.source())
 
 
 if __name__ == "__main__":

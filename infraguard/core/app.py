@@ -119,8 +119,17 @@ def create_app(config: InfraGuardConfig) -> Starlette:
             _deadman.start()
             app.state.deadman = _deadman
 
+        # Background task: fronting health monitor
+        _fronting_health_task = None
+        if config.fronting.enabled and config.fronting.rules and router._fronting is not None:
+            _fronting_health_task = await router._fronting.start_health_monitor(
+                interval_seconds=config.fronting.health_check_interval_seconds,
+            )
+            _background_tasks.append(_fronting_health_task)
+
         # Background task: Certificate Transparency monitoring
         _ct_monitor = None
+        _burn_detector = None
         if config.intel.ct_monitor.enabled:
             from infraguard.intel.ct_monitor import CTMonitor
             from infraguard.intel.burn_detect import BurnDetector, BurnConfig
@@ -138,7 +147,7 @@ def create_app(config: InfraGuardConfig) -> Starlette:
         _rep_monitor = None
         if config.intel.reputation_monitor.enabled:
             from infraguard.intel.reputation import DomainReputationMonitor
-            _burn_det = getattr(_ct_monitor, '_burn_detector', None) if _ct_monitor else None
+            _burn_det = _burn_detector if _burn_detector else None
             rep_domains = (
                 config.intel.reputation_monitor.monitored_domains or list(config.domains.keys())
             )
@@ -153,6 +162,50 @@ def create_app(config: InfraGuardConfig) -> Starlette:
                 recorder=recorder,
             )
             await _rep_monitor.start()
+
+        # Background task: Passive DNS monitoring
+        _pdns_monitor = None
+        if config.intel.passive_dns.enabled:
+            from infraguard.intel.passive_dns import PassiveDNSMonitor
+            # Lazily create a BurnDetector so PDNS alerts flow into burn
+            # scoring/cooldown even when CT monitoring is disabled.
+            if _burn_detector is None:
+                from infraguard.intel.burn_detect import BurnDetector
+                _burn_detector = BurnDetector(db=db, recorder=recorder)
+            pdns_cfg = config.intel.passive_dns
+            pdns_domains = pdns_cfg.monitored_domains or list(config.domains.keys())
+            _pdns_monitor = PassiveDNSMonitor(
+                domains=pdns_domains,
+                interval_hours=pdns_cfg.interval_hours,
+                provider=pdns_cfg.provider,
+                circl_user=pdns_cfg.circl_user,
+                circl_password=pdns_cfg.circl_password,
+                nxdomain_spike_threshold=pdns_cfg.nxdomain_spike_threshold,
+                nxdomain_window_seconds=pdns_cfg.nxdomain_window_seconds,
+                alert_on_first_seen=pdns_cfg.alert_on_first_seen,
+                burn_detector=_burn_detector,
+                recorder=recorder,
+            )
+            await _pdns_monitor.start()
+            app.state.pdns_monitor = _pdns_monitor
+
+        # Burn confidence scorer - aggregates signals from all monitors
+        from infraguard.intel.burn_scorer import BurnScorer
+        _burn_scorer = BurnScorer(db=db, burn_detector=_burn_detector)
+
+        # Background task: Rotation scheduler
+        _rotation_scheduler = None
+        if config.rotation.enabled:
+            from infraguard.deploy.scheduler import RotationScheduler
+            _rotation_scheduler = RotationScheduler(
+                config.rotation,
+                router=router,
+                db=db,
+                recorder=recorder,
+            )
+            _rotation_task = asyncio.create_task(_rotation_scheduler.run())
+            _background_tasks.append(_rotation_task)
+            app.state.rotation_scheduler = _rotation_scheduler
 
         # Background task: initial feed load and periodic refresh
         if config.intel.feeds.enabled:
@@ -265,11 +318,15 @@ def create_app(config: InfraGuardConfig) -> Starlette:
 
             _dashboard_db = Database(config.tracking.db_path)
             _dashboard_app = create_api_app(
-                config, _dashboard_db, intel=router.intel,
+                config, _dashboard_db, intel=router.intel, router=router,
             )
+            _dashboard_app.state.burn_scorer = _burn_scorer
+            if _pdns_monitor is not None:
+                _dashboard_app.state.pdns_monitor = _pdns_monitor
+            _api_bind = os.environ.get("INFRAGUARD_API_BIND", config.api.bind)
             _uvi_cfg = _uvicorn.Config(
                 _dashboard_app,
-                host=config.api.bind,
+                host=_api_bind,
                 port=config.api.port,
                 log_level="warning",
                 server_header=False,
@@ -318,6 +375,12 @@ def create_app(config: InfraGuardConfig) -> Starlette:
             await _ct_monitor.stop()
         if _rep_monitor is not None:
             await _rep_monitor.stop()
+        if _pdns_monitor is not None:
+            await _pdns_monitor.stop()
+
+        # Stop rotation scheduler
+        if _rotation_scheduler is not None:
+            _rotation_scheduler.stop()
 
         # 2. Stop recorder (cancels tracked tasks and does final flush)
         await recorder.stop()
@@ -346,6 +409,9 @@ def create_app(config: InfraGuardConfig) -> Starlette:
     ])
 
     app = Starlette(routes=routes, lifespan=lifespan)
+
+    # Store trusted proxies on app state for middleware access
+    app.state.trusted_proxies = config.api.trusted_proxies
 
     app.add_middleware(RequestLoggingMiddleware)
     app.add_middleware(

@@ -46,7 +46,7 @@ class RequestLoggingMiddleware(BaseHTTPMiddleware):
         self, request: Request, call_next: RequestResponseEndpoint
     ) -> Response:
         start = time.perf_counter()
-        client_ip = request.client.host if request.client else "unknown"
+        client_ip = self._get_client_ip(request)
 
         try:
             response = await call_next(request)
@@ -80,3 +80,27 @@ class RequestLoggingMiddleware(BaseHTTPMiddleware):
         )
 
         return response
+
+    @staticmethod
+    def _get_client_ip(request: Request) -> str:
+        """Extract client IP, honoring X-Forwarded-For only from trusted proxies."""
+        direct_ip = request.client.host if request.client else "unknown"
+
+        # Only trust X-Forwarded-For if the direct peer is a trusted proxy
+        trusted = getattr(request.app.state, "trusted_proxies", [])
+        if not trusted:
+            return direct_ip
+
+        from ipaddress import ip_address, ip_network
+        try:
+            direct = ip_address(direct_ip)
+            for cidr in trusted:
+                if direct in ip_network(cidr, strict=False):
+                    xff = request.headers.get("X-Forwarded-For", "")
+                    if xff:
+                        return xff.split(",")[0].strip()
+                    break
+        except ValueError:
+            pass
+
+        return direct_ip

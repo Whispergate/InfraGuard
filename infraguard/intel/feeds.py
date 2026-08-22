@@ -39,11 +39,50 @@ _STALENESS_THRESHOLD_HOURS = 24
 
 
 def get_feed_status() -> dict[str, str | None]:
-    """Return per-feed last-success timestamps for /api/stats."""
-    return {
-        url: ts.isoformat() if ts else None
-        for url, ts in _feed_status.items()
-    }
+    """Return per-feed last-success timestamps for /api/stats.
+
+    Reads from in-memory state first (proxy process), then falls back
+    to the persisted JSON sidecar (dashboard process).
+    """
+    if _feed_status:
+        return {
+            url: ts.isoformat() if ts else None
+            for url, ts in _feed_status.items()
+        }
+    # Fallback: read persisted status from disk (for dashboard process)
+    return _load_feed_status_file()
+
+
+def _persist_feed_status(cache_dir: str = ".infraguard/feeds") -> None:
+    """Write feed status to a JSON sidecar file for cross-process access."""
+    import json as _json
+    # Write to both the cache dir and the shared data dir so the
+    # standalone dashboard container can read it via the shared volume.
+    for target_dir in [cache_dir, "data"]:
+        status_file = Path(target_dir) / "feed_status.json"
+        try:
+            status_file.parent.mkdir(parents=True, exist_ok=True)
+            data = {
+                url: ts.isoformat() if ts else None
+                for url, ts in _feed_status.items()
+            }
+            status_file.write_text(_json.dumps(data), encoding="utf-8")
+        except Exception:
+            pass  # best-effort persistence
+
+
+def _load_feed_status_file(cache_dir: str = ".infraguard/feeds") -> dict[str, str | None]:
+    """Load persisted feed status from disk."""
+    import json as _json
+    # Try shared data dir first (standalone dashboard), then cache dir
+    for target_dir in ["data", cache_dir]:
+        status_file = Path(target_dir) / "feed_status.json"
+        try:
+            if status_file.exists():
+                return _json.loads(status_file.read_text(encoding="utf-8"))
+        except Exception:
+            pass
+    return {}
 
 
 def _parse_feed_lines(text: str) -> list[str]:
@@ -86,6 +125,7 @@ async def fetch_feed(url: str, timeout: float = 30.0) -> list[str]:
                         attempt=attempt.retry_state.attempt_number,
                     )
                     _feed_status[url] = datetime.now(timezone.utc)
+                    _persist_feed_status()
                     return entries
         except RetryError:
             log.error("feed_fetch_exhausted", url=url, attempts=3)

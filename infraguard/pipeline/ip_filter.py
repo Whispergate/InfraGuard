@@ -22,9 +22,9 @@ class IPFilter:
         # Domain-specific allowlist is a hard gate - even globally whitelisted
         # IPs must pass it.  Prevents the dynamic whitelist (which any beacon
         # can earn) from bypassing operator-only CIDR restrictions.
-        domain_wl = self.domain_whitelists.get(
-            ctx.request.headers.get("host", "").split(":")[0]
-        )
+        # Use server-side domain from routing context, not client-supplied Host header.
+        domain = getattr(ctx, "domain", None) or ctx.request.headers.get("host", "").split(":")[0]
+        domain_wl = self.domain_whitelists.get(domain)
         if domain_wl and domain_wl.size > 0:
             if not domain_wl.contains(ip):
                 return FilterResult.block(

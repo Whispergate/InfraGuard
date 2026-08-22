@@ -24,6 +24,7 @@ from infraguard.core.circuit_breaker import CircuitBreaker, CircuitOpenError
 from infraguard.core.content import ContentBackend, RouteMatch, create_backend
 from infraguard.core.content_router import ContentRouteResolver
 from infraguard.core.drop import handle_drop
+from infraguard.core.fronting import DomainFronting
 from infraguard.core.proxy import ProxyHandler
 from infraguard.core.rate_limiter import ContentRateLimiter
 from infraguard.intel.ip_lists import CIDRList
@@ -94,6 +95,13 @@ class DomainRouter:
 
         # Initialize shared intel manager
         self.intel = IntelManager(config.intel)
+
+        # Domain fronting (SNI/Host header rewriting through CDN edges)
+        self._fronting: DomainFronting | None = (
+            DomainFronting(config.fronting.rules)
+            if config.fronting.enabled and config.fronting.rules
+            else None
+        )
 
         # Build per-domain whitelists
         self._domain_whitelists: dict[str, CIDRList] = {}
@@ -378,6 +386,14 @@ class DomainRouter:
         old_config = self.config
         old_breakers = self._breakers
         old_intel = self.intel
+        old_fronting = self._fronting
+
+        # Rebuild fronting from new config
+        self._fronting = (
+            DomainFronting(new_config.fronting.rules)
+            if new_config.fronting.enabled and new_config.fronting.rules
+            else None
+        )
 
         # Rebuild IntelManager from new config
         self.intel = IntelManager(new_config.intel)
@@ -500,6 +516,7 @@ class DomainRouter:
             # Restore old config and shared state on build failure
             self.config = old_config
             self.intel = old_intel
+            self._fronting = old_fronting
             raise
 
         # Atomic swap under lock
@@ -554,6 +571,25 @@ class DomainRouter:
                 )
             return Response(status_code=404, content=b"Not Found")
 
+        # ── Domain fronting interception ───────────────────────────────
+        # If the Host header matches a fronting rule's real domain, this
+        # request arrived via CDN domain fronting.  Forward it through the
+        # CDN edge instead of the normal proxy path.  The fronting layer
+        # handles SNI/Host rewriting, CDN header sanitization, and health
+        # monitoring for the fronted path.
+        if self._fronting is not None:
+            host = request.headers.get("host", "")
+            fronting_rule = self._fronting.resolve_by_host(host)
+            if fronting_rule is not None:
+                log.info(
+                    "fronting_request",
+                    domain=fronting_rule.domain,
+                    front_domain=fronting_rule.front_domain,
+                    cdn=fronting_rule.cdn.value,
+                    path=request.url.path,
+                )
+                return await self._fronting.forward(request, fronting_rule)
+
         # Parse client IP
         client_ip: IPv4Address | IPv6Address
         if request.client:
@@ -588,6 +624,7 @@ class DomainRouter:
                     domain_config=route.config,
                     profile=route.profile,
                     metadata={"body": body, "ja3": getattr(request.state, "ja3", None)},
+                    domain=route.domain,
                 )
                 pre_result = await route.pipeline.evaluate(ctx)
                 if not pre_result.allowed:
@@ -645,6 +682,7 @@ class DomainRouter:
                 "ja3": getattr(request.state, "ja3", None),
                 "request_hash": request_hash,
             },
+            domain=route.domain,
         )
 
         # ── Plugin on_request hooks ────────────────────────────────
@@ -869,6 +907,7 @@ class DomainRouter:
                     "ja3": getattr(request.state, "ja3", None),
                     "request_hash": request_hash,
                 },
+                domain=route.domain,
             )
             if route.fingerprint_pipeline:
                 fp_result = await route.fingerprint_pipeline.evaluate(ctx)
@@ -1049,6 +1088,8 @@ class DomainRouter:
 
     async def close(self) -> None:
         await self.proxy.close()
+        if self._fronting is not None:
+            await self._fronting.close()
         for backend in self._content_backends:
             try:
                 await backend.close()

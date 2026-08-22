@@ -1,0 +1,6 @@
+---
+- name: Deploy InfraGuard redirector
+  hosts: redirectors
+  become: true
+  roles:
+    - infraguard

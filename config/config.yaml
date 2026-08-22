@@ -127,10 +127,6 @@ domains:
             type: "http_proxy"
             target: "https://jquery.com"
         track: true
-      - path: "/assets/*"
-        backend:
-          type: "filesystem"
-          target: "/app/decoys"
 
 intel:
   auto_block_scanners: true

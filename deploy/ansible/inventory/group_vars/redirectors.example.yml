@@ -1,0 +1,32 @@
+---
+# Operator-specific overrides for redirector hosts.
+# Copy to redirectors.yml and fill in real values.
+# Secrets should use ansible-vault: ansible-vault encrypt_string 'mysecret'
+
+infraguard_domain: cdn.example.com
+infraguard_domain_email: operator@example.com
+
+# Teamserver upstream (only the one you use)
+infraguard_mythic_upstream: "https://10.0.0.6:443"
+
+# API token — encrypt with vault in production
+# infraguard_api_token: !vault |
+#   $ANSIBLE_VAULT;1.1;AES256
+#   ...
+infraguard_api_token: ""
+
+# Restrict dashboard to operator IPs only
+infraguard_dashboard_allowed_cidrs:
+  - "10.0.0.0/24"
+
+# Restrict SSH to operator IPs
+infraguard_ssh_allowed_cidrs:
+  - "10.0.0.0/24"
+
+# Enable Let's Encrypt for production TLS
+infraguard_letsencrypt: false
+
+# Compose profiles to activate
+# infraguard_compose_profiles:
+#   - letsencrypt
+#   - pwndrop

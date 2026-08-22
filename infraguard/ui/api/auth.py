@@ -19,6 +19,7 @@ from starlette.requests import Request
 from starlette.responses import JSONResponse
 
 from infraguard.tracking.database import Database
+from infraguard.ui.api.rate_limit import APIKeyManager
 
 log = structlog.get_logger()
 
@@ -73,11 +74,20 @@ async def validate_session(db: Database, session_id: str, expected_token: str) -
 
 
 async def check_auth(request: Request, expected_token: str | None) -> JSONResponse | None:
-    """Validate bearer token or session cookie. Returns error response or None if valid."""
+    """Validate bearer token, API key, or session cookie. Returns error response or None if valid."""
     if not expected_token:
         return None  # Auth disabled
 
-    # Check Bearer token first (API clients, TUI)
+    # Check API key header first (programmatic access)
+    api_key = request.headers.get("x-api-key", "")
+    if api_key:
+        key_manager: APIKeyManager = request.app.state.api_key_manager
+        key_info = await key_manager.validate_key(api_key)
+        if key_info:
+            return None
+        return JSONResponse({"error": "Invalid API key"}, status_code=403)
+
+    # Check Bearer token (API clients, TUI)
     auth = request.headers.get("authorization", "")
     if auth.startswith("Bearer "):
         token = auth[7:]

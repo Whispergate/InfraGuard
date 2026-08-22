@@ -1,0 +1,29 @@
+name: infraguard
+runtime:
+  name: python
+  options:
+    virtualenv: venv
+description: InfraGuard redirector infrastructure across DigitalOcean, AWS, Azure, and Hetzner.
+config:
+  infraguard:provider:
+    description: Cloud provider (digitalocean, aws, azure, hetzner)
+    default: digitalocean
+  infraguard:domain:
+    description: Primary domain for this redirector
+  infraguard:operator_ip:
+    description: Operator IP for SSH access (CIDR, e.g. 1.2.3.4/32)
+  infraguard:region:
+    description: Cloud region (provider-specific slug)
+  infraguard:instance_size:
+    description: Instance size (provider-specific slug)
+  infraguard:ssh_public_key:
+    description: SSH public key content (aws, azure, hetzner) or fingerprint (digitalocean)
+  infraguard:repo_url:
+    description: Git repository URL for InfraGuard source
+    default: https://github.com/Whispergate/InfraGuard.git
+  infraguard:name_prefix:
+    description: Resource name prefix
+    default: infraguard
+  infraguard:dashboard_cidrs:
+    description: "JSON array of CIDRs allowed to reach port 8080 (empty = no access)"
+    default: "[]"

@@ -1,0 +1,22 @@
+# Copy to Pulumi.<stack-name>.yaml and fill in your values.
+# Create a stack:  pulumi stack init <name>
+# Deploy:          pulumi up
+# Tear down:       pulumi destroy
+
+config:
+  infraguard:provider: digitalocean
+  infraguard:domain: cdn.example.com
+  infraguard:operator_ip: "203.0.113.10/32"
+  infraguard:region: nyc1
+  infraguard:instance_size: s-1vcpu-1gb
+  infraguard:ssh_public_key: "ssh-rsa AAAA..."
+  infraguard:repo_url: https://github.com/Whispergate/InfraGuard.git
+  infraguard:name_prefix: infraguard
+  infraguard:dashboard_cidrs: '["203.0.113.10/32"]'
+
+  # Provider credentials — set via environment or encrypted config:
+  #   pulumi config set --secret digitalocean:token dop_v1_xxx
+  #   pulumi config set --secret aws:accessKey AKIA...
+  #   pulumi config set --secret aws:secretKey ...
+  #   export HCLOUD_TOKEN=...
+  #   export ARM_SUBSCRIPTION_ID=...
