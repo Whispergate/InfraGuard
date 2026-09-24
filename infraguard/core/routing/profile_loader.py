@@ -18,7 +18,7 @@ if TYPE_CHECKING:
     from infraguard.profiles.models import C2Profile
 
 
-def load_c2_profile_from_config(config: "DomainConfig") -> "C2Profile":
+def load_c2_profile_from_config(config: DomainConfig) -> C2Profile:
     try:
         return parse_profile_file(config.profile_type.value, config.profile_path)
     except ValueError as exc:

@@ -97,6 +97,6 @@ class RedisBackend:
         if self._client is not None:
             try:
                 await self._client.close()
-            except Exception:  # noqa: BLE001 - best-effort cleanup
+            except Exception:
                 log.warning("redis_close_failed")
             self._client = None

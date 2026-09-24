@@ -11,4 +11,4 @@ from infraguard.decoys.generator import (
     load_industry_data,
 )
 
-__all__ = ["generate_blog", "load_industry_data", "available_industries"]
+__all__ = ["available_industries", "generate_blog", "load_industry_data"]

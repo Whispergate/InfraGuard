@@ -76,9 +76,9 @@ def generate_caddy(
                         "        }",
                     ])
                 elif cr.backend.type.value == "filesystem":
-                    lines.append(f"        file_server {{")
+                    lines.append("        file_server {")
                     lines.append(f"            root {cr.backend.target}")
-                    lines.append(f"        }}")
+                    lines.append("        }")
                 lines.extend(["    }", ""])
 
         # ── C2 URI routes ─────────────────────────────────────────────

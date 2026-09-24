@@ -17,7 +17,6 @@ have been applied; checks therefore reason about the effective runtime state.
 from __future__ import annotations
 
 import ipaddress
-import re
 from dataclasses import dataclass, field
 from pathlib import Path
 from typing import Literal
@@ -27,7 +26,6 @@ from pydantic import ValidationError
 
 from infraguard.config.loader import load_config
 from infraguard.config.schema import InfraGuardConfig
-
 
 Severity = Literal["error", "warning", "info"]
 
@@ -117,7 +115,7 @@ class ConfigValidator:
     # -- entry points -------------------------------------------------------
 
     @classmethod
-    def from_file(cls, path: Path) -> "ConfigValidator":
+    def from_file(cls, path: Path) -> ConfigValidator:
         return cls(load_config(path), source=path)
 
     def validate(self) -> ValidationReport:
@@ -246,13 +244,12 @@ class ConfigValidator:
                         "Analysts/scanners can hammer payload downloads and "
                         "fingerprint the redirector.",
                     )
-                else:
-                    if route.rate_limit.max_downloads > 100:
-                        r.add(
-                            "info", "OPS008", f"{rpath}.rate_limit.max_downloads",
-                            f"max_downloads={route.rate_limit.max_downloads} is generous; "
-                            "consider tighter limits for payload delivery.",
-                        )
+                elif route.rate_limit.max_downloads > 100:
+                    r.add(
+                        "info", "OPS008", f"{rpath}.rate_limit.max_downloads",
+                        f"max_downloads={route.rate_limit.max_downloads} is generous; "
+                        "consider tighter limits for payload delivery.",
+                    )
 
                 # Backend TLS verify
                 be = route.backend

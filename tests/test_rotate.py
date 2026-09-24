@@ -20,8 +20,7 @@ from unittest.mock import AsyncMock, MagicMock, call, patch
 import pytest
 from click.testing import CliRunner
 
-from infraguard.deploy.cli import deploy_group, _poll_health, _poll_health_async
-
+from infraguard.deploy.cli import _poll_health, _poll_health_async, deploy_group
 
 # ---------------------------------------------------------------------------
 # Shared helpers

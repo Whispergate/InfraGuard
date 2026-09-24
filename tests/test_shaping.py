@@ -24,7 +24,6 @@ from infraguard.config.schema import (
 )
 from infraguard.models.common import FilterResult
 
-
 # ── TimingConfig schema ───────────────────────────────────────────────────
 
 class TestTimingConfigSchema:

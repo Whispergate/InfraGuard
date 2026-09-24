@@ -3,13 +3,12 @@
 from __future__ import annotations
 
 import asyncio
-from datetime import datetime, timezone
+from datetime import UTC, datetime, timezone
 
 import pytest
 import pytest_asyncio
 
 from infraguard.tracking.database import Database
-
 
 # ── Fixtures ──────────────────────────────────────────────────────────
 
@@ -116,7 +115,7 @@ class TestSessionCRUD:
         """delete_expired_sessions removes rows where expires_at < now."""
         # Insert one expired session (expires 1 second in the past)
         from datetime import timedelta
-        now = datetime.now(timezone.utc)
+        now = datetime.now(UTC)
         past = (now - timedelta(seconds=1)).isoformat()
         future = (now + timedelta(seconds=3600)).isoformat()
 

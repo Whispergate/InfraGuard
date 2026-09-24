@@ -8,15 +8,15 @@ drift between environments, or auditing what an operator actually changed.
 
 from __future__ import annotations
 
+from collections.abc import Iterable
 from dataclasses import dataclass, field
 from pathlib import Path
-from typing import Any, Iterable
+from typing import Any
 
 import click
 import yaml
 
 from infraguard.config.loader import generate_default_config
-
 
 # ---------------------------------------------------------------------------
 # Data model

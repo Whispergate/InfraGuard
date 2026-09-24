@@ -11,12 +11,10 @@ from __future__ import annotations
 
 import asyncio
 import hashlib
-import hmac
-import json
 import secrets
 import time
-from dataclasses import dataclass, field
-from datetime import datetime, timedelta, timezone
+from dataclasses import dataclass
+from datetime import UTC, datetime, timedelta
 from typing import Any, Protocol
 
 import structlog
@@ -262,7 +260,7 @@ class APIKeyManager:
         key = generate_api_key()
         key_id = secrets.token_urlsafe(16)
         key_hash = _hash_api_key(key)
-        now = datetime.now(timezone.utc)
+        now = datetime.now(UTC)
 
         await self._db.execute(
             """INSERT INTO api_keys
@@ -281,7 +279,7 @@ class APIKeyManager:
 
     async def revoke_key(self, key_id: str, revoked_by: str) -> bool:
         """Revoke an API key. Returns True if the key existed."""
-        now = datetime.now(timezone.utc)
+        now = datetime.now(UTC)
         cursor = await self._db.execute(
             """UPDATE api_keys
                SET revoked = 1, revoked_at = ?, revoked_by = ?
@@ -329,7 +327,7 @@ class APIKeyManager:
             return None
 
         # Update last_used_at
-        now = datetime.now(timezone.utc)
+        now = datetime.now(UTC)
         await self._db.execute(
             "UPDATE api_keys SET last_used_at = ? WHERE key_id = ?",
             (now.isoformat(), row["key_id"]),
@@ -383,7 +381,7 @@ class UsageTracker:
 
     async def record_request(self, key_id: str, endpoint: str, status_code: int) -> None:
         """Record a single API request."""
-        now = datetime.now(timezone.utc)
+        now = datetime.now(UTC)
         await self._db.execute(
             """INSERT INTO api_usage
                (key_id, timestamp, endpoint, status_code)
@@ -409,7 +407,7 @@ class UsageTracker:
 
         Returns (allowed, info) where info includes current usage and reset time.
         """
-        now = datetime.now(timezone.utc)
+        now = datetime.now(UTC)
         window_start = now - timedelta(seconds=quota_window_seconds)
         current_usage = await self.get_usage_count(key_id, window_start, now)
         allowed = current_usage < quota_limit
@@ -425,7 +423,7 @@ class UsageTracker:
         self, key_id: str, days: int = 7
     ) -> list[dict]:
         """Get daily usage counts for the past N days."""
-        since = datetime.now(timezone.utc) - timedelta(days=days)
+        since = datetime.now(UTC) - timedelta(days=days)
         return await self._db.fetchall(
             """SELECT date(timestamp) as date, COUNT(*) as count
                FROM api_usage

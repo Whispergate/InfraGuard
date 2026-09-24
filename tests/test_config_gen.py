@@ -8,7 +8,6 @@ from pathlib import Path
 import pytest
 import yaml
 
-
 # ── profile_detect tests ──────────────────────────────────────────────
 
 

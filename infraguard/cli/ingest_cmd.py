@@ -82,13 +82,13 @@ def ingest_rules(files: tuple[str, ...], output_format: str, output: Path | None
         click.echo(f"  Blocked User-Agents: {len(result.blocked_user_agents)}")
         click.echo(f"  Blocked Paths:       {len(result.blocked_paths)}")
         if result.blocked_ips:
-            click.echo(f"\n  Top blocked IPs:")
+            click.echo("\n  Top blocked IPs:")
             for ip in result.blocked_ips[:10]:
                 click.echo(f"    {ip}")
             if len(result.blocked_ips) > 10:
                 click.echo(f"    ... and {len(result.blocked_ips) - 10} more")
         if result.blocked_user_agents:
-            click.echo(f"\n  Blocked User-Agents:")
+            click.echo("\n  Blocked User-Agents:")
             for ua in result.blocked_user_agents[:10]:
                 click.echo(f"    {ua}")
             if len(result.blocked_user_agents) > 10:

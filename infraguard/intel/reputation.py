@@ -41,8 +41,8 @@ class DomainReputationMonitor:
         check_openphish: bool = True,
         check_google_safebrowsing: bool = False,
         google_safebrowsing_api_key: str | None = None,
-        burn_detector: "BurnDetector | None" = None,
-        recorder: "EventRecorder | None" = None,
+        burn_detector: BurnDetector | None = None,
+        recorder: EventRecorder | None = None,
     ) -> None:
         self._domains = domains
         self._interval = interval_hours * 3600
@@ -99,7 +99,7 @@ class DomainReputationMonitor:
             resp.raise_for_status()
             data = resp.json()
             if data.get("query_status") == "is_host":
-                self._fire_burn(domain, "URLhaus", f"Listed as malware host in URLhaus")
+                self._fire_burn(domain, "URLhaus", "Listed as malware host in URLhaus")
         except Exception:
             log.debug("urlhaus_check_failed", domain=domain)
 
@@ -120,7 +120,7 @@ class DomainReputationMonitor:
 
         matched = any(domain in url for url in self._openphish_cache)
         if matched:
-            self._fire_burn(domain, "OpenPhish", f"Domain found in OpenPhish active phishing feed")
+            self._fire_burn(domain, "OpenPhish", "Domain found in OpenPhish active phishing feed")
 
     async def _check_gsb_domain(self, domain: str) -> None:
         if self._client is None or not self._gsb_key:

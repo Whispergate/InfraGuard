@@ -23,9 +23,9 @@ if TYPE_CHECKING:
 
 
 def check_content_guard(
-    intel: "IntelManager",
-    request: "Request",
-    guard: "ContentRouteGuardConfig",
+    intel: IntelManager,
+    request: Request,
+    guard: ContentRouteGuardConfig,
     client_ip: IPv4Address | IPv6Address,
 ) -> str | None:
     """Return ``None`` if all guard checks pass, or a reason string if blocked."""
@@ -51,11 +51,11 @@ def check_content_guard(
 
 
 def record_content_event(
-    recorder: "EventRecorder | None",
+    recorder: EventRecorder | None,
     domain: str,
     client_ip: IPv4Address | IPv6Address,
-    request: "Request",
-    response: "Response",
+    request: Request,
+    response: Response,
     filter_result: str,
     filter_score: float,
     start: float,

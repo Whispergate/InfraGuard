@@ -35,7 +35,7 @@ from typing import TYPE_CHECKING
 import structlog
 
 if TYPE_CHECKING:
-    from infraguard.config.schema import InfraGuardConfig, ListenerConfig
+    from infraguard.config.schema import InfraGuardConfig
 
 log = structlog.get_logger()
 

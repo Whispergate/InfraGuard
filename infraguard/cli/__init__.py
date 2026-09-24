@@ -48,6 +48,10 @@ _COMMAND_MODULES: tuple[str, ...] = (
     "infraguard.cli.rotate_cmd",
     "infraguard.cli.completions_cmd",
     "infraguard.cli.decoy_cmd",
+    "infraguard.cli.simulate_beacon_cmd",
+    "infraguard.cli.drop_preview_cmd",
+    "infraguard.cli.events_cmd",
+    "infraguard.cli.transpile_cmd",
     "infraguard.cli.deploy_shim",
 )
 

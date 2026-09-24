@@ -166,7 +166,7 @@ class RotationScheduler:
                     timeout=self._config.check_interval_seconds,
                 )
                 break  # stop event was set
-            except asyncio.TimeoutError:
+            except TimeoutError:
                 pass  # normal tick interval elapsed
 
         log.info("rotation_scheduler_stopped")

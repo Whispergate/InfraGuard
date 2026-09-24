@@ -17,11 +17,11 @@ class DomainRoute:
     def __init__(
         self,
         domain: str,
-        config: "DomainConfig",
-        profile: "C2Profile",
-        pipeline: "FilterPipeline",
-        content_resolver: "ContentRouteResolver | None" = None,
-        fingerprint_pipeline: "FilterPipeline | None" = None,
+        config: DomainConfig,
+        profile: C2Profile,
+        pipeline: FilterPipeline,
+        content_resolver: ContentRouteResolver | None = None,
+        fingerprint_pipeline: FilterPipeline | None = None,
     ):
         self.domain = domain
         self.config = config

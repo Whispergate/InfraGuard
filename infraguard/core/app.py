@@ -131,8 +131,8 @@ def create_app(config: InfraGuardConfig) -> Starlette:
         _ct_monitor = None
         _burn_detector = None
         if config.intel.ct_monitor.enabled:
+            from infraguard.intel.burn_detect import BurnDetector
             from infraguard.intel.ct_monitor import CTMonitor
-            from infraguard.intel.burn_detect import BurnDetector, BurnConfig
             _burn_detector = BurnDetector(db=db, recorder=recorder)
             ct_domains = config.intel.ct_monitor.monitored_domains or list(config.domains.keys())
             _ct_monitor = CTMonitor(
@@ -314,6 +314,7 @@ def create_app(config: InfraGuardConfig) -> Starlette:
         _dashboard_server = None
         try:
             import uvicorn as _uvicorn
+
             from infraguard.ui.api.app import create_api_app
 
             _dashboard_db = Database(config.tracking.db_path)

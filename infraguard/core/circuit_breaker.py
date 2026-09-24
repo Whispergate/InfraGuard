@@ -45,7 +45,7 @@ class CircuitBreaker:
         upstream: str,
         failure_threshold: int = 5,
         recovery_timeout: float = 30.0,
-        state_backend: "StateBackend | None" = None,
+        state_backend: StateBackend | None = None,
     ):
         self.upstream = upstream
         self._threshold = failure_threshold

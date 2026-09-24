@@ -13,7 +13,6 @@ import pytest
 
 from infraguard.core.circuit_breaker import CircuitBreaker, CircuitOpenError
 
-
 # ---------------------------------------------------------------------------
 # Helpers
 # ---------------------------------------------------------------------------

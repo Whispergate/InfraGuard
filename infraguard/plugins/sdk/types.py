@@ -7,24 +7,20 @@ and validation, plus runtime helpers for validating plugin conformance.
 from __future__ import annotations
 
 import enum
-from dataclasses import dataclass, field
+from collections.abc import Awaitable, Callable
+from dataclasses import dataclass
 from typing import (
     Any,
-    Awaitable,
-    Callable,
     Literal,
     Protocol,
-    Union,
     runtime_checkable,
 )
 
-from starlette.requests import Request
 from starlette.responses import Response
 
 from infraguard.models.common import FilterResult
 from infraguard.models.events import RequestEvent
 from infraguard.pipeline.base import RequestContext
-
 
 # ---------------------------------------------------------------------------
 # Hook type aliases
@@ -167,7 +163,6 @@ def validate_plugin(plugin: Any) -> list[str]:
             errors.append("Plugin name must not be empty")
 
     # Required async methods
-    import asyncio
     import inspect
 
     for hook in ALL_HOOKS:

@@ -1,21 +1,21 @@
 """Tests for IP intelligence and rule ingestion."""
 
-import pytest
 from ipaddress import ip_address
+
+import pytest
 
 from infraguard.intel.ip_lists import CIDRList, DynamicWhitelist
 from infraguard.intel.known_ranges import (
+    BANNED_RDNS_KEYWORDS,
     BOT_USER_AGENT_PATTERNS,
     SECURITY_VENDOR_CIDRS,
-    BANNED_RDNS_KEYWORDS,
 )
 from infraguard.intel.rule_ingest import (
     IngestResult,
+    ingest_files,
     parse_htaccess,
     parse_robots_txt,
-    ingest_files,
 )
-
 
 # ── CIDRList ──────────────────────────────────────────────────────────
 

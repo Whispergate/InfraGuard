@@ -4,7 +4,7 @@ from datetime import datetime, timezone
 
 import pytest
 
-from infraguard.models.events import RequestEvent, NodeEvent
+from infraguard.models.events import NodeEvent, RequestEvent
 
 
 class TestRequestEvent:

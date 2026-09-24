@@ -244,12 +244,11 @@ def ingest_file(path: str | Path) -> IngestResult:
         result = parse_robots_txt(content)
     elif name in (".htaccess", "htaccess"):
         result = parse_htaccess(content)
+    # Try to auto-detect: if it has "User-agent:" lines it's robots.txt
+    elif re.search(r"^User-agent:", content, re.MULTILINE | re.IGNORECASE):
+        result = parse_robots_txt(content)
     else:
-        # Try to auto-detect: if it has "User-agent:" lines it's robots.txt
-        if re.search(r"^User-agent:", content, re.MULTILINE | re.IGNORECASE):
-            result = parse_robots_txt(content)
-        else:
-            result = parse_htaccess(content)
+        result = parse_htaccess(content)
 
     result.source_files.append(str(path))
     result.deduplicate()

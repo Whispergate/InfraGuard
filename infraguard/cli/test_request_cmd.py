@@ -115,7 +115,7 @@ def test_request(
     click.echo(f"  Mode: {cfg.pipeline.filter_mode}")
     click.echo(f"{'=' * 60}")
 
-    click.echo(f"\n  Filter Breakdown:")
+    click.echo("\n  Filter Breakdown:")
     click.echo(f"  {'Filter':<20} {'Action':<10} {'Score':<8} Reason")
     click.echo(f"  {'-' * 58}")
     for r in result.results:

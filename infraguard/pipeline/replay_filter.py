@@ -40,9 +40,9 @@ class ReplayFilter:
         self,
         window_seconds: int = 86400,
         max_cache: int = 50000,
-        db: "Database | None" = None,
+        db: Database | None = None,
         persist: bool = True,
-        state_backend: "StateBackend | None" = None,
+        state_backend: StateBackend | None = None,
     ):
         self._window = window_seconds
         self._max_cache = max_cache

@@ -16,12 +16,9 @@ Security invariants (inherited from deploy.cli / deploy.state):
 
 from __future__ import annotations
 
-import asyncio
-import json
 import shutil
-import ssl
 import socket
-import subprocess
+import ssl
 import time
 from dataclasses import dataclass, field
 from pathlib import Path
@@ -29,7 +26,6 @@ from typing import Any
 
 from infraguard.deploy.cli import (
     _compute_ssh_fingerprint,
-    _derive_private_key,
     _poll_health,
     _run_ssh,
     _scp_to,
@@ -38,7 +34,6 @@ from infraguard.deploy.cli import (
 from infraguard.deploy.config_gen import generate_config, write_bundle
 from infraguard.deploy.profile_detect import detect_profile_type
 from infraguard.deploy.providers import get_provider
-from infraguard.deploy.providers.base import TerraformProvider
 from infraguard.deploy.state import decrypt_state, encrypt_state
 
 # ---------------------------------------------------------------------------
@@ -260,7 +255,7 @@ class RotationManager:
             ) as sock:
                 with ctx.wrap_socket(sock, server_hostname=domain) as ssock:
                     cert = ssock.getpeercert()
-        except (ssl.SSLError, socket.timeout, OSError) as exc:
+        except (TimeoutError, ssl.SSLError, OSError) as exc:
             raise RotationError(f"TLS handshake to {domain}:{port} failed: {exc}") from exc
 
         not_after = ssl.cert_time_to_seconds(cert["notAfter"])

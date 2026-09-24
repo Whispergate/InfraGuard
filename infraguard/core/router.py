@@ -8,7 +8,6 @@ content delivery routes.
 from __future__ import annotations
 
 import asyncio
-import re
 import random
 import time
 from ipaddress import IPv4Address, IPv6Address, ip_address
@@ -19,7 +18,11 @@ import structlog
 from starlette.requests import Request
 from starlette.responses import Response
 
-from infraguard.config.schema import ContentRouteGuardConfig, DomainConfig, InfraGuardConfig, PipelineConfig
+from infraguard.config.schema import (
+    ContentRouteGuardConfig,
+    DomainConfig,
+    InfraGuardConfig,
+)
 from infraguard.core.circuit_breaker import CircuitBreaker, CircuitOpenError
 from infraguard.core.content import ContentBackend, RouteMatch, create_backend
 from infraguard.core.content_router import ContentRouteResolver
@@ -35,19 +38,19 @@ from infraguard.core.routing import (
 )
 from infraguard.intel.ip_lists import CIDRList
 from infraguard.intel.manager import IntelManager
-from infraguard.models.common import DropActionType, TUNNEL_PROFILE_TYPES
+from infraguard.models.common import TUNNEL_PROFILE_TYPES
 from infraguard.models.events import RequestEvent, compute_request_hash
 from infraguard.pipeline.base import FilterPipeline, RequestContext
 from infraguard.pipeline.bot_filter import BotFilter
 from infraguard.pipeline.dns_filter import DNSFilter
 from infraguard.pipeline.enumeration_filter import EnumerationFilter
-from infraguard.pipeline.header_filter import HeaderFilter
-from infraguard.pipeline.sandbox_filter import SandboxFilter
-from infraguard.pipeline.ip_filter import IPFilter
-from infraguard.pipeline.profile_filter import ProfileFilter
 from infraguard.pipeline.fingerprint_filter import FingerprintFilter
 from infraguard.pipeline.geo_filter import GeoFilter
+from infraguard.pipeline.header_filter import HeaderFilter
+from infraguard.pipeline.ip_filter import IPFilter
+from infraguard.pipeline.profile_filter import ProfileFilter
 from infraguard.pipeline.replay_filter import ReplayFilter
+from infraguard.pipeline.sandbox_filter import SandboxFilter
 from infraguard.pipeline.tls_filter import TLSFilter
 from infraguard.profiles.models import C2Profile
 from infraguard.tracking.database import Database

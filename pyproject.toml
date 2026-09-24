@@ -28,6 +28,12 @@ mqtt-listener = ["aiomqtt>=2.0"]
 http2 = ["h2>=4.0"]
 redis = ["redis>=5.0"]
 pdf = ["weasyprint>=60.0", "fpdf2>=2.7"]
+dev = [
+    "pytest>=8.0",
+    "pytest-asyncio>=0.23",
+    "httpx2>=2.0; python_version >= '3.10'",
+    "ruff>=0.6",
+]
 all = ["infraguard[tui,geoip,dns-listener,mqtt-listener,http2,redis,pdf]"]
 
 [project.scripts]
@@ -39,3 +45,97 @@ build-backend = "hatchling.build"
 
 [tool.hatch.build.targets.wheel]
 packages = ["infraguard"]
+
+[tool.ruff]
+# Match the project's Python floor (see requires-python above).
+target-version = "py311"
+line-length = 100
+extend-exclude = [
+    "infraguard/ui/web/static",       # bundled dashboard JS/HTML
+    "pages",                          # hand-authored decoy sites
+    "vendor",                         # third-party sources
+    ".venv", "venv", "build", "dist",
+]
+
+[tool.ruff.lint]
+# Curated ruleset. Off by default for anything opinion-heavy so ruff
+# does not become the QA gate that shouts about style over substance.
+select = [
+    "E",    # pycodestyle errors
+    "F",    # pyflakes (undefined names, unused imports)
+    "W",    # pycodestyle warnings
+    "B",    # flake8-bugbear (real bugs, e.g. mutable defaults)
+    "UP",   # pyupgrade (drop legacy syntax over time)
+    "I",    # isort (import ordering)
+    "PIE",  # flake8-pie (unnecessary code)
+    "PL",   # pylint subset (correctness rules only)
+    "RUF",  # ruff's own rules
+]
+ignore = [
+    "E501",     # line-length; formatting is not the primary gate
+    "E402",     # module-level import not at top; conftest and CLI __init__ do this deliberately
+    "B008",     # function calls in argument defaults; Click / FastAPI patterns need it
+    "B904",     # raise-from; too noisy for a first pass
+    "PLR0911",  # too many return statements
+    "PLR0912",  # too many branches
+    "PLR0913",  # too many arguments; Click commands hit this constantly
+    "PLR0915",  # too many statements
+    "PLR2004",  # magic value used in comparison; too noisy for filter thresholds
+    "PLW0603",  # global statement; some singletons legitimately need it
+    "RUF012",   # mutable class attributes; Starlette / Click patterns need it
+    "UP007",    # X | Y in older code; keep for backward-readable typing
+    "PLC0415",  # import-outside-top-level; lazy CLI imports are deliberate
+    "PLR0917",  # too-many-positional-arguments; Click / config APIs hit this
+    "PLW2901",  # loop var redefined; common with generator-style loops
+    "PLW1510",  # subprocess-run without check=; sometimes we want raw returncode
+    "B017",     # tests use bare pytest.raises(Exception) for boundary asserts
+    "UP042",    # str-enum vs Enum; conservative
+    "UP022",    # subprocess.run stdout=PIPE readability
+    "RUF001",   # ambiguous unicode in strings; decoy content is intentional
+    "RUF002",   # ambiguous unicode in docstrings
+    "RUF005",   # list concatenation; readability tradeoff
+    "RUF006",   # asyncio create_task without holding a reference; fire-and-forget by design
+    "B905",     # zip strict=; conservative for now
+    "B007",     # unused loop var; legit in enumerate patterns
+    "PIE810",   # multiple startswith into one; readability tradeoff
+]
+
+[tool.ruff.lint.per-file-ignores]
+# Tests use many patterns ruff would otherwise flag: unused imports for
+# fixture side-effects, unused ``response`` locals kept for readability
+# when the assertion is on side-effects, mock objects created for the
+# spec side only, regex patterns in ``pytest.raises(match=)`` that
+# happen to contain metacharacters.
+"tests/**/*.py" = ["F401", "F811", "E741", "PLR", "F841", "RUF043"]
+# Plugin template contains f-string placeholders that read as bad Python.
+"infraguard/plugins/sdk/packaging.py" = ["F821"]
+# CLI modules import Click decorators before use; suppress the noise.
+"infraguard/cli/*.py" = ["I001"]
+# Textual widgets are picked up by string reference and reflection;
+# ruff cannot see the runtime usage.
+"infraguard/ui/tui/app.py" = ["F401"]
+# Optional-listener modules re-export names they gate on ImportError;
+# the import IS the presence check.
+"infraguard/listeners/dns.py" = ["F401"]
+"infraguard/listeners/mqtt.py" = ["F401", "F841"]
+# The Pulumi provider module returns objects the runtime tracks by
+# reference; the local var is bound so Pulumi's dependency graph sees it.
+"infraguard/deploy/pulumi_project/*.py" = ["F841"]
+# IntelManager stashes ``enriched`` for a debugger-visible local; leave.
+"infraguard/intel/manager.py" = ["F841"]
+# generated / template code
+"infraguard/plugins/builtin/elasticsearch.py" = ["F841"]
+
+[tool.pytest.ini_options]
+# Silence pytest-asyncio's warning about the default fixture loop scope.
+# We keep the historical "function" scope explicitly so a future
+# pytest-asyncio release does not change the semantics.
+asyncio_mode = "auto"
+asyncio_default_fixture_loop_scope = "function"
+filterwarnings = [
+    # Starlette 0.44+ prefers httpx2 for TestClient. When the dev extra
+    # is installed the warning stops firing; suppress it in the meantime
+    # so operators running the suite without httpx2 do not see noise.
+    "ignore::starlette.testclient.StarletteDeprecationWarning",
+    "ignore:Using `httpx` with `starlette.testclient` is deprecated",
+]

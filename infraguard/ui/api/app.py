@@ -25,10 +25,10 @@ from infraguard.ui.api.auth import (
     login_handler,
     logout_handler,
 )
+from infraguard.ui.api.metrics import create_metrics_app
 from infraguard.ui.api.rate_limit import (
     APIKeyManager,
     InMemoryRateLimiterBackend,
-    RateLimitMiddleware,
     RedisRateLimiterBackend,
     TokenBucketRateLimiter,
     UsageTracker,
@@ -39,6 +39,7 @@ from infraguard.ui.api.rate_limit import (
     rotate_api_key,
 )
 from infraguard.ui.api.routes.ai import ai_chat, ai_status
+from infraguard.ui.api.routes.burn import get_burn_score, get_burn_scores
 from infraguard.ui.api.routes.config import (
     generate_profile_endpoint,
     get_config,
@@ -55,8 +56,13 @@ from infraguard.ui.api.routes.decoys import (
     preview_decoy_page,
     update_decoy_file,
 )
-from infraguard.ui.api.routes.intel import add_blocklist, add_whitelist, classify_ip, remove_blocklist
 from infraguard.ui.api.routes.health import get_health, get_health_summary
+from infraguard.ui.api.routes.intel import (
+    add_blocklist,
+    add_whitelist,
+    classify_ip,
+    remove_blocklist,
+)
 from infraguard.ui.api.routes.nodes import heartbeat_node, list_nodes, register_node
 from infraguard.ui.api.routes.pdns import (
     clear_pdns_history,
@@ -67,8 +73,6 @@ from infraguard.ui.api.routes.pdns import (
 from infraguard.ui.api.routes.reports import export_report
 from infraguard.ui.api.routes.requests import get_requests
 from infraguard.ui.api.routes.stats import get_content_stats, get_stats
-from infraguard.ui.api.routes.burn import get_burn_score, get_burn_scores
-from infraguard.ui.api.metrics import create_metrics_app
 from infraguard.ui.api.websocket import EventBroadcaster
 
 log = structlog.get_logger()

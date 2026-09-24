@@ -23,7 +23,7 @@ from __future__ import annotations
 
 import hashlib
 import re
-from datetime import datetime, timezone
+from datetime import UTC, datetime
 from pathlib import Path
 
 import aiosqlite
@@ -138,7 +138,7 @@ async def run_migrations(conn: aiosqlite.Connection) -> list[int]:
         await conn.execute(
             "INSERT INTO schema_migrations (version, name, sha256, applied_at) "
             "VALUES (?, ?, ?, ?)",
-            (version, name, digest, datetime.now(timezone.utc).isoformat()),
+            (version, name, digest, datetime.now(UTC).isoformat()),
         )
         await conn.commit()
         newly_applied.append(version)
@@ -157,4 +157,4 @@ async def current_version(conn: aiosqlite.Connection) -> int:
     return int(row["v"] or 0) if row else 0
 
 
-__all__ = ["run_migrations", "current_version"]
+__all__ = ["current_version", "run_migrations"]

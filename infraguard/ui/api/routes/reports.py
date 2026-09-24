@@ -9,7 +9,7 @@ from __future__ import annotations
 import csv
 import io
 import json
-from datetime import datetime, timezone
+from datetime import UTC, datetime
 
 import structlog
 from starlette.requests import Request
@@ -215,7 +215,7 @@ async def export_report(request: Request) -> Response:
     except Exception:
         log.warning("report_audit_failed", client_ip=client_ip, format=fmt)
 
-    date_stamp = datetime.now(timezone.utc).strftime("%Y%m%d-%H%M%S")
+    date_stamp = datetime.now(UTC).strftime("%Y%m%d-%H%M%S")
     filename = f"infraguard-report-{date_stamp}.{fmt}"
     disposition = f'attachment; filename="{filename}"'
 

@@ -4,6 +4,7 @@ from __future__ import annotations
 
 import asyncio
 import socket
+
 import structlog
 
 log = structlog.get_logger()
@@ -18,7 +19,7 @@ async def reverse_dns(ip: str, timeout: float = 2.0) -> str | None:
             timeout=timeout,
         )
         return result
-    except (asyncio.TimeoutError, Exception):
+    except (TimeoutError, Exception):
         return None
 
 

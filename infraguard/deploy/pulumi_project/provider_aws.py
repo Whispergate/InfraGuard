@@ -1,8 +1,6 @@
 """AWS provider: EC2 instance + security group + key pair."""
 
-import pulumi
 import pulumi_aws as aws
-
 from cloud_init import bootstrap_script
 
 

@@ -95,10 +95,10 @@ def config_generate(domain: str, c2_profile: Path, upstream: str,
     )
 
     click.echo(f"Deployment bundle written to {output}/")
-    click.echo(f"  config.yaml        - InfraGuard configuration")
-    click.echo(f"  .env               - Environment variables (edit before deploy)")
-    click.echo(f"  docker-compose.yml - Docker Compose deployment")
-    click.echo(f"  profiles/          - C2 profile files")
+    click.echo("  config.yaml        - InfraGuard configuration")
+    click.echo("  .env               - Environment variables (edit before deploy)")
+    click.echo("  docker-compose.yml - Docker Compose deployment")
+    click.echo("  profiles/          - C2 profile files")
     click.echo(f"\nNext: edit .env, then run 'docker-compose up -d' in {output}/")
 
 
@@ -112,7 +112,7 @@ def validate_config(config_path: Path) -> None:
 
     try:
         cfg = load_config(config_path)
-        click.echo(f"Config is valid.")
+        click.echo("Config is valid.")
         click.echo(f"  Listeners: {len(cfg.listeners)}")
         click.echo(f"  Domains:   {len(cfg.domains)}")
         click.echo(f"  Plugins:   {len(cfg.plugins)}")

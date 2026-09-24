@@ -4,7 +4,6 @@ from __future__ import annotations
 
 from typing import Any, Protocol, runtime_checkable
 
-from starlette.requests import Request
 from starlette.responses import Response
 
 from infraguard.models.common import FilterResult

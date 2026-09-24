@@ -104,7 +104,7 @@ def _prompt_choice(
         except ValueError:
             # Maybe they typed the name directly
             if raw.lower() in [c.lower() for c in choices]:
-                return [c for c in choices if c.lower() == raw.lower()][0]
+                return next(c for c in choices if c.lower() == raw.lower())
         click.echo(click.style(f"  Invalid selection: {raw}", fg="red"))
 
 

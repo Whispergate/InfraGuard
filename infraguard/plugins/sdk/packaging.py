@@ -27,16 +27,13 @@ from __future__ import annotations
 
 import hashlib
 import json
-import os
 import re
-import shutil
-import tempfile
 import zipfile
 from dataclasses import asdict, dataclass, field
 from pathlib import Path
 from typing import Any
 
-from infraguard.plugins.sdk.types import PluginCapability, PluginMetadata, validate_plugin
+from infraguard.plugins.sdk.types import PluginCapability
 
 # Valid plugin name pattern (matches loader convention)
 _VALID_NAME = re.compile(r"^[a-z_][a-z0-9_]*$")

@@ -14,11 +14,11 @@ from starlette.requests import Request
 from starlette.responses import FileResponse, RedirectResponse, Response, StreamingResponse
 
 from infraguard.config.schema import CanaryConfig, DropActionConfig, PersonaConfig
-from infraguard.core.headers import sanitize_response_headers
 from infraguard.core.ssl_context import build_ssl_context
 from infraguard.intel.canary import inject_all_canaries
 from infraguard.models.common import DropActionType
-from .headers import sanitize_response_headers, preserve_multi_value_headers
+
+from .headers import preserve_multi_value_headers, sanitize_response_headers
 
 log = structlog.get_logger()
 

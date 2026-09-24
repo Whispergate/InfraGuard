@@ -21,6 +21,7 @@ import asyncio
 import time
 from collections import deque
 from dataclasses import dataclass, field
+from datetime import UTC
 from typing import TYPE_CHECKING
 
 import structlog
@@ -69,8 +70,8 @@ class BurnDetector:
     def __init__(
         self,
         config: BurnConfig | None = None,
-        db: "Database | None" = None,
-        recorder: "EventRecorder | None" = None,
+        db: Database | None = None,
+        recorder: EventRecorder | None = None,
     ):
         self.config = config or BurnConfig()
         self._db = db
@@ -210,8 +211,8 @@ class BurnDetector:
         if self._db is None:
             return []
         lookback = time.time() - self.config.analyst_lookback_hours * 3600
-        from datetime import datetime, timezone
-        since = datetime.fromtimestamp(lookback, tz=timezone.utc).isoformat()
+        from datetime import datetime
+        since = datetime.fromtimestamp(lookback, tz=UTC).isoformat()
         try:
             rows = await self._db.fetchall(
                 """

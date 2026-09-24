@@ -117,7 +117,7 @@ class EventRecorder:
     async def _safe_on_event(plugin: Any, event: RequestEvent) -> None:
         try:
             await plugin.on_event(event)
-        except asyncio.TimeoutError:
+        except TimeoutError:
             name = getattr(plugin, "name", "unknown")
             log.warning("plugin_on_event_timeout", plugin=name)
         except Exception as e:

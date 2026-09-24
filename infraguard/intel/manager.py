@@ -9,10 +9,10 @@ from ipaddress import IPv4Address, IPv6Address
 import structlog
 
 from infraguard.config.schema import IntelConfig
+from infraguard.intel.cloud_ranges import cloud_range_refresh_loop
 from infraguard.intel.dns import reverse_dns
-from infraguard.intel.cloud_ranges import cloud_range_refresh_loop, update_cloud_ranges
-from infraguard.intel.feeds import feed_refresh_loop, load_feed_cache, update_feeds
-from infraguard.intel.geoip import GeoIPLookup, GeoInfo
+from infraguard.intel.feeds import feed_refresh_loop, load_feed_cache
+from infraguard.intel.geoip import GeoInfo, GeoIPLookup
 from infraguard.intel.ip_lists import CIDRList, DynamicWhitelist
 from infraguard.intel.known_ranges import SECURITY_VENDOR_CIDRS
 

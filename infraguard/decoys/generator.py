@@ -14,7 +14,6 @@ import re
 from pathlib import Path
 from typing import Any
 
-
 _TEMPLATE_DIR = Path(__file__).resolve().parents[2] / "pages" / "_templates"
 _INDUSTRY_DIR = _TEMPLATE_DIR / "industries"
 _BLOG_TEMPLATE = _TEMPLATE_DIR / "blog.html.j2"
@@ -137,7 +136,7 @@ def _mini_render(template: str, ctx: dict[str, Any]) -> str:
 
 
 __all__ = [
+    "available_industries",
     "generate_blog",
     "load_industry_data",
-    "available_industries",
 ]

@@ -5,12 +5,12 @@ from __future__ import annotations
 import httpx
 import structlog
 from starlette.requests import Request
-from starlette.responses import Response, StreamingResponse
+from starlette.responses import Response
 
 from infraguard.config.schema import DomainConfig
-from infraguard.core.headers import sanitize_response_headers
 from infraguard.core.ssl_context import build_ssl_context
-from .headers import sanitize_response_headers, preserve_multi_value_headers
+
+from .headers import preserve_multi_value_headers, sanitize_response_headers
 
 log = structlog.get_logger()
 

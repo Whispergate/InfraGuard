@@ -88,7 +88,7 @@ _STATE_CODES: dict[str, int] = {
 # ---------------------------------------------------------------------------
 
 
-def update_circuit_breaker_metrics(breakers: dict[str, "CircuitBreaker"]) -> None:
+def update_circuit_breaker_metrics(breakers: dict[str, CircuitBreaker]) -> None:
     """Sync circuit breaker gauge values from current breaker states.
 
     Args:

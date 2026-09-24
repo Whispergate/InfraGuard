@@ -12,7 +12,7 @@ import hmac
 import secrets
 import time
 from collections import defaultdict
-from datetime import datetime, timezone
+from datetime import UTC, datetime
 
 import structlog
 from starlette.requests import Request
@@ -67,7 +67,7 @@ async def validate_session(db: Database, session_id: str, expected_token: str) -
     row = await db.get_session(session_id)
     if not row:
         return False
-    if datetime.fromisoformat(row["expires_at"]) < datetime.now(timezone.utc):
+    if datetime.fromisoformat(row["expires_at"]) < datetime.now(UTC):
         await db.delete_session(session_id)
         return False
     return row["token_hash"] == _token_hash(expected_token)

@@ -17,7 +17,7 @@ from infraguard.core.routing.route import DomainRoute
 
 __all__ = [
     "DomainRoute",
-    "load_c2_profile_from_config",
     "check_content_guard",
+    "load_c2_profile_from_config",
     "record_content_event",
 ]

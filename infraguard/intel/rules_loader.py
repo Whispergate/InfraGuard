@@ -22,8 +22,8 @@ The default resolution for ``rules/`` is:
 from __future__ import annotations
 
 import os
+from collections.abc import Iterable
 from pathlib import Path
-from typing import Iterable
 
 import structlog
 
@@ -115,4 +115,4 @@ def load_grouped(
     return groups
 
 
-__all__ = ["load_list", "load_grouped", "rules_path"]
+__all__ = ["load_grouped", "load_list", "rules_path"]

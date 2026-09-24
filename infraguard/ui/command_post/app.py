@@ -22,7 +22,6 @@ from infraguard.ui.api.auth import (
     SESSION_COOKIE,
     check_auth,
     check_handler,
-    create_session,
     login_handler,
     logout_handler,
     validate_session,
@@ -132,6 +131,7 @@ def create_command_post_app(config: CommandPostConfig) -> Starlette:
             """Connect to one instance's WebSocket and forward events."""
             try:
                 import ssl as _ssl
+
                 import websockets
                 ws_url = client.url.replace("https://", "wss://").replace("http://", "ws://")
                 ws_url += "/ws/events"

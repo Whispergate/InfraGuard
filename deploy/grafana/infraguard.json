@@ -1,0 +1,121 @@
+{
+  "annotations": {
+    "list": [
+      {
+        "builtIn": 1,
+        "datasource": {"type": "grafana", "uid": "-- Grafana --"},
+        "enable": true,
+        "hide": true,
+        "iconColor": "rgba(0, 211, 255, 1)",
+        "name": "Annotations & Alerts",
+        "type": "dashboard"
+      }
+    ]
+  },
+  "editable": true,
+  "fiscalYearStartMonth": 0,
+  "graphTooltip": 1,
+  "id": null,
+  "links": [],
+  "panels": [
+    {
+      "type": "stat",
+      "title": "Requests / min",
+      "gridPos": {"h": 4, "w": 6, "x": 0, "y": 0},
+      "targets": [
+        {"expr": "sum(rate(infraguard_requests_total[1m])) * 60"}
+      ],
+      "options": {"colorMode": "value", "graphMode": "area"}
+    },
+    {
+      "type": "stat",
+      "title": "Blocked / min",
+      "gridPos": {"h": 4, "w": 6, "x": 6, "y": 0},
+      "targets": [
+        {"expr": "sum(rate(infraguard_requests_total{filter_result=\"block\"}[1m])) * 60"}
+      ],
+      "fieldConfig": {"defaults": {"color": {"mode": "fixed", "fixedColor": "red"}}}
+    },
+    {
+      "type": "stat",
+      "title": "Active beacons (5m)",
+      "gridPos": {"h": 4, "w": 6, "x": 12, "y": 0},
+      "targets": [{"expr": "infraguard_active_beacons"}]
+    },
+    {
+      "type": "stat",
+      "title": "Upstream p95 (ms)",
+      "gridPos": {"h": 4, "w": 6, "x": 18, "y": 0},
+      "targets": [{
+        "expr": "histogram_quantile(0.95, sum by (le) (rate(infraguard_upstream_duration_ms_bucket[5m])))"
+      }]
+    },
+    {
+      "type": "timeseries",
+      "title": "Requests by filter_result",
+      "gridPos": {"h": 8, "w": 12, "x": 0, "y": 4},
+      "targets": [
+        {"expr": "sum by (filter_result) (rate(infraguard_requests_total[1m]))",
+         "legendFormat": "{{filter_result}}"}
+      ]
+    },
+    {
+      "type": "timeseries",
+      "title": "Per-filter block rate",
+      "gridPos": {"h": 8, "w": 12, "x": 12, "y": 4},
+      "targets": [
+        {"expr": "sum by (filter_name) (rate(infraguard_filter_hits_total{action=\"block\"}[1m]))",
+         "legendFormat": "{{filter_name}}"}
+      ]
+    },
+    {
+      "type": "timeseries",
+      "title": "Upstream latency (p50 / p95 / p99)",
+      "gridPos": {"h": 8, "w": 12, "x": 0, "y": 12},
+      "targets": [
+        {"expr": "histogram_quantile(0.50, sum by (le) (rate(infraguard_upstream_duration_ms_bucket[5m])))",
+         "legendFormat": "p50"},
+        {"expr": "histogram_quantile(0.95, sum by (le) (rate(infraguard_upstream_duration_ms_bucket[5m])))",
+         "legendFormat": "p95"},
+        {"expr": "histogram_quantile(0.99, sum by (le) (rate(infraguard_upstream_duration_ms_bucket[5m])))",
+         "legendFormat": "p99"}
+      ]
+    },
+    {
+      "type": "timeseries",
+      "title": "Circuit-breaker state changes",
+      "gridPos": {"h": 8, "w": 12, "x": 12, "y": 12},
+      "targets": [
+        {"expr": "sum by (upstream, state) (rate(infraguard_breaker_transitions_total[5m]))",
+         "legendFormat": "{{upstream}} -> {{state}}"}
+      ]
+    },
+    {
+      "type": "table",
+      "title": "Top blocked IPs (last 15m)",
+      "gridPos": {"h": 8, "w": 12, "x": 0, "y": 20},
+      "targets": [
+        {"expr": "topk(20, sum by (client_ip) (increase(infraguard_requests_total{filter_result=\"block\"}[15m])))",
+         "format": "table", "instant": true}
+      ]
+    },
+    {
+      "type": "timeseries",
+      "title": "Burn score per domain",
+      "gridPos": {"h": 8, "w": 12, "x": 12, "y": 20},
+      "targets": [
+        {"expr": "infraguard_burn_score", "legendFormat": "{{domain}}"}
+      ]
+    }
+  ],
+  "refresh": "30s",
+  "schemaVersion": 39,
+  "tags": ["infraguard", "redteam"],
+  "templating": {"list": []},
+  "time": {"from": "now-1h", "to": "now"},
+  "timezone": "",
+  "title": "InfraGuard Overview",
+  "uid": "infraguard-overview",
+  "version": 1,
+  "weekStart": ""
+}

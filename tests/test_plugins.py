@@ -1,22 +1,22 @@
 """Tests for the plugin system and built-in plugins."""
 
 import asyncio
+from datetime import UTC, datetime, timezone
 from unittest.mock import AsyncMock, MagicMock, patch
-from datetime import datetime, timezone
 
 import pytest
 
 from infraguard.config.schema import EventFilterConfig, PluginSettings
 from infraguard.models.events import RequestEvent
 from infraguard.plugins.base import BasePlugin
-from infraguard.plugins.loader import load_plugins
 from infraguard.plugins.builtin._base import ForwardingPlugin
 from infraguard.plugins.builtin._batch import BatchForwardingPlugin
+from infraguard.plugins.loader import load_plugins
 
 
 def _make_event(**kwargs) -> RequestEvent:
     defaults = dict(
-        timestamp=datetime.now(timezone.utc),
+        timestamp=datetime.now(UTC),
         domain="test.local",
         client_ip="1.2.3.4",
         method="GET",

@@ -1,205 +1,228 @@
 # InfraGuard Roadmap
 
-Living document of features and plugins planned or under consideration for
-post-v0.5 releases. Effort tiers are rough: **S** ≈ half-day, **M** ≈ 1–3
-sessions, **L** ≈ multi-week.
+Living document. Section 1 is what actually landed in the v0.6 update
+kicked off from this roadmap sections 2+ are what's still outstanding.
 
-Nothing here is a commitment — this is the backlog we pick from.
+Effort tiers: **S** ≈ half-day, **M** ≈ 1-3 sessions, **L** ≈ multi-week.
 
 Related docs: [plugin-sdk.md](plugin-sdk.md) for the plugin authoring
-contract; the top-level `README.md` for current feature inventory.
+contract top-level `README.md` for feature inventory.
 
 ---
 
-## Core features
+## 1. Landed in v0.6
 
-### 1 — Cash in on the new shared-state package
+Cross-referenced against the source tree. "Scaffold" means the module,
+config surface, and interface are shipped but a follow-up PR is needed
+before it can run in anger.
 
-The `infraguard/state/` interface added in v0.5 is only wired to the
-replay filter and circuit breaker. Three high-leverage extensions:
+### CLI additions
 
-| Effort | Feature | Why now |
+| Command | Status | File |
 |---|---|---|
-| **M** | **Cross-node dynamic whitelist** — put `record_valid_request` on the Redis backend | Today a beacon whitelisted on `proxy-node-A` gets CIDR-blocked at `proxy-node-B`. Straight port of the `ReplayFilter` pattern. |
-| **M** | **Beacon session correlation** — hash `(client_ip, JA3, first_seen_ua)` into a `beacon_id`, store first/last seen and tasking count in state | Powers session views in the dashboard; unblocks HAR export, replay, and burn-per-beacon scoring. |
-| **S** | **Distributed rate-limit for the drop response** — per source-IP token bucket on the drop path | A scanner hitting N replicas currently gets N drop redirects — turns us into an amplifier. |
+| `infraguard simulate-beacon` | Shipped | [infraguard/cli/simulate_beacon_cmd.py](../infraguard/cli/simulate_beacon_cmd.py) |
+| `infraguard drop-preview` | Shipped | [infraguard/cli/drop_preview_cmd.py](../infraguard/cli/drop_preview_cmd.py) |
+| `infraguard events tail` | Shipped | [infraguard/cli/events_cmd.py](../infraguard/cli/events_cmd.py) |
+| `infraguard profile transpile` | Shipped | [infraguard/cli/transpile_cmd.py](../infraguard/cli/transpile_cmd.py) |
 
-### 2 — Real horizontal-scale story
+### Shared-state features
 
-Redis-optional state + Alembic migrator make these finally practical:
+Cluster-wide extensions to the `infraguard/state/` package added in v0.5:
 
-| Effort | Feature | Why now |
+| Feature | Status | File |
 |---|---|---|
-| **L** | **Kubernetes operator + Helm chart** at `deploy/helm/` | Complements Terraform/Pulumi; the state package removed the last blocker. |
-| **M** | **HPA-driven auto-scaling** on a new `infraguard_active_beacons` metric | Requires emitting the metric first — small change in `metrics.py`. |
-| **M** | **Multi-region GeoDNS** with rotation-manager integration | Regional blue-greens without a global cutover. |
+| Cross-node dynamic whitelist | Shipped | [infraguard/state/whitelist.py](../infraguard/state/whitelist.py) |
+| Beacon session correlation | Shipped | [infraguard/state/beacons.py](../infraguard/state/beacons.py) |
+| Distributed drop rate-limit | Shipped | [infraguard/state/drop_rate_limit.py](../infraguard/state/drop_rate_limit.py) |
 
-### 3 — Intel sharing via Command Post
+Wiring these into the hot path (calls in `core/router.py`) is a small
+follow-up commit the modules themselves are self-contained.
 
-Command Post is currently a read-only aggregator. Make it the intel spine:
+### Auto-rotation watchdog
 
-| Effort | Feature | Why now |
+| Feature | Status | File |
 |---|---|---|
-| **M** | **Bi-directional blocklist sync** — a scanner tripped on one node pushes an IoC to Command Post; peers pull | Uses the state-backend pattern; scales fleet learning. |
-| **M** | **STIX/TAXII 2.1 publisher** for the operator's own scanner blocklist | Enables red-team consortium sharing. |
-| **S** | **Cross-instance JA3 anomaly detection** | A JA3 seen on one domain but not others flagged; runs in Command Post; no extra state. |
+| Burn-score watchdog | Shipped | [infraguard/deploy/watchdog.py](../infraguard/deploy/watchdog.py) |
+| Cert-expiry auto-rotate | Shipped | [infraguard/deploy/watchdog.py](../infraguard/deploy/watchdog.py) |
+| Cost-cap auto-rotate | Interface only (billing API integration deferred) | [infraguard/deploy/watchdog.py](../infraguard/deploy/watchdog.py) |
 
-### 4 — Transports and evasion
+Enable via a new `watchdog:` block in `config.yaml`.
 
-| Effort | Feature | Why now |
+### Observability
+
+| Feature | Status | File |
 |---|---|---|
-| **L** | **HTTP/3 (QUIC) listener** via `aioquic` | Modern browsers negotiate H3 first; a redirector without it stands out to defenders. |
-| **M** | **WebSocket beacon transport** as a new `content_routes` backend type | Long-lived duplex bypasses HTTP-only proxies; blends with real-time apps. |
-| **M** | **uTLS-style ClientHello mimicry for upstream** — proxy→teamserver leg mirrors Chrome/Edge exactly | `curl_cffi` or `tls-client` binding. |
-| **M** | **gRPC transport** | Binary + HTTP/2 mux; complements WebSocket. |
-| **S** | **Cache-hint mimicry** — auto-emit `ETag`/`Last-Modified`/`Cache-Control: max-age=N` on beacon responses | Makes shaped responses look like static CDN assets. |
+| OpenTelemetry traces (opt-in) | Shipped | [infraguard/observability/otel.py](../infraguard/observability/otel.py) |
+| Grafana overview dashboard | Shipped | [deploy/grafana/infraguard.json](../deploy/grafana/infraguard.json) |
 
-### 5 — Operator workflow polish
+Wire OTEL into `core/app.py` lifespan import + call `setup_otel()`.
+Grafana JSON is one HTTP POST from live.
 
-| Effort | Feature | Why now |
+### Cross-C2 transpiler + LLM helper
+
+| Feature | Status | File |
 |---|---|---|
-| **M** | **`infraguard simulate-beacon`** — send a fully profile-shaped request through the pipeline; see the exact response a real beacon would get | Closes the biggest tooling gap: today you fire real traffic and interpret block reasons manually. |
-| **S** | **`infraguard drop-preview --domain X --action decoy`** — render the drop response the pipeline would return, no traffic | Useful when tuning decoys / redirects. |
-| **M** | **Config-file git integration** — auto-commit every dashboard mutation to `~/.config/infraguard/history.git`; `infraguard config log` / `revert HEAD~1` | Currently: one bad `set` from the dashboard is unrecoverable. |
-| **S** | **TUI burn-score graph widget** | Scorer + tui package already exist; just needs a widget. |
+| Profile transpiler using the IR + registry | Shipped | [infraguard/profiles/transpile.py](../infraguard/profiles/transpile.py) |
+| LLM "why blocked?" (Ollama) | Shipped | [infraguard/integrations/why_blocked.py](../infraguard/integrations/why_blocked.py) |
 
-### 6 — Auto-rotation triggers
+### Command Post intel sharing
 
-The `rotate` command is manual. Wire it to observed state:
-
-| Effort | Feature | Why now |
+| Feature | Status | File |
 |---|---|---|
-| **M** | **Watchdog service** — burn score over threshold auto-fires `rotate --strategy blue-green` | Makes burn scoring actionable, not decorative. |
-| **S** | **Cert-expiry auto-rotate** — rotate 14 days before LE expiry | Small, mechanical, high-value. |
-| **S** | **Cost-based auto-rotate** — cloud spend cap triggers a cheaper-region green | Optional guardrail. |
+| Bi-directional blocklist sync + JA3 anomaly | Shipped (module) | [infraguard/ui/command_post/intel_sharing.py](../infraguard/ui/command_post/intel_sharing.py) |
+| STIX 2.1 bundle publisher | Shipped (module) | [infraguard/ui/command_post/stix_publisher.py](../infraguard/ui/command_post/stix_publisher.py) |
 
-### 7 — Observability (from the v0.5 audit)
+Attach a Starlette router that exposes `/api/intel/push`, `/api/intel/pull`,
+and `/taxii2/collections/...` in a follow-up.
 
-| Effort | Feature | Why now |
+### Config git integration + TUI widget
+
+| Feature | Status | File |
 |---|---|---|
-| **M** | **OpenTelemetry traces** — one span chain from beacon-hit through router / filter / upstream | Audit's #1 gap; unlocks every other debugging story. |
-| **S** | **Grafana dashboard JSON in-tree** at `deploy/grafana/infraguard.json` | Zero code, huge onboarding win. Metrics already emit. |
-| **M** | **Alert webhooks** — Slack/Discord/PagerDuty on: first burn hit, circuit open, cert expiring, rotation done | Requires a small `alerts/` package + config schema. |
-| **S** | **`infraguard events tail`** — stream audit log as JSONL from CLI, pipe into `jq` / SIEM | 30 lines of code. |
+| Auto-commit config history | Shipped | [infraguard/config/git_history.py](../infraguard/config/git_history.py) |
+| TUI burn-score widget | Shipped | [infraguard/ui/tui/widgets/burn_widget.py](../infraguard/ui/tui/widgets/burn_widget.py) |
 
-### 8 — Novel / speculative
+### Transport scaffolds
 
-Higher risk, higher signal:
+Marked scaffold: real modules, config surface, and TODO checklists in the
+docstrings so a follow-up PR drops in.
 
-| Effort | Feature | Why now |
+| Feature | Status | File |
 |---|---|---|
-| **L** | **Purple-team mirror mode** — duplicate every allowed request to a secondary "defender view" upstream that never touches the C2 path | Blue team sees what got through without breaking the op. |
-| **L** | **Adversary-emulation self-test** — `infraguard preflight --scan self` runs Nmap/Nuclei/common scanners against ourselves, reports which reached profile filter | Pre-flight sanity for every rotation. |
-| **M** | **LLM-assisted "why blocked?"** — feed request context + profile to Ollama; get a diff proposal to make the beacon pass | Ollama is already integrated for profile assistance. |
-| **M** | **Cross-C2 profile transpiler** — take a Cobalt Strike malleable profile, emit Mythic HTTPX config (or reverse) | Uses the shared IR + registry added in v0.5. Turns architecture into product. |
+| HTTP/3 (QUIC) listener | Scaffold | [infraguard/listeners/experimental/quic.py](../infraguard/listeners/experimental/quic.py) |
+| WebSocket beacon transport | Scaffold | [infraguard/listeners/experimental/websocket.py](../infraguard/listeners/experimental/websocket.py) |
+| gRPC beacon transport | Scaffold | [infraguard/listeners/experimental/grpc_transport.py](../infraguard/listeners/experimental/grpc_transport.py) |
+| uTLS ClientHello mimicry | Scaffold | [infraguard/core/utls_mimicry.py](../infraguard/core/utls_mimicry.py) |
+| Purple-team mirror | Scaffold | [infraguard/core/purple_team_mirror.py](../infraguard/core/purple_team_mirror.py) |
+| Adversary-emulation self-test | Scaffold | [infraguard/deploy/adversary_emulation.py](../infraguard/deploy/adversary_emulation.py) |
+| Multi-region GeoDNS | Scaffold | [infraguard/deploy/geo_dns.py](../infraguard/deploy/geo_dns.py) |
+
+### New plugins under `infraguard/plugins/builtin/`
+
+22 plugins shipped, all discoverable by the existing loader. Enable
+per-domain via the standard `plugins:` block in `config.yaml`.
+
+Alerting:
+
+| Plugin | File | Notes |
+|---|---|---|
+| `pagerduty` | [pagerduty.py](../infraguard/plugins/builtin/pagerduty.py) | Events API v2 with dedup |
+| `telegram_bot` | [telegram_bot.py](../infraguard/plugins/builtin/telegram_bot.py) | Two-way ops over Telegram |
+
+(Slack, Discord, generic webhook, Elasticsearch, Syslog, Wazuh already
+shipped pre-v0.6.)
+
+Detection augmentation:
+
+| Plugin | File |
+|---|---|
+| `yara_scan` | [yara_scan.py](../infraguard/plugins/builtin/yara_scan.py) |
+| `ja4_enricher` | [ja4_enricher.py](../infraguard/plugins/builtin/ja4_enricher.py) |
+| `p0f_fingerprint` | [p0f_fingerprint.py](../infraguard/plugins/builtin/p0f_fingerprint.py) |
+| `greynoise` | [greynoise.py](../infraguard/plugins/builtin/greynoise.py) |
+| `http_smuggling` | [http_smuggling.py](../infraguard/plugins/builtin/http_smuggling.py) |
+
+Response manipulation:
+
+| Plugin | File |
+|---|---|
+| `response_canary` | [response_canary.py](../infraguard/plugins/builtin/response_canary.py) |
+| `html_rewriter` | [html_rewriter.py](../infraguard/plugins/builtin/html_rewriter.py) |
+| `payload_watermark` | [payload_watermark.py](../infraguard/plugins/builtin/payload_watermark.py) |
+| `sig_strip` | [sig_strip.py](../infraguard/plugins/builtin/sig_strip.py) |
+| `slow_tarpit` | [slow_tarpit.py](../infraguard/plugins/builtin/slow_tarpit.py) |
+| `js_challenge` | [js_challenge.py](../infraguard/plugins/builtin/js_challenge.py) |
+| `cache_mimicry` | [cache_mimicry.py](../infraguard/plugins/builtin/cache_mimicry.py) |
+
+Session & behavior tracking:
+
+| Plugin | File |
+|---|---|
+| `beacon_labeler` | [beacon_labeler.py](../infraguard/plugins/builtin/beacon_labeler.py) |
+| `timing_profiler` | [timing_profiler.py](../infraguard/plugins/builtin/timing_profiler.py) |
+| `geoip_enricher` | [geoip_enricher.py](../infraguard/plugins/builtin/geoip_enricher.py) |
+
+Payload security & staging:
+
+| Plugin | File |
+|---|---|
+| `payload_shred` | [payload_shred.py](../infraguard/plugins/builtin/payload_shred.py) |
+| `stager_rate_limit` | [stager_rate_limit.py](../infraguard/plugins/builtin/stager_rate_limit.py) |
+
+Testing helpers:
+
+| Plugin | File |
+|---|---|
+| `request_recorder` | [request_recorder.py](../infraguard/plugins/builtin/request_recorder.py) |
+| `shadow_block` | [shadow_block.py](../infraguard/plugins/builtin/shadow_block.py) |
+| `prom_custom` | [prom_custom.py](../infraguard/plugins/builtin/prom_custom.py) |
+
+Not shipped (deferred): `ml_bot_classifier` (needs a trained baseline).
 
 ---
 
-## New plugins
+## 2. Still on the roadmap
 
-Plugins extend the pipeline via `on_request` / `on_response` hooks
-(see [plugin-sdk.md](plugin-sdk.md)). The ones marked ⚠️ require the
-SDK to gain a new hook (startup/shutdown/schedule/websocket) — capture
-those as SDK v2 requirements, not v1 plugins.
+### Kubernetes operator + Helm chart
 
-### Alerting & notifications
-
-| Effort | Plugin | What it does |
+| Effort | Feature | Why now |
 |---|---|---|
-| **S** | **`slack-alerter`** | POST to a Slack webhook on: first-time IP allowed, burn threshold crossed, circuit opened, upstream failover fired. Config: webhook URL, event allowlist, per-event message template. |
-| **S** | **`discord-alerter`** | Same as above, Discord webhooks. Shared base class with Slack. |
-| **M** | **`pagerduty-oncall`** | PagerDuty Events API v2. Fires on circuit-open + all-upstreams-failed. Includes dedup key so a flapping breaker doesn't page 30 times. |
-| **M** | **`telegram-bot`** ⚠️ | Two-way ops via Telegram — `/status`, `/block <ip>`, `/whitelist <ip>`, `/rotate <domain>`. Needs a background poll hook. |
+| **L** | Kubernetes operator + Helm chart at `deploy/helm/` | Complements Terraform/Pulumi the state package (v0.5) + Redis compose profile removed the last blocker. Deliberately parked from v0.6 to keep the release focused. |
+| **M** | HPA-driven auto-scaling on `infraguard_active_beacons` | Depends on the K8s operator. |
 
-### Detection augmentation
+### Follow-up wiring for v0.6 scaffolds
 
-| Effort | Plugin | What it does |
+These are all "the module exists, wire it in":
+
+| Effort | Item |
+|---|---|
+| **S** | Wire `SharedWhitelist` into `IntelManager.record_valid_request`. |
+| **S** | Wire `record_beacon_request` into `DomainRouter._maybe_record_whitelist_and_issue_tokens`. |
+| **S** | Wire `DropRateLimiter` into `core.drop.handle_drop`. |
+| **S** | Wire `RotationWatchdog` into `core.app.create_app` lifespan. |
+| **S** | Call `setup_otel()` in `core.app.create_app` and `ui.api.app.create_api_app`. |
+| **M** | Attach Command Post intel-sharing routes to the Starlette app. |
+| **M** | Wire config history into every dashboard mutation site. |
+| **M** | Adapt aioquic H3 events -> ASGI scope so the QUIC listener speaks HTTP/3. |
+| **M** | Adapt WebSocket frame -> Request so beacons can use the WS transport. |
+| **M** | Swap outbound `httpx.AsyncClient` for uTLS mimic (opt-in per-domain). |
+
+### Original roadmap items still outstanding
+
+| Effort | Feature | Notes |
 |---|---|---|
-| **M** | **`yara-scan`** | Run YARA rules against request bodies (catch defenders' payload probes) and optionally against upstream responses (validate C2 payload isn't matching public sigs). Config: rule file, action per-rule (block / suspect / log-only). |
-| **M** | **`ja4-enricher`** | Compute JA4 / JA4S / JA4H alongside JA3 (JA4 is TLS 1.3-friendly and harder to fake). Adds `ctx.metadata["ja4"]` for other filters. |
-| **M** | **`p0f-fingerprint`** | Passive TCP fingerprint via `p0f`-style rules → OS guess in `ctx.metadata`. Useful for the profile filter (a "Windows-only" campaign can block Linux beacons). |
-| **M** | **`greynoise-classifier`** | Query GreyNoise Community API for source IP; classify as `benign` / `malicious` / `unknown`. Cache locally. Blocks on `malicious`, downgrades score on `benign` (avoids blocking researchers). |
-| **M** | **`http-smuggling-detector`** | Flag requests with conflicting `Content-Length` + `Transfer-Encoding` — common defender-test smuggle payloads. Cheap detection with high signal. |
-| **L** | **`ml-bot-classifier`** | Small trained classifier on request features (header set, header order, timing, JA3 rarity). Ships a baseline model; operators can retrain from their tracking DB. |
-
-### Response manipulation
-
-| Effort | Plugin | What it does |
-|---|---|---|
-| **S** | **`response-canary`** | Inject a canarytokens.org tracking-pixel / DNS canary into decoy HTML responses. Alerts you when an attacker fetches an internal resource *from* the canary trigger. |
-| **M** | **`html-rewriter`** | Rewrite HTML being served by decoys (change og:image, inject SEO title, swap analytics IDs). CSS-selector-based. Handy when operating multiple domains from one decoy tree. |
-| **M** | **`payload-watermark`** | Inject a unique marker (comment / whitespace pattern / metadata tag) into every served payload. If a payload is later posted to VirusTotal, you know which fetch it came from. |
-| **S** | **`response-sig-strip`** | Remove response headers that leak the redirector (`server:`, `x-powered-by:`, `via:`); go beyond the base sanitizer's list. Paranoid-mode. |
-| **M** | **`slow-tarpit`** | Drop-action extension: slow byte drip (~100 bytes/sec) for the first N seconds, then close. Wastes scanner time cheaply. |
-| **M** | **`js-challenge`** | Cheap proof-of-work JS challenge on suspect requests — 5-second cost for a bot fleet, imperceptible for a real browser. Not a CAPTCHA; no accessibility issues. |
-
-### Session & behavior tracking
-
-| Effort | Plugin | What it does |
-|---|---|---|
-| **M** | **`beacon-labeler`** | Tag beacons via a header at first sight (target hostname, engagement id, phishing lure id) and store in state. Enables per-target views. |
-| **M** | **`har-export`** ⚠️ | Reconstruct beacon session timeline into HAR format; `infraguard export har --beacon <id>`. Needs a scheduled/on-demand hook. |
-| **M** | **`timing-profiler`** | Track request cadence per client; flag beacons with tell-tale intervals (Cobalt Strike default 60s ±jitter looks distinctive). |
-| **S** | **`geoip-enricher`** | Add country/ASN/org fields to every logged event. Uses the geoip DB already in the tree. |
-
-### Payload security & staging
-
-| Effort | Plugin | What it does |
-|---|---|---|
-| **M** | **`payload-token-vending`** | Extend the existing `payload_tokens` table into a proper vending API — upload payload → get single-use tokenized URL back → auto-expire on N fetches or Y minutes. Currently only wired for content_routes. |
-| **M** | **`stager-rate-limit`** | Per-target-CIDR rate limit specifically for stager URIs — catches attackers replaying a shellcode fetch. |
-| **S** | **`payload-shred`** | Zero out the payload response body after Nth fetch even if the token isn't exhausted; belt-and-braces. |
-
-### Testing helpers
-
-| Effort | Plugin | What it does |
-|---|---|---|
-| **M** | **`request-recorder`** | Record every allowed request to a rotating pcap-like JSONL log. Enables `infraguard replay` (planned) for dry-run pipeline testing after a profile change. |
-| **S** | **`shadow-block`** | Take a config-defined subset of requests and evaluate the pipeline **as if** filter X were enabled, without actually blocking. Reports the delta. Lets operators tune scoring thresholds risk-free. |
-| **S** | **`prom-metrics-custom`** | Emit operator-defined metric names for arbitrary request features (e.g. `infraguard_requests_by_country_total{country="RU"}`). |
+| **M** | ML bot-classifier plugin | Needs training data + a baseline model. |
+| **L** | Full purple-team mirror wiring | Scaffold in `core/purple_team_mirror.py` integration with router hot path. |
+| **L** | Full adversary-emulation self-test | Scaffold in `deploy/adversary_emulation.py` needs result correlation to tracking DB and HTML report. |
 
 ---
 
-## Top 10 to ship in v0.6
+## SDK notes
 
-Ranked by impact-per-effort, weighted against what's already been laid
-down in v0.5:
+The plugin SDK already exposes `on_request` / `on_response` /
+`on_event` / `on_startup` / `on_shutdown` hooks (see
+[plugin-sdk.md](plugin-sdk.md)), so the v0.6 plugin wave did not
+need an SDK v2. Two SDK conveniences would help future plugin
+authors:
 
-1. **`infraguard simulate-beacon`** [M] — closes the biggest operator-experience gap.
-2. **OpenTelemetry traces** [M] — audit's #1 observability gap.
-3. **Auto-rotation watchdog** [M] — makes burn scoring actionable.
-4. **Cross-node dynamic whitelist** [M] — finishes the "scale proxy-node=N safely" story.
-5. **Cross-C2 profile transpiler** [M] — turns the IR/registry pattern into a feature.
-6. **`slack-alerter` + `discord-alerter` plugins** [S each] — ship together.
-7. **`yara-scan` plugin** [M] — defenders' single most-requested capability.
-8. **`response-canary` plugin** [S] — free-standing, ship-and-forget.
-9. **Grafana dashboard JSON in-tree** [S] — zero code, huge onboarding win.
-10. **`infraguard events tail`** [S] — tiny CLI, big operator loop win.
+- A `@plugin.every(seconds=...)` scheduled hook for pollers.
+- A stable `PluginContext.state` accessor so plugins can call the
+  shared `StateBackend` without importing internals.
 
-Longer-horizon headliners: HTTP/3 listener, Kubernetes operator, purple-team mirror mode, ML bot classifier.
-
----
-
-## SDK v2 requirements
-
-Plugins in the list above tagged ⚠️ require the SDK to grow:
-
-- **Lifecycle hooks** — `on_startup(state) -> None`, `on_shutdown() -> None`. Needed for background pollers (telegram-bot) and cache-warming.
-- **Scheduled task hook** — `@plugin.every(seconds=…)` decorator. Needed for HAR export, watchdogs.
-- **Extra transport hooks** — `on_websocket(ws, ctx)`, `on_grpc(...)`. Once transports 4-3/4-4 land.
-- **Shared-state accessor** — a stable API so a plugin can `self.state.get("beacon:{id}")` without importing the internal `StateBackend`.
-
-Capture as issues once someone commits to authoring one of the ⚠️ plugins.
+Neither is blocking. Capture as issues when a plugin needs one.
 
 ---
 
 ## How to add to this roadmap
 
 1. Open a PR that adds a row to the appropriate table.
-2. Effort tier follows the header key. Cite prior code if the idea builds on an existing subsystem.
-3. If it's a genuine new subsystem (not an incremental improvement), also write a one-page ADR under `docs/adrs/` before the PR lands.
+2. Effort tier follows the header key. Cite prior code if the idea
+   builds on an existing subsystem.
+3. If it's a genuine new subsystem (not an incremental improvement),
+   also write a one-page ADR under `docs/adrs/` before the PR lands.
 
 ## Contributing
 
-Pick anything **S** and open a PR. **M** items are worth a design comment
-first. **L** items should start as an issue or ADR to align on scope.
+Pick anything **S** and open a PR. **M** items are worth a design
+comment first. **L** items should start as an issue or ADR to align
+on scope.

@@ -3,7 +3,7 @@
 from __future__ import annotations
 
 import asyncio
-from datetime import datetime, timedelta, timezone
+from datetime import UTC, datetime, timedelta
 from pathlib import Path
 
 import aiosqlite
@@ -215,7 +215,7 @@ class Database:
 
     async def create_session(self, session_id: str, token_hash: str, ttl: int, client_ip: str = "") -> None:
         """Insert a new session row."""
-        now = datetime.now(timezone.utc)
+        now = datetime.now(UTC)
         expires = now + timedelta(seconds=ttl)
         await self.execute(
             "INSERT INTO sessions (session_id, token_hash, created_at, expires_at, client_ip) VALUES (?, ?, ?, ?, ?)",
@@ -234,7 +234,7 @@ class Database:
 
     async def delete_expired_sessions(self) -> int:
         """Delete all sessions where expires_at < now. Returns count deleted."""
-        now = datetime.now(timezone.utc).isoformat()
+        now = datetime.now(UTC).isoformat()
         cursor = await self.execute("DELETE FROM sessions WHERE expires_at < ?", (now,))
         return cursor.rowcount
 
@@ -258,7 +258,7 @@ class Database:
             details: Free-form description of what changed.
             resource: The resource acted upon (IP, domain, etc.).
         """
-        now = datetime.now(timezone.utc).isoformat()
+        now = datetime.now(UTC).isoformat()
         await self.execute(
             "INSERT INTO audit_log (timestamp, action, operator, client_ip, details, resource) "
             "VALUES (?, ?, ?, ?, ?, ?)",

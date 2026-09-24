@@ -26,23 +26,21 @@ Usage::
 
 from __future__ import annotations
 
-import asyncio
 from dataclasses import dataclass, field
-from datetime import datetime, timezone
+from datetime import UTC, datetime
 from ipaddress import IPv4Address
 from typing import Any
-from unittest.mock import AsyncMock, MagicMock
+from unittest.mock import MagicMock
 
 from starlette.requests import Request
 from starlette.responses import Response
 
 from infraguard.config.schema import EventFilterConfig, PluginSettings
-from infraguard.models.common import FilterAction, FilterResult
+from infraguard.models.common import FilterResult
 from infraguard.models.events import RequestEvent
 from infraguard.pipeline.base import RequestContext
-from infraguard.plugins.base import BasePlugin, InfraGuardPlugin
-from infraguard.plugins.sdk.types import validate_plugin, detect_capabilities
-
+from infraguard.plugins.base import InfraGuardPlugin
+from infraguard.plugins.sdk.types import detect_capabilities, validate_plugin
 
 # ---------------------------------------------------------------------------
 # Mock factories
@@ -123,7 +121,7 @@ def make_request_event(
 ) -> RequestEvent:
     """Create a RequestEvent for testing."""
     defaults: dict[str, Any] = {
-        "timestamp": datetime.now(timezone.utc),
+        "timestamp": datetime.now(UTC),
         "domain": domain,
         "client_ip": client_ip,
         "method": method,

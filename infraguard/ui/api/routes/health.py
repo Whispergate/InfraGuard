@@ -3,7 +3,7 @@
 from __future__ import annotations
 
 import time
-from datetime import datetime, timezone
+from datetime import UTC, datetime
 from pathlib import Path
 
 from starlette.requests import Request
@@ -69,7 +69,7 @@ async def get_health(request: Request) -> JSONResponse:
 
     # ── Certificate expiry ────────────────────────────────────────────────
     cert_info: list[dict] = []
-    now = datetime.now(timezone.utc)
+    now = datetime.now(UTC)
     for listener in config.listeners:
         if listener.tls and listener.tls.cert:
             cert_path = Path(listener.tls.cert)
@@ -129,7 +129,7 @@ async def get_health(request: Request) -> JSONResponse:
             try:
                 last = datetime.fromisoformat(iso_ts)
                 if last.tzinfo is None:
-                    last = last.replace(tzinfo=timezone.utc)
+                    last = last.replace(tzinfo=UTC)
                 hours_since = round((now - last).total_seconds() / 3600, 1)
                 feed_entry["hours_since"] = hours_since
                 if hours_since > FEED_STALE_WARN_HOURS:
@@ -172,7 +172,7 @@ async def get_health(request: Request) -> JSONResponse:
             try:
                 hb_dt = datetime.fromisoformat(hb)
                 if hb_dt.tzinfo is None:
-                    hb_dt = hb_dt.replace(tzinfo=timezone.utc)
+                    hb_dt = hb_dt.replace(tzinfo=UTC)
                 secs = int((now - hb_dt).total_seconds())
                 node_entry["seconds_since_heartbeat"] = secs
                 if secs > UPSTREAM_DOWN_WARN_SECONDS:
@@ -232,7 +232,7 @@ async def get_health_summary(request: Request) -> JSONResponse:
         "status": "ok",
         "uptime_seconds": uptime_seconds,
         "uptime_human": _format_duration(uptime_seconds),
-        "timestamp": datetime.now(timezone.utc).isoformat(),
+        "timestamp": datetime.now(UTC).isoformat(),
     })
 
 
@@ -274,7 +274,7 @@ def _read_cert_expiry(cert_path: Path) -> datetime | None:
         not_after = info.get("notAfter")
         if not_after:
             # Format: 'Jan  1 00:00:00 2025 GMT'
-            return datetime.strptime(not_after, "%b %d %H:%M:%S %Y %Z").replace(tzinfo=timezone.utc)
+            return datetime.strptime(not_after, "%b %d %H:%M:%S %Y %Z").replace(tzinfo=UTC)
     except Exception:
         pass
     return None

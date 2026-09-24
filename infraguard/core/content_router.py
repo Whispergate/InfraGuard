@@ -10,7 +10,6 @@ from __future__ import annotations
 
 import re
 from dataclasses import dataclass
-from typing import Protocol
 
 from starlette.requests import Request
 
@@ -70,7 +69,7 @@ def _compile_pattern(pattern: str) -> _CompiledPattern:
         return _CompiledPattern(raw=pattern, kind="prefix", prefix=prefix)
     elif "*" in pattern:
         # Convert simple glob to prefix
-        prefix = pattern.split("*")[0]
+        prefix = pattern.split("*", maxsplit=1)[0]
         return _CompiledPattern(raw=pattern, kind="prefix", prefix=prefix)
     else:
         # Exact match

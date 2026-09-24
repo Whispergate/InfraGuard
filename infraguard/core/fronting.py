@@ -25,13 +25,14 @@ import asyncio
 import time
 from dataclasses import dataclass, field
 from enum import Enum
-from typing import Any
 
 import httpx
 import structlog
+from starlette.requests import Request
+from starlette.responses import Response
 
 from infraguard.config.schema import DomainConfig, FrontingRuleConfig
-from infraguard.core.headers import sanitize_response_headers, preserve_multi_value_headers
+from infraguard.core.headers import preserve_multi_value_headers, sanitize_response_headers
 from infraguard.core.ssl_context import build_ssl_context
 
 log = structlog.get_logger()
@@ -171,7 +172,7 @@ class DomainFronting:
         redirector with a Host header matching a fronted domain, the rule
         tells us which CDN front domain to use for the upstream connection.
         """
-        hostname = host.split(":")[0].lower()
+        hostname = host.split(":", maxsplit=1)[0].lower()
         for rule in self.enabled_rules:
             if rule.domain.lower() == hostname:
                 return rule
@@ -179,11 +180,11 @@ class DomainFronting:
 
     async def forward(
         self,
-        request: "Request",
+        request: Request,
         rule: FrontingRuleConfig,
         *,
         timeout: float | None = None,
-    ) -> "Response":
+    ) -> Response:
         """Forward a request through CDN domain fronting.
 
         The TLS SNI is set to the CDN *front_domain* while the HTTP Host
@@ -199,7 +200,6 @@ class DomainFronting:
         Returns:
             The upstream response, sanitized.
         """
-        from starlette.requests import Request  # noqa: F811
         from starlette.responses import Response
 
         client = self._get_client(rule)
@@ -317,7 +317,7 @@ class DomainFronting:
     async def start_health_monitor(
         self,
         interval_seconds: float = 300.0,
-        on_unhealthy: "callable | None" = None,
+        on_unhealthy: callable | None = None,
     ) -> asyncio.Task:
         """Start a background health-check loop.
 
@@ -386,7 +386,7 @@ class DomainFronting:
 
     @staticmethod
     def _build_fronted_headers(
-        request: "Request",
+        request: Request,
         rule: FrontingRuleConfig,
     ) -> dict[str, str]:
         """Build headers for the fronted request.

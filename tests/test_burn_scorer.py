@@ -9,12 +9,11 @@ from unittest.mock import AsyncMock, MagicMock, patch
 import pytest
 
 from infraguard.intel.burn_detect import (
+    _MAX_BURN_EVENTS,
     BurnConfig,
     BurnDetector,
     BurnIndicator,
-    _MAX_BURN_EVENTS,
 )
-
 
 # ── BurnConfig / BurnIndicator dataclasses ────────────────────────────────
 

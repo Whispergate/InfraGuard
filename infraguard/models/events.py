@@ -4,7 +4,7 @@ from __future__ import annotations
 
 import hashlib
 from dataclasses import dataclass, field
-from datetime import datetime, timezone
+from datetime import UTC, datetime
 
 
 def compute_request_hash(
@@ -45,7 +45,7 @@ class RequestEvent:
 
     @classmethod
     def now(cls, **kwargs) -> RequestEvent:
-        return cls(timestamp=datetime.now(timezone.utc), **kwargs)
+        return cls(timestamp=datetime.now(UTC), **kwargs)
 
 
 @dataclass
@@ -56,4 +56,4 @@ class NodeEvent:
     name: str
     address: str
     status: str  # active, degraded, offline
-    timestamp: datetime = field(default_factory=lambda: datetime.now(timezone.utc))
+    timestamp: datetime = field(default_factory=lambda: datetime.now(UTC))

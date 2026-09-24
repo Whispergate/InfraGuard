@@ -1,5 +1,21 @@
 """Shared test fixtures for InfraGuard."""
 
+import warnings
+
+# Suppress the Starlette-testclient deprecation before starlette is
+# imported anywhere in the test tree. The message fires at module load,
+# which is earlier than pytest's filterwarnings machinery can catch.
+# When httpx2 is installed (via ``pip install infraguard[dev]``) the
+# warning stops firing and this filter becomes a no-op.
+try:
+    from starlette.testclient import StarletteDeprecationWarning  # type: ignore
+    warnings.simplefilter("ignore", StarletteDeprecationWarning)
+except ImportError:
+    warnings.filterwarnings(
+        "ignore",
+        message=".*Using `httpx` with `starlette.testclient` is deprecated.*",
+    )
+
 import pytest
 
 from infraguard.config.schema import (

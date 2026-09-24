@@ -1,8 +1,8 @@
 """Unit tests for infraguard.core.ssl_context - SSLContextFactory."""
 
+import os
 import ssl
 import tempfile
-import os
 
 import pytest
 
@@ -56,6 +56,7 @@ def _generate_self_signed_pem() -> bytes:
     """Generate a self-signed certificate PEM for testing using cryptography library."""
     try:
         import datetime
+
         from cryptography import x509
         from cryptography.hazmat.primitives import hashes, serialization
         from cryptography.hazmat.primitives.asymmetric import rsa
@@ -71,8 +72,8 @@ def _generate_self_signed_pem() -> bytes:
             .issuer_name(issuer)
             .public_key(key.public_key())
             .serial_number(x509.random_serial_number())
-            .not_valid_before(datetime.datetime(2025, 1, 1, tzinfo=datetime.timezone.utc))
-            .not_valid_after(datetime.datetime(2030, 1, 1, tzinfo=datetime.timezone.utc))
+            .not_valid_before(datetime.datetime(2025, 1, 1, tzinfo=datetime.UTC))
+            .not_valid_after(datetime.datetime(2030, 1, 1, tzinfo=datetime.UTC))
             .add_extension(x509.BasicConstraints(ca=True, path_length=None), critical=True)
             .sign(key, hashes.SHA256())
         )

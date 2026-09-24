@@ -24,7 +24,6 @@ from unittest.mock import MagicMock, call, patch
 import pytest
 from click.testing import CliRunner
 
-
 # ---------------------------------------------------------------------------
 # TerraformProvider tests
 # ---------------------------------------------------------------------------
@@ -78,9 +77,9 @@ class TestWriteTfvars:
 
     def test_no_var_flag_usage(self, tmp_path):
         """Secrets must be passed via -var-file, never as -var CLI flags."""
-        from infraguard.deploy.providers import base
-
         import inspect
+
+        from infraguard.deploy.providers import base
         source = inspect.getsource(base)
         # Ensure no "-var " is used as CLI flag (only -var-file is acceptable)
         assert '"-var "' not in source

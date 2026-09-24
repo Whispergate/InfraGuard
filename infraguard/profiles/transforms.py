@@ -8,8 +8,7 @@ and validating/decoding inbound data.
 from __future__ import annotations
 
 import base64
-import struct
-from typing import Sequence
+from collections.abc import Sequence
 
 from infraguard.profiles.models import Transform
 

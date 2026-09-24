@@ -3,7 +3,7 @@
 from __future__ import annotations
 
 import asyncio
-from datetime import datetime, timezone
+from datetime import UTC, datetime, timezone
 from unittest.mock import AsyncMock, MagicMock, patch
 
 import pytest
@@ -11,14 +11,13 @@ import pytest
 from infraguard.models.events import RequestEvent
 from infraguard.tracking.recorder import EventRecorder
 
-
 # ---------------------------------------------------------------------------
 # Helpers
 # ---------------------------------------------------------------------------
 
 def make_event(**kwargs) -> RequestEvent:
     defaults = dict(
-        timestamp=datetime.now(timezone.utc),
+        timestamp=datetime.now(UTC),
         domain="test.local",
         client_ip="1.2.3.4",
         method="GET",

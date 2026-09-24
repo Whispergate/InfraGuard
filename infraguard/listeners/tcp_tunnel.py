@@ -273,7 +273,7 @@ class TCPTunnelListener:
                 self._upstream_host,
                 self._upstream_port,
             )
-        except (OSError, asyncio.TimeoutError) as e:
+        except (TimeoutError, OSError) as e:
             log.warning(
                 "tcp_tunnel_upstream_unreachable",
                 upstream=f"{self._upstream_host}:{self._upstream_port}",
@@ -310,7 +310,7 @@ class TCPTunnelListener:
                             src.read(65536),
                             timeout=self._idle_timeout,
                         )
-                    except asyncio.TimeoutError:
+                    except TimeoutError:
                         return
                     if not data:
                         return

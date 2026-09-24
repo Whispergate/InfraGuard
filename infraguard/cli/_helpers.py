@@ -56,7 +56,7 @@ def print_profile_summary(p) -> None:
         click.echo(f"    Verb: {txn.verb}")
         click.echo(f"    URIs: {', '.join(txn.uris)}")
         if txn.client.headers:
-            click.echo(f"    Client Headers:")
+            click.echo("    Client Headers:")
             for k, v in txn.client.headers.items():
                 click.echo(f"      {k}: {v}")
         if txn.client.message:
@@ -65,7 +65,7 @@ def print_profile_summary(p) -> None:
                 + (f" ({txn.client.message.name})" if txn.client.message.name else "")
             )
         if txn.client.transforms:
-            click.echo(f"    Client Transforms:")
+            click.echo("    Client Transforms:")
             for t in txn.client.transforms:
                 if t.value:
                     display = (
@@ -75,7 +75,7 @@ def print_profile_summary(p) -> None:
                 else:
                     click.echo(f"      {t.action}")
         if txn.server.headers:
-            click.echo(f"    Server Headers:")
+            click.echo("    Server Headers:")
             for k, v in txn.server.headers.items():
                 click.echo(f"      {k}: {v}")
         if txn.server.transforms:

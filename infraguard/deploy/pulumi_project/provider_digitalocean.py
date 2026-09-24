@@ -1,8 +1,6 @@
 """DigitalOcean provider: Droplet + tag-based firewall."""
 
-import pulumi
 import pulumi_digitalocean as do
-
 from cloud_init import bootstrap_script
 
 

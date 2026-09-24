@@ -14,10 +14,9 @@ deliverables. The report includes:
 from __future__ import annotations
 
 import html
-from datetime import datetime, timezone
+from datetime import UTC, datetime
 from pathlib import Path
 
-import aiosqlite
 import structlog
 
 from infraguard.tracking.database import Database
@@ -31,7 +30,7 @@ async def collect_report_data(db: Database, audit_limit: int = 50) -> dict:
     Returns a dict with raw rows and scalar counts. Callers render this
     into HTML, JSON, CSV, or any other format without re-running queries.
     """
-    now = datetime.now(timezone.utc)
+    now = datetime.now(UTC)
 
     total = await db.fetchone("SELECT COUNT(*) as count FROM requests")
     total_count = total["count"] if total else 0

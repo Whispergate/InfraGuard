@@ -2,17 +2,17 @@
 
 import asyncio
 from ipaddress import ip_address
-from unittest.mock import MagicMock, AsyncMock
+from unittest.mock import AsyncMock, MagicMock
 
 import pytest
 
+from infraguard.config.schema import DomainConfig, DropActionConfig, PipelineConfig
 from infraguard.models.common import FilterAction, FilterResult
 from infraguard.pipeline.base import FilterPipeline, PipelineResult, RequestContext
 from infraguard.pipeline.bot_filter import BotFilter
 from infraguard.pipeline.header_filter import HeaderFilter
 from infraguard.pipeline.profile_filter import ProfileFilter
 from infraguard.pipeline.replay_filter import ReplayFilter
-from infraguard.config.schema import DomainConfig, DropActionConfig, PipelineConfig
 
 
 def _make_request(

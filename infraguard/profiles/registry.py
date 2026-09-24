@@ -19,8 +19,8 @@ The IR the parsers produce is :class:`infraguard.profiles.models.C2Profile`
 
 from __future__ import annotations
 
+from collections.abc import Callable
 from pathlib import Path
-from typing import Callable
 
 from infraguard.profiles.models import C2Profile
 
@@ -107,9 +107,9 @@ def _ensure_builtins_loaded() -> None:
 
 
 __all__ = [
-    "register_parser",
-    "unregister_parser",
-    "supported_kinds",
-    "parse_profile_file",
     "ProfileParserFn",
+    "parse_profile_file",
+    "register_parser",
+    "supported_kinds",
+    "unregister_parser",
 ]

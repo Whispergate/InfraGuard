@@ -17,6 +17,13 @@ Quick start::
             return None
 """
 
+from infraguard.plugins.sdk.packaging import (
+    PluginManifest,
+    build_manifest,
+    package_plugin,
+    validate_manifest,
+)
+from infraguard.plugins.sdk.testing import PluginTestHarness
 from infraguard.plugins.sdk.types import (
     EventHook,
     HookName,
@@ -28,30 +35,23 @@ from infraguard.plugins.sdk.types import (
     StartupHook,
     validate_plugin,
 )
-from infraguard.plugins.sdk.testing import PluginTestHarness
-from infraguard.plugins.sdk.packaging import (
-    PluginManifest,
-    build_manifest,
-    validate_manifest,
-    package_plugin,
-)
 
 __all__ = [
     # Types
     "EventHook",
     "HookName",
     "PluginCapability",
+    # Packaging
+    "PluginManifest",
     "PluginMetadata",
+    # Testing
+    "PluginTestHarness",
     "RequestHook",
     "ResponseHook",
     "ShutdownHook",
     "StartupHook",
-    "validate_plugin",
-    # Testing
-    "PluginTestHarness",
-    # Packaging
-    "PluginManifest",
     "build_manifest",
-    "validate_manifest",
     "package_plugin",
+    "validate_manifest",
+    "validate_plugin",
 ]

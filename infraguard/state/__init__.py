@@ -29,9 +29,9 @@ from infraguard.state.memory import InMemoryBackend
 from infraguard.state.redis_backend import RedisBackend
 
 __all__ = [
+    "InMemoryBackend",
+    "RedisBackend",
     "StateBackend",
     "StateConfig",
     "build_state_backend",
-    "InMemoryBackend",
-    "RedisBackend",
 ]
