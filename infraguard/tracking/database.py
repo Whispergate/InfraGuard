@@ -9,8 +9,14 @@ from pathlib import Path
 import aiosqlite
 import structlog
 
+from infraguard.tracking.migrator import current_version, run_migrations
+
 log = structlog.get_logger()
 
+# Historical inline schema. Kept as a string for tests / tooling that
+# want the "target" DDL in one place, but the source of truth for what
+# actually runs is now infraguard/tracking/migrations/*.sql - see
+# migrator.py. Do not add new tables here; add a numbered migration.
 SCHEMA_SQL = """
 CREATE TABLE IF NOT EXISTS requests (
     id INTEGER PRIMARY KEY AUTOINCREMENT,
@@ -151,34 +157,15 @@ class Database:
         # Enable WAL mode for better concurrent read/write performance
         await self._conn.execute("PRAGMA journal_mode=WAL")
         await self._conn.execute("PRAGMA synchronous=NORMAL")
-        await self._conn.executescript(SCHEMA_SQL)
-        await self._migrate()
+        applied = await run_migrations(self._conn)
+        version = await current_version(self._conn)
         await self._conn.commit()
-        log.info("database_connected", path=self.db_path)
-
-    async def _migrate(self) -> None:
-        """Add columns that may be missing from older databases."""
-        # Get existing columns in the requests table
-        cursor = await self._conn.execute("PRAGMA table_info(requests)")
-        rows = await cursor.fetchall()
-        existing = {row[1] for row in rows}  # column names
-
-        if "protocol" not in existing:
-            await self._conn.execute(
-                "ALTER TABLE requests ADD COLUMN protocol TEXT DEFAULT 'http'"
-            )
-            log.info("migration_applied", column="protocol")
-
-        # Ensure sessions table has expected columns (migration for older DBs)
-        cursor = await self._conn.execute("PRAGMA table_info(sessions)")
-        rows = await cursor.fetchall()
-        session_cols = {row[1] for row in rows}
-
-        if "client_ip" not in session_cols and session_cols:
-            await self._conn.execute(
-                "ALTER TABLE sessions ADD COLUMN client_ip TEXT NOT NULL DEFAULT ''"
-            )
-            log.info("migration_applied", column="sessions.client_ip")
+        log.info(
+            "database_connected",
+            path=self.db_path,
+            schema_version=version,
+            newly_applied=applied,
+        )
 
     async def close(self) -> None:
         if self._conn:

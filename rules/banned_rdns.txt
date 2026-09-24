@@ -1,0 +1,34 @@
+# Reverse-DNS keyword blocklist. If any of these substrings appears in a
+# client's PTR record, the DNS filter drops the request. One term per line.
+
+security
+scan
+crawl
+bot
+probe
+research
+censys
+shodan
+shadowserver
+binaryedge
+rapid7
+qualys
+nessus
+paloalto
+crowdstrike
+fireeye
+mandiant
+symantec
+mcafee
+trendmicro
+sophos
+kaspersky
+bitdefender
+malwarebytes
+fortinet
+checkpoint
+zscaler
+cyberark
+sentinelone
+carbonblack
+elastic

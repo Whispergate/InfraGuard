@@ -406,7 +406,7 @@ class RotationManager:
 
         ip = self._green_ip
         if not ip:
-            raise RotationError("No green IP — call _provision_green first")
+            raise RotationError("No green IP - call _provision_green first")
 
         _wait_for_bootstrap(ip, self.ssh_key, user=self.ssh_user)
 

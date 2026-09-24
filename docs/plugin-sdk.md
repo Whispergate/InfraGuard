@@ -73,7 +73,7 @@ plugins:
 
 ## SDK Modules
 
-### `types.py` — Type Stubs & Protocols
+### `types.py` - Type Stubs & Protocols
 
 ```python
 from infraguard.plugins.sdk.types import (
@@ -102,7 +102,7 @@ caps = detect_capabilities(my_plugin)
 # [PluginCapability.REQUEST_FILTER, PluginCapability.LIFECYCLE]
 ```
 
-### `testing.py` — Test Harness
+### `testing.py` - Test Harness
 
 ```python
 from infraguard.plugins.sdk.testing import (
@@ -139,7 +139,7 @@ settings = make_plugin_settings(options={"key": "value"})
 harness = await run_plugin_lifecycle(MyPlugin(), settings=settings)
 ```
 
-### `packaging.py` — Packaging & Distribution
+### `packaging.py` - Packaging & Distribution
 
 ```python
 from infraguard.plugins.sdk.packaging import (
@@ -218,11 +218,11 @@ class Plugin(ForwardingPlugin):
 ```
 
 `ForwardingPlugin` provides:
-- `self._client` — `httpx.AsyncClient` (auto-created on startup)
-- `self._should_forward(event)` — applies `EventFilterConfig`
-- `self._event_to_dict(event)` — serializes `RequestEvent`
-- `self._opt(key, default)` — reads from `settings.options`
-- `_needs_http_client = False` — skip client creation (e.g. for syslog)
+- `self._client` - `httpx.AsyncClient` (auto-created on startup)
+- `self._should_forward(event)` - applies `EventFilterConfig`
+- `self._event_to_dict(event)` - serializes `RequestEvent`
+- `self._opt(key, default)` - reads from `settings.options`
+- `_needs_http_client = False` - skip client creation (e.g. for syslog)
 
 ## Loading Plugins
 
@@ -242,9 +242,9 @@ Only short names from `BUILTIN_PLUGINS` or full paths under `infraguard.plugins.
 ## Best Practices
 
 1. **Always call `super().configure(settings)`** in your `configure()` override.
-2. **Return `None`** from hooks when no modification is needed — don't return empty results.
+2. **Return `None`** from hooks when no modification is needed - don't return empty results.
 3. **Use `FilterResult.block()` / `.suspect()` / `.allow()`** factory methods.
 4. **Set `_needs_http_client = False`** if your forwarding plugin doesn't need HTTP.
-5. **Log with structlog** — use `log.info("plugin_event", key=value)` structured logging.
-6. **Test with `PluginTestHarness`** — validate protocol compliance and hook behavior.
+5. **Log with structlog** - use `log.info("plugin_event", key=value)` structured logging.
+6. **Test with `PluginTestHarness`** - validate protocol compliance and hook behavior.
 7. **Include a `manifest.json`** when distributing plugins as packages.

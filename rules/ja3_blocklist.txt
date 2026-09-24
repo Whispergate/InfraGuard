@@ -1,0 +1,10 @@
+# JA3 TLS ClientHello fingerprint blocklist. One MD5 hex per line.
+# Blank lines and '#' comments are ignored. Inline "# label" after a hash
+# is preserved for the operator's benefit but stripped by the loader.
+
+e7d705a3286e19ea42f587b344ee6865  # Masscan
+6734f37431670b3ab4292b8f60f29984  # Python requests (default SSL context)
+b386946a5a44d1ddcc843bc75336dfce  # curl (Linux default)
+c35b0c7bd583d49d5b0f17de25ecdf7a  # ZGrab2
+07b8a29f8a4b7eb7d9bd0b11a4e03399  # Nmap TLS probe
+19e29534fd49dd27d09234e639c4057e  # Shodan scanner

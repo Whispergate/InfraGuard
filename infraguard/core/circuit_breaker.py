@@ -3,9 +3,13 @@ from __future__ import annotations
 
 import asyncio
 import time
+from typing import TYPE_CHECKING
 
 import httpx
 import structlog
+
+if TYPE_CHECKING:
+    from infraguard.state import StateBackend
 
 log = structlog.get_logger()
 
@@ -25,6 +29,11 @@ class CircuitBreaker:
         upstream: Upstream URL identifier for logging.
         failure_threshold: Consecutive failures before opening circuit.
         recovery_timeout: Seconds to wait in OPEN before allowing a probe.
+        state_backend: Optional shared :class:`~infraguard.state.StateBackend`.
+            When present, failure counts and the ``opened_at`` timestamp
+            are mirrored into the backend so every proxy replica sees
+            the same breaker state. Without it, behavior is unchanged
+            (per-process breaker, single-node deploys).
     """
 
     CLOSED = "CLOSED"
@@ -36,6 +45,7 @@ class CircuitBreaker:
         upstream: str,
         failure_threshold: int = 5,
         recovery_timeout: float = 30.0,
+        state_backend: "StateBackend | None" = None,
     ):
         self.upstream = upstream
         self._threshold = failure_threshold
@@ -45,6 +55,10 @@ class CircuitBreaker:
         self._opened_at: float | None = None
         self._probe_in_flight = False
         self._lock = asyncio.Lock()
+        self._backend = state_backend
+        # Namespaced keys - one breaker per upstream, cluster-wide.
+        self._failure_key = f"breaker:{upstream}:failures"
+        self._opened_key = f"breaker:{upstream}:opened_at"
 
     @property
     def state(self) -> str:
@@ -94,18 +108,43 @@ class CircuitBreaker:
             self._failures = 0
             self._state = self.CLOSED
             self._opened_at = None
+            if self._backend is not None:
+                # Best-effort - a Redis blip must not fail a healthy request.
+                try:
+                    await self._backend.reset(self._failure_key)
+                    await self._backend.delete(self._opened_key)
+                except Exception:
+                    log.debug("breaker_state_backend_reset_failed", upstream=self.upstream)
 
     async def _on_failure(self) -> None:
         async with self._lock:
             self._probe_in_flight = False
             self._failures += 1
-            if self._failures >= self._threshold and self._state == self.CLOSED:
+            shared_failures = self._failures
+            if self._backend is not None:
+                try:
+                    shared_failures = await self._backend.incr(
+                        self._failure_key, ttl_seconds=int(self._recovery_timeout * 4)
+                    )
+                except Exception:
+                    log.debug("breaker_incr_failed", upstream=self.upstream)
+            trip = max(self._failures, shared_failures)
+            if trip >= self._threshold and self._state == self.CLOSED:
                 self._state = self.OPEN
                 self._opened_at = time.monotonic()
+                if self._backend is not None:
+                    try:
+                        await self._backend.set(
+                            self._opened_key,
+                            str(int(time.time())),
+                            ttl_seconds=int(self._recovery_timeout * 4),
+                        )
+                    except Exception:
+                        pass
                 log.warning(
                     "circuit_opened",
                     upstream=self.upstream,
-                    failures=self._failures,
+                    failures=trip,
                 )
             elif self._state == self.HALF_OPEN:
                 self._state = self.OPEN

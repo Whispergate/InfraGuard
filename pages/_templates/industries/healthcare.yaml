@@ -1,0 +1,78 @@
+# Auto-extracted from pages/HealthcareBlog/index.html.
+# Regenerate the HTML with:
+#   infraguard decoy generate --industry healthcare -o pages/HealthcareBlog/ --force
+
+brand: Pinnacle Health
+site_title: Pinnacle Health Partners - Healthcare Innovation Blog
+hero_title: Healthcare Innovation & Digital Transformation
+hero_subtitle: Exploring the intersection of technology, patient care, and operational excellence in modern
+  healthcare delivery.
+nav_links:
+- label: Blog
+  href: /
+- label: Solutions
+  href: /solutions
+- label: Case Studies
+  href: /case-studies
+- label: Contact
+  href: /contact
+posts:
+- date: March 30, 2026
+  read_time: 9 min read
+  title: 'AI-Assisted Diagnostics: Separating Hype from Clinical Reality'
+  snippet: Machine learning models are achieving radiologist-level accuracy in certain imaging tasks,
+    but integration into clinical workflows remains challenging. We examine three health systems that
+    successfully deployed AI diagnostic tools and the governance frameworks that made it possible.
+  tags:
+  - AI in Healthcare
+  - Diagnostics
+  - Clinical AI
+- date: March 23, 2026
+  read_time: 11 min read
+  title: 'Interoperability in 2026: FHIR, TEFCA, and the Road Ahead'
+  snippet: The Trusted Exchange Framework is finally gaining adoption among major EHR vendors. We review
+    the current state of TEFCA qualified health information networks, remaining gaps in bi-directional
+    data exchange, and what providers need to do to prepare for CMS interoperability mandates.
+  tags:
+  - Interoperability
+  - FHIR
+  - TEFCA
+- date: March 16, 2026
+  read_time: 7 min read
+  title: Reducing Clinician Burnout Through Ambient Documentation
+  snippet: Ambient listening technology is transforming the documentation burden for physicians. Early
+    adopters report 40% reduction in after-hours charting time. We profile three ambient AI solutions
+    and their impact on provider satisfaction, note quality, and patient engagement scores.
+  tags:
+  - Clinician Wellness
+  - Documentation
+  - Ambient AI
+- date: March 9, 2026
+  read_time: 8 min read
+  title: Value-Based Care Metrics That Actually Drive Outcomes
+  snippet: Most value-based contracts track too many metrics, diluting focus and creating reporting fatigue.
+    Our analysis of 150 VBC arrangements reveals the five measures most predictive of genuine quality
+    improvement and total cost reduction across primary care populations.
+  tags:
+  - Value-Based Care
+  - Quality Metrics
+  - Population Health
+- date: March 2, 2026
+  read_time: 6 min read
+  title: 'Cybersecurity in Healthcare: Lessons from Recent Breaches'
+  snippet: Healthcare organizations remain the most targeted sector for ransomware attacks. Following
+    the Change Healthcare and Ascension incidents, we outline the five highest-impact controls that health
+    systems should prioritize, based on attack pattern analysis from the past 18 months.
+  tags:
+  - Cybersecurity
+  - HIPAA
+  - Ransomware
+footer_brand: Pinnacle Health Partners, Inc
+footer_note: All rights reserved.</p>
+footer_links:
+- label: Privacy Policy
+  href: /privacy
+- label: Terms of Service
+  href: /terms
+- label: HIPAA Notice
+  href: /hipaa-notice

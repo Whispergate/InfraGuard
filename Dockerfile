@@ -1,5 +1,5 @@
 # syntax=docker/dockerfile:1.7-labs
-# InfraGuard — hardened multi-stage build
+# InfraGuard - hardened multi-stage build
 # Produces a minimal, non-root, read-only rootfs container image.
 
 # ── Stage 1: Build dependencies ─────────────────────────────────────────

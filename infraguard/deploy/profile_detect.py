@@ -1,7 +1,8 @@
 """Shared C2 profile type auto-detection.
 
-Extracted from ``infraguard.main._load_profile_file`` so that both the
-CLI command and the config generator share the same detection logic.
+Extracted from the historical ``infraguard.main._load_profile_file``
+(now :func:`infraguard.cli._helpers.load_profile_file`) so that both
+the CLI command and the config generator share the same detection.
 """
 
 from __future__ import annotations

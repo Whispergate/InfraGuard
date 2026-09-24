@@ -227,7 +227,7 @@ class RotationScheduler:
         # If never rotated, use creation time as baseline
         baseline = state.last_rotation or policy.last_rotated or 0.0
         if baseline == 0.0:
-            # First run — rotate immediately if policy has been around long enough
+            # First run - rotate immediately if policy has been around long enough
             # Otherwise mark the baseline and wait
             state.last_rotation = now
             return False
@@ -404,7 +404,7 @@ class RotationScheduler:
     def _rotate_domain_sync(
         self, policy: RotationPolicyConfig, domain: str
     ) -> RotationEvent:
-        """Synchronous rotation logic — runs in a thread executor.
+        """Synchronous rotation logic - runs in a thread executor.
 
         Uses the deploy provider stack to provision a replacement and
         tear down the old instance.
@@ -584,7 +584,7 @@ class RotationScheduler:
         if self._recorder is None:
             return
         # Use the recorder's generic event mechanism
-        # The exact API depends on EventRecorder — emit as a log event
+        # The exact API depends on EventRecorder - emit as a log event
         # that plugins can pick up
         log.info(
             "rotation_event",

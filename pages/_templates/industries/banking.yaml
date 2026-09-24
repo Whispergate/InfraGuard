@@ -1,0 +1,78 @@
+# Auto-extracted from pages/BankingBlog/index.html.
+# Regenerate the HTML with:
+#   infraguard decoy generate --industry banking -o pages/BankingBlog/ --force
+
+brand: Harborstone National
+site_title: Harborstone National Bank - Community Banking Blog
+hero_title: Banking Insights & Financial Literacy
+hero_subtitle: Practical guidance on personal finance, lending, and digital banking from the team at Harborstone
+  National.
+nav_links:
+- label: News
+  href: /
+- label: Personal
+  href: /personal
+- label: Business
+  href: /business
+- label: Locations
+  href: /locations
+posts:
+- date: March 29, 2026
+  read_time: 5 min read
+  title: 'New FedNow Integration: Instant Transfers Now Available'
+  snippet: We're excited to announce that Harborstone National has completed integration with the Federal
+    Reserve's FedNow instant payment service. Personal and business account holders can now send and receive
+    funds in seconds, 24/7/365. Here's how to get started and what limits apply.
+  tags:
+  - FedNow
+  - Digital Banking
+  - Payments
+- date: March 21, 2026
+  read_time: 8 min read
+  title: First-Time Homebuyer? Understanding Today's Mortgage Landscape
+  snippet: With 30-year fixed rates hovering near 5.8%, affordability remains a challenge for first-time
+    buyers. Our mortgage team breaks down conventional vs. FHA options, explains the benefits of rate
+    buydowns, and shares strategies for competing in a tight inventory market.
+  tags:
+  - Mortgages
+  - Home Buying
+  - Interest Rates
+- date: March 14, 2026
+  read_time: 6 min read
+  title: Protecting Yourself from Check Fraud in the Digital Age
+  snippet: Check fraud has surged 385% since 2021, with sophisticated mail theft rings targeting personal
+    and business accounts. Learn about Positive Pay, our new check verification service, and six practical
+    steps to protect your accounts from increasingly bold fraud schemes.
+  tags:
+  - Fraud Prevention
+  - Security
+  - Check Fraud
+- date: March 7, 2026
+  read_time: 7 min read
+  title: 'SBA Lending Update: New Programs for Small Business Growth'
+  snippet: The SBA recently expanded its 7(a) and 504 loan programs with higher guaranty limits and streamlined
+    processing for businesses under $5M in revenue. Our commercial lending team explains the changes and
+    how Harborstone can help your business access affordable capital.
+  tags:
+  - SBA Loans
+  - Small Business
+  - Commercial Lending
+- date: February 28, 2026
+  read_time: 4 min read
+  title: 'Building an Emergency Fund: The 3-6-9 Framework'
+  snippet: Financial advisors have long recommended 3-6 months of expenses in savings, but the right target
+    depends on your income stability and household structure. We introduce our 3-6-9 framework that tailors
+    emergency savings goals to your specific financial situation.
+  tags:
+  - Savings
+  - Financial Literacy
+  - Emergency Fund
+footer_brand: Harborstone National Bank
+footer_note: 'Member FDIC. Equal Housing Lender. NMLS #482910.</p>'
+footer_links:
+- label: Privacy Policy
+  href: /privacy
+- label: Disclosures
+  href: /disclosures
+- label: Accessibility
+  href: /accessibility

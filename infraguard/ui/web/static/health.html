@@ -3,7 +3,7 @@
 <head>
     <meta charset="UTF-8">
     <meta name="viewport" content="width=device-width, initial-scale=1.0">
-    <title>InfraGuard — Infrastructure Health</title>
+    <title>InfraGuard - Infrastructure Health</title>
     <link rel="icon" type="image/svg+xml" href="/static/infraguard_icon.svg">
     <style>
         :root {
@@ -163,7 +163,7 @@
     <div class="header">
         <div class="header-brand">
             <img src="/static/infraguard_icon.svg" alt="" class="header-icon">
-            <h1>InfraGuard — Infrastructure Health</h1>
+            <h1>InfraGuard - Infrastructure Health</h1>
         </div>
         <div class="header-right">
             <span class="status-dot ok" id="overall-dot">&#9679;</span>
@@ -186,26 +186,26 @@
         <!-- ── Top-level metric cards ─────────────────────── -->
         <div class="card">
             <h3>Uptime</h3>
-            <div class="value green" id="uptime">—</div>
+            <div class="value green" id="uptime">-</div>
             <div class="sub" id="uptime-seconds"></div>
         </div>
 
         <div class="card">
             <h3>Request Rate (24h)</h3>
-            <div class="value" id="req-rate">—</div>
+            <div class="value" id="req-rate">-</div>
             <div class="sub">req/min</div>
         </div>
 
         <div class="card">
             <h3>Block Rate (24h)</h3>
-            <div class="value" id="block-rate">—</div>
+            <div class="value" id="block-rate">-</div>
             <div class="progress-wrap"><div class="progress-bar green" id="block-rate-bar" style="width:0%"></div></div>
             <div class="sub" id="block-rate-detail"></div>
         </div>
 
         <div class="card">
             <h3>Avg Upstream Latency (1h)</h3>
-            <div class="value" id="avg-latency">—</div>
+            <div class="value" id="avg-latency">-</div>
             <div class="sub">milliseconds</div>
         </div>
 
@@ -329,14 +329,14 @@
 
         // ── Formatters ────────────────────────────────────────
         function fmtAgo(seconds) {
-            if (seconds == null) return '—';
+            if (seconds == null) return '-';
             if (seconds < 60) return seconds + 's ago';
             if (seconds < 3600) return Math.floor(seconds / 60) + 'm ago';
             return Math.floor(seconds / 3600) + 'h ago';
         }
 
         function fmtIso(isoStr) {
-            if (!isoStr) return '—';
+            if (!isoStr) return '-';
             try {
                 return new Date(isoStr).toLocaleString();
             } catch(e) { return isoStr; }
@@ -382,10 +382,10 @@
                 <tr>
                     <td>${esc(c.listener)}</td>
                     <td style="max-width:200px;overflow:hidden;text-overflow:ellipsis;white-space:nowrap;" title="${esc(c.cert_path)}">${esc(c.cert_path)}</td>
-                    <td>${c.expires_at ? fmtIso(c.expires_at) : '—'}</td>
+                    <td>${c.expires_at ? fmtIso(c.expires_at) : '-'}</td>
                     <td>
                         <span class="cert-days" style="color:${c.days_until_expiry == null ? 'var(--text-dim)' : c.days_until_expiry < 0 ? 'var(--red)' : c.days_until_expiry < 7 ? 'var(--yellow)' : 'var(--green)'}">
-                            ${c.days_until_expiry != null ? c.days_until_expiry : '—'}
+                            ${c.days_until_expiry != null ? c.days_until_expiry : '-'}
                         </span>
                     </td>
                     <td><span class="badge ${esc(c.status)}">${esc(c.status)}</span></td>
@@ -404,8 +404,8 @@
                 const shortUrl = f.url.replace(/^https?:\/\//, '').split('/').slice(0, 2).join('/');
                 return `<tr>
                     <td title="${esc(f.url)}" style="max-width:220px;overflow:hidden;text-overflow:ellipsis;white-space:nowrap;">${esc(shortUrl)}</td>
-                    <td>${f.last_refresh ? fmtIso(f.last_refresh) : '—'}</td>
-                    <td>${f.hours_since != null ? f.hours_since : '—'}</td>
+                    <td>${f.last_refresh ? fmtIso(f.last_refresh) : '-'}</td>
+                    <td>${f.hours_since != null ? f.hours_since : '-'}</td>
                     <td><span class="badge ${esc(f.status)}">${esc(f.status)}</span></td>
                 </tr>`;
             }).join('');
@@ -421,7 +421,7 @@
             tbody.innerHTML = byDomain.map(d => `
                 <tr>
                     <td>${esc(d.domain)}</td>
-                    <td>${d.avg_ms != null ? d.avg_ms + ' ms' : '—'}</td>
+                    <td>${d.avg_ms != null ? d.avg_ms + ' ms' : '-'}</td>
                     <td>${esc(d.requests)}</td>
                 </tr>
             `).join('');
@@ -438,8 +438,8 @@
                 <tr>
                     <td>${esc(n.name)}</td>
                     <td>${esc(n.address)}</td>
-                    <td>${n.last_heartbeat ? fmtIso(n.last_heartbeat) : '—'}</td>
-                    <td>${n.seconds_since_heartbeat != null ? fmtAgo(n.seconds_since_heartbeat) : '—'}</td>
+                    <td>${n.last_heartbeat ? fmtIso(n.last_heartbeat) : '-'}</td>
+                    <td>${n.seconds_since_heartbeat != null ? fmtAgo(n.seconds_since_heartbeat) : '-'}</td>
                     <td><span class="badge ${esc(n.status)}">${esc(n.status)}</span></td>
                 </tr>
             `).join('');
@@ -470,7 +470,7 @@
 
                 // Latency
                 document.getElementById('avg-latency').textContent =
-                    data.upstream_latency.avg_ms_1h != null ? data.upstream_latency.avg_ms_1h : '—';
+                    data.upstream_latency.avg_ms_1h != null ? data.upstream_latency.avg_ms_1h : '-';
 
                 // Sections
                 renderAlerts(data.alerts);

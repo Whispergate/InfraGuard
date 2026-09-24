@@ -407,7 +407,7 @@ def _safe_filename(filename: str) -> Path | None:
 
 
 async def upload_profile(request: Request) -> JSONResponse:
-    """POST /api/profiles/upload — import a profile from pasted/uploaded content."""
+    """POST /api/profiles/upload - import a profile from pasted/uploaded content."""
     try:
         body = await request.json()
     except Exception:
@@ -475,7 +475,7 @@ async def upload_profile(request: Request) -> JSONResponse:
 
 
 async def generate_profile_endpoint(request: Request) -> JSONResponse:
-    """POST /api/profiles/generate — generate a new profile from wizard params."""
+    """POST /api/profiles/generate - generate a new profile from wizard params."""
     from infraguard.profiles.generators import generate_profile
 
     try:

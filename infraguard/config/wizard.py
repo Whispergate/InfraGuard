@@ -1,10 +1,10 @@
 """Interactive CLI wizard for common InfraGuard tasks.
 
 Provides step-by-step guided flows for:
-    init            — create a starter configuration file
-    deploy run      — provision a new cloud redirector
-    deploy rotate   — rotate to a new redirector instance
-    profile create  — convert a raw C2 profile to InfraGuard JSON
+    init            - create a starter configuration file
+    deploy run      - provision a new cloud redirector
+    deploy rotate   - rotate to a new redirector instance
+    profile create  - convert a raw C2 profile to InfraGuard JSON
 
 Each wizard collects parameters interactively with validation,
 sensible defaults, and inline help text, then delegates to the
@@ -114,17 +114,124 @@ def _prompt_path(
     must_exist: bool = False,
     help_text: str = "",
 ) -> Path:
-    """Prompt for a file/directory path with optional existence check."""
+    """Prompt for a file/directory path with optional existence check.
+
+    Handles the three Windows paste footguns that used to make
+    space-containing paths fail:
+
+    * Explorer's ``Right-click → Copy as path`` wraps the string in
+      ``"..."`` quotes.
+    * Drag-and-drop from Explorer sometimes appends a trailing space.
+    * Terminals that echo bracketed-paste markers leak the closing
+      marker into the input on the next line.
+
+    Also normalises via ``Path.resolve(strict=False)`` so the error
+    message reflects what Python actually looked for, and reports
+    ``repr()`` on failure so invisible characters (trailing spaces,
+    CR, unicode) are visible instead of blending in.
+    """
     if help_text:
         click.echo(click.style(f"  ℹ  {help_text}", fg="bright_black"))
 
     while True:
         raw = _prompt(label, default=str(default) if default else None)
-        p = Path(raw).expanduser()
+        cleaned = _clean_path_input(raw)
+        p = Path(cleaned).expanduser()
         if must_exist and not p.exists():
             click.echo(click.style(f"  ✗ Path does not exist: {p}", fg="red"))
+            if cleaned != raw.strip():
+                click.echo(click.style(
+                    f"    (input parsed as: {cleaned!r})", fg="bright_black"
+                ))
+            elif raw != raw.strip() or any(c in raw for c in "\"'"):
+                click.echo(click.style(
+                    f"    (raw input: {raw!r})", fg="bright_black"
+                ))
+            for hint in _path_failure_hints(cleaned):
+                click.echo(click.style(f"    {hint}", fg="bright_black"))
             continue
         return p
+
+
+def _path_failure_hints(cleaned: str) -> list[str]:
+    """Return diagnostic hints for why a real-looking path failed ``exists()``.
+
+    Concentrates on the three cases operators actually hit:
+
+    1. **Windows drive letter typed under WSL / Linux / Docker** -
+       ``F:\\...`` looks fine but the running process's filesystem has no
+       such drive; the WSL-native form is ``/mnt/f/...``.
+    2. **Case or typo in the filename** - parent directory exists,
+       target does not; list nearby siblings so a typo is obvious.
+    3. **Drive/root not mounted at all** - no ancestor exists.
+    """
+    import platform as _platform
+    import re as _re
+
+    hints: list[str] = []
+    is_posix = _platform.system() != "Windows"
+
+    # (1) Windows-style path being resolved on a POSIX host.
+    if is_posix and _re.match(r"^[A-Za-z]:[\\/]", cleaned):
+        drive = cleaned[0].lower()
+        rest = cleaned[2:].lstrip("\\/").replace("\\", "/")
+        wsl_form = f"/mnt/{drive}/{rest}"
+        hints.append(f"Looks like a Windows path but we are on {_platform.system()}.")
+        hints.append(f"From WSL / Linux, try: {wsl_form}")
+        return hints  # No point walking ancestors that also don't exist.
+
+    # (2) / (3) walk ancestors to find the first one that DOES exist.
+    p = Path(cleaned).expanduser()
+    q = p.parent
+    while True:
+        try:
+            if q.exists():
+                break
+        except OSError:
+            pass
+        if q == q.parent:
+            hints.append("No ancestor directory is reachable from this process.")
+            return hints
+        q = q.parent
+
+    if q == p.parent:
+        # Parent exists; the file (or leaf dir) does not.
+        try:
+            siblings = sorted(x.name for x in q.iterdir())
+        except OSError:
+            siblings = []
+        needle = p.name.lower()
+        near = [s for s in siblings if needle in s.lower() or s.lower() in needle][:5]
+        hints.append(f"Parent exists ({q}); the leaf {p.name!r} does not.")
+        if near:
+            hints.append(f"Similar names in that directory: {', '.join(near)}")
+        elif siblings:
+            hints.append(
+                f"Directory has {len(siblings)} entr{'y' if len(siblings)==1 else 'ies'} "
+                f"(first 3: {', '.join(siblings[:3])})"
+            )
+    else:
+        hints.append(f"First existing ancestor: {q}")
+        hints.append(
+            "Everything between there and the leaf is missing - likely a "
+            "wrong drive, typo, or a path from a different environment."
+        )
+    return hints
+
+
+def _clean_path_input(raw: str) -> str:
+    """Trim whitespace and matching surrounding quotes from a pasted path.
+
+    Kept as a plain function so the fix is testable without a Click
+    prompt in the loop.
+    """
+    s = raw.strip()
+    # Strip a matching pair of surrounding quotes (Explorer "Copy as path"
+    # emits ``"C:\\Foo Bar\\baz.txt"``). Only strip when balanced so a
+    # legitimate quote character inside the name is preserved.
+    if len(s) >= 2 and s[0] == s[-1] and s[0] in ("\"", "'"):
+        s = s[1:-1].strip()
+    return s
 
 
 def _prompt_domain(label: str = "Domain", default: str | None = None, help_text: str = "") -> str:
@@ -204,7 +311,7 @@ def wizard_init() -> None:
     """Interactive wizard for 'infraguard config init'."""
     from infraguard.config.loader import generate_default_config
 
-    _banner("InfraGuard — Initialize Configuration")
+    _banner("InfraGuard - Initialize Configuration")
 
     click.echo("  This wizard creates a starter InfraGuard configuration file.")
     click.echo("  It will generate a YAML config with sensible defaults that")
@@ -301,7 +408,7 @@ def wizard_init() -> None:
 
 def wizard_deploy() -> None:
     """Interactive wizard for 'infraguard deploy run'."""
-    _banner("InfraGuard — Deploy New Redirector")
+    _banner("InfraGuard - Deploy New Redirector")
 
     click.echo("  This wizard provisions a new cloud redirector instance")
     click.echo("  via Terraform, configures InfraGuard on it, and starts")
@@ -450,7 +557,7 @@ def wizard_deploy() -> None:
 
 def wizard_rotate() -> None:
     """Interactive wizard for 'infraguard deploy rotate'."""
-    _banner("InfraGuard — Rotate Redirector")
+    _banner("InfraGuard - Rotate Redirector")
 
     click.echo("  This wizard performs a blue/green rotation: it provisions a")
     click.echo("  new redirector instance, waits for it to become healthy,")
@@ -599,7 +706,7 @@ def wizard_rotate() -> None:
 
 def wizard_profile_create() -> None:
     """Interactive wizard for creating an InfraGuard profile from a raw C2 profile."""
-    _banner("InfraGuard — Create Profile")
+    _banner("InfraGuard - Create Profile")
 
     click.echo("  This wizard converts a raw C2 framework profile into")
     click.echo("  InfraGuard's internal JSON format.\n")
@@ -654,11 +761,18 @@ def wizard_profile_create() -> None:
         _warn("Aborted.")
         return
 
-    # Delegate to the profile convert logic
-    from infraguard.main import _load_profile_file
+    # Delegate to the CLI helper - it handles both the ``"auto"`` path
+    # (via :mod:`infraguard.deploy.profile_detect`) and the direct
+    # dispatch to the registered parser. Historically this imported
+    # ``_load_profile_file`` from ``infraguard.main``; that helper moved
+    # to :mod:`infraguard.cli._helpers` in v0.5 under the public name
+    # ``load_profile_file``. Going through the helper - not the registry
+    # directly - is what keeps ``profile_type == "auto"`` working here
+    # exactly as it does under ``infraguard profile parse``.
+    from infraguard.cli._helpers import load_profile_file
 
     try:
-        parsed = _load_profile_file(source_file, profile_type, name)
+        parsed = load_profile_file(source_file, profile_type, name)
         json_output = parsed.to_json(indent=2)
 
         output.parent.mkdir(parents=True, exist_ok=True)

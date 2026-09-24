@@ -1,0 +1,43 @@
+# Security vendors, sandboxes, and threat-intel scanners.
+# One CIDR per line. Blank lines and lines starting with '#' are ignored.
+# Reload without a code release: edit this file and SIGHUP the proxy, or
+# call POST /api/intel/reload on the dashboard.
+
+# Shodan
+66.240.192.0/18
+71.6.128.0/17
+198.20.64.0/18
+
+# Censys
+162.142.125.0/24
+167.94.138.0/24
+167.94.145.0/24
+167.94.146.0/24
+167.248.133.0/24
+
+# BinaryEdge
+37.9.12.0/24
+
+# SecurityTrails
+52.250.0.0/16
+
+# VirusTotal
+74.125.0.0/16
+
+# ZoomEye
+106.75.0.0/16
+
+# Rapid7 (Project Sonar)
+5.63.151.0/24
+71.6.233.0/24
+
+# Shadowserver
+64.62.202.0/24
+184.105.139.0/24
+184.105.247.0/24
+
+# Palo Alto Networks
+204.232.0.0/16
+
+# CrowdStrike Falcon sandbox
+54.208.0.0/15

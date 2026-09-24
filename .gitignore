@@ -234,3 +234,6 @@ images/.$InfraGuard Infrastructure Diagram.drawio.bkp
 .infraguard
 pulumi_deploy/*
 terraform_deploy/*
+# Vite build output (see infraguard/ui/web/README.md)
+infraguard/ui/web/static/dist/
+infraguard/ui/web/node_modules/

@@ -1,0 +1,77 @@
+# Auto-extracted from pages/InfraShieldBlog/index.html.
+# Regenerate the HTML with:
+#   infraguard decoy generate --industry infrashield -o pages/InfraShieldBlog/ --force
+
+brand: InfraShield
+site_title: InfraShield - Cloud Infrastructure Security Blog
+hero_title: Cloud Infrastructure Security
+hero_subtitle: Research, insights, and best practices for securing modern cloud-native architectures.
+nav_links:
+- label: Blog
+  href: /
+- label: About
+  href: /about
+- label: Research
+  href: /research
+- label: Contact
+  href: /contact
+posts:
+- date: March 28, 2026
+  read_time: 8 min read
+  title: Zero Trust Architecture in Multi-Cloud Environments
+  snippet: Implementing zero trust principles across AWS, Azure, and GCP requires a unified approach to
+    identity, network segmentation, and continuous verification. In this post, we explore practical patterns
+    for cross-cloud identity federation and micro-segmentation strategies.
+  tags:
+  - Zero Trust
+  - Multi-Cloud
+  - Identity
+- date: March 22, 2026
+  read_time: 12 min read
+  title: Kubernetes Network Policy Hardening Guide
+  snippet: Default Kubernetes configurations leave pods wide open to lateral movement. We walk through
+    a comprehensive network policy framework using Calico and Cilium, with real-world examples from production
+    incident response engagements.
+  tags:
+  - Kubernetes
+  - Network Security
+  - Hardening
+- date: March 15, 2026
+  read_time: 6 min read
+  title: Detecting Cloud-Native Cryptominers with eBPF
+  snippet: Cryptomining remains the most common post-exploitation activity in cloud environments. We demonstrate
+    how eBPF-based runtime monitoring can detect mining behavior with near-zero performance overhead,
+    even in ephemeral container workloads.
+  tags:
+  - eBPF
+  - Detection
+  - Containers
+- date: March 8, 2026
+  read_time: 10 min read
+  title: Serverless Security Anti-Patterns
+  snippet: Lambda functions and cloud functions introduce unique security challenges that traditional
+    application security tools miss. From overprivileged execution roles to event injection via S3 triggers,
+    we catalog the top 10 serverless anti-patterns and their mitigations.
+  tags:
+  - Serverless
+  - AWS Lambda
+  - AppSec
+- date: February 28, 2026
+  read_time: 15 min read
+  title: Supply Chain Security for Container Images
+  snippet: Recent incidents have shown that container supply chain attacks are increasingly sophisticated.
+    We examine Sigstore, SLSA, and in-toto frameworks for building a verifiable container build pipeline
+    from source to production.
+  tags:
+  - Supply Chain
+  - Containers
+  - SLSA
+footer_brand: InfraShield Security Research
+footer_note: All rights reserved.</p>
+footer_links:
+- label: Privacy Policy
+  href: /privacy
+- label: Terms of Service
+  href: /terms
+- label: RSS Feed
+  href: /rss

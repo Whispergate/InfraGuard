@@ -1,4 +1,4 @@
-"""Tests for traffic shaping — response timing normalization (TimingConfig).
+"""Tests for traffic shaping - response timing normalization (TimingConfig).
 
 Timing normalization adds a random delay to every response to defeat
 side-channel timing analysis that would otherwise let blue team distinguish

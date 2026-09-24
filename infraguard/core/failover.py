@@ -332,7 +332,7 @@ class ProtocolFailover:
     def _select_best(self) -> str | None:
         """Choose the highest-priority protocol that is currently up.
 
-        Updates ``self._active`` but does NOT emit events — callers are
+        Updates ``self._active`` but does NOT emit events - callers are
         responsible for that.  Caller must hold ``self._lock``.
         """
         candidates = sorted(

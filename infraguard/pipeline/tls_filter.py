@@ -18,20 +18,26 @@ from __future__ import annotations
 
 import structlog
 
+from infraguard.intel.rules_loader import load_list
 from infraguard.models.common import FilterResult
 from infraguard.pipeline.base import RequestContext
 
 log = structlog.get_logger()
 
-# Known scanner JA3 fingerprints (MD5 hex strings)
-_DEFAULT_BLOCKED_JA3: frozenset[str] = frozenset({
+# Known scanner JA3 fingerprints (MD5 hex strings). The list lives in
+# rules/ja3_blocklist.txt and is loaded at import; the tuple below is the
+# compile-time fallback if that file is missing.
+_JA3_FALLBACK: tuple[str, ...] = (
     "e7d705a3286e19ea42f587b344ee6865",  # Masscan
     "6734f37431670b3ab4292b8f60f29984",  # Python requests
     "b386946a5a44d1ddcc843bc75336dfce",  # curl
     "c35b0c7bd583d49d5b0f17de25ecdf7a",  # ZGrab2
     "07b8a29f8a4b7eb7d9bd0b11a4e03399",  # Nmap
     "19e29534fd49dd27d09234e639c4057e",  # Shodan
-})
+)
+_DEFAULT_BLOCKED_JA3: frozenset[str] = frozenset(
+    load_list("ja3_blocklist.txt", fallback=_JA3_FALLBACK)
+)
 
 
 class TLSFilter:

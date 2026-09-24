@@ -1,0 +1,62 @@
+<!DOCTYPE html>
+<html lang="{{ lang|default('en') }}">
+<head>
+    <meta charset="UTF-8">
+    <meta name="viewport" content="width=device-width, initial-scale=1.0">
+    <title>{{ site_title }}</title>
+    <link rel="icon" type="image/svg+xml" href="/assets/images/icon.svg">
+    <link rel="stylesheet" href="/assets/style.css">
+</head>
+<body>
+    <nav>
+        <div class="nav-inner">
+            <div class="nav-brand">
+                <img src="/assets/images/icon.svg" alt="" class="nav-icon">
+                <span>{{ brand }}</span>
+            </div>
+            <div class="nav-links">
+                {%- for link in nav_links %}
+                <a href="{{ link.href }}">{{ link.label }}</a>
+                {%- endfor %}
+            </div>
+        </div>
+    </nav>
+
+    <header class="hero">
+        <div class="hero-inner">
+            <h1>{{ hero_title }}</h1>
+            <p>{{ hero_subtitle }}</p>
+        </div>
+    </header>
+
+    <main>
+        <div class="posts">
+            {%- for post in posts %}
+            <article class="post-card">
+                <div class="post-meta">{{ post.date }} &middot; {{ post.read_time }}</div>
+                <h2>{{ post.title }}</h2>
+                <p>{{ post.snippet }}</p>
+                <div class="post-tags">
+                    {%- for tag in post.tags %}
+                    <span class="tag">{{ tag }}</span>
+                    {%- endfor %}
+                </div>
+            </article>
+            {%- endfor %}
+        </div>
+    </main>
+
+    <footer>
+        <div class="footer-inner">
+            <p>&copy; {{ year }} {{ footer_brand|default(brand) }}. {{ footer_note|default("All rights reserved.") }}</p>
+            {%- if footer_links %}
+            <p class="footer-links">
+                {%- for fl in footer_links %}
+                <a href="{{ fl.href }}">{{ fl.label }}</a>{% if not loop.last %} &middot;{% endif %}
+                {%- endfor %}
+            </p>
+            {%- endif %}
+        </div>
+    </footer>
+</body>
+</html>

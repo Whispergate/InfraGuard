@@ -17,12 +17,23 @@ from infraguard.models.events import compute_request_hash
 from infraguard.pipeline.base import RequestContext
 
 if TYPE_CHECKING:
+    from infraguard.state import StateBackend
     from infraguard.tracking.database import Database
 
 log = structlog.get_logger()
 
 
 class ReplayFilter:
+    """Anti-replay filter with three optional persistence tiers.
+
+    * In-memory ``_seen`` dict - always present, fastest path.
+    * SQLite ``replay_tokens`` - survives restarts of a single node.
+    * Shared :class:`StateBackend` - survives horizontal scaling; when
+      configured, the first node to record a hash wins across the
+      cluster via SETNX-with-TTL, so replay-detection is consistent no
+      matter which replica the beacon hits first.
+    """
+
     name = "replay"
 
     def __init__(
@@ -31,11 +42,13 @@ class ReplayFilter:
         max_cache: int = 50000,
         db: "Database | None" = None,
         persist: bool = True,
+        state_backend: "StateBackend | None" = None,
     ):
         self._window = window_seconds
         self._max_cache = max_cache
         self._db = db
         self._persist = persist and db is not None
+        self._state = state_backend
         # L1: in-memory hash -> seen_at (unix epoch float)
         self._seen: dict[str, float] = {}
 
@@ -93,6 +106,19 @@ class ReplayFilter:
                     reason="Replay detected (duplicate request)",
                     filter_name=self.name,
                     score=0.8,
+                )
+
+        # Cluster-wide replay check: SETNX with TTL. If another replica
+        # already claimed this hash within the window, treat as replay.
+        if self._state is not None:
+            claimed = await self._state.check_and_set(
+                f"replay:{request_hash}", str(int(now)), ttl_seconds=self._window
+            )
+            if not claimed:
+                return FilterResult.block(
+                    reason="Replay detected (duplicate request, cluster-wide)",
+                    filter_name=self.name,
+                    score=0.85,
                 )
 
         self._seen[request_hash] = now

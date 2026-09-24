@@ -32,7 +32,7 @@ services:
     environment:
       # Bind embedded API to all interfaces so the dashboard container
       # can reach it over the Docker network for forwarding mutations.
-      # Port 8080 is NOT exposed to the host — only reachable within
+      # Port 8080 is NOT exposed to the host - only reachable within
       # the infraguard bridge network.
       - INFRAGUARD_API_BIND=0.0.0.0
     depends_on:
@@ -242,37 +242,71 @@ services:
         ls -lh /geoip/*.mmdb
         echo "Done."
 
-  # ── Additional redirector node (scale with --scale proxy-node=N) ────
-  # Uncomment to run extra redirector instances behind a load balancer.
+  # ── Redis (shared state for horizontally-scaled deploys) ─────────────
+  # Enables replay-cache, circuit-breaker, session, and rate-limit state
+  # to be shared across multiple proxy replicas.
   #
-  # proxy-node:
-  #   build: .
-  #   restart: unless-stopped
-  #   env_file: .env
-  #   ports:
-  #     - "443"
-  #   volumes:
-  #     - ./config:/app/config:ro
-  #     - ./examples:/app/examples:ro
-  #     - ./data:/app/data
-  #     - certs:/app/certs:ro
-  #   read_only: true
-  #   tmpfs:
-  #     - /tmp:noexec,nosuid,nodev,size=64m,uid=1000,gid=1000
-  #   security_opt:
-  #     - no-new-privileges:true
-  #   cap_drop:
-  #     - ALL
-  #   cap_add:
-  #     - NET_BIND_SERVICE
-  #   deploy:
-  #     resources:
-  #       limits:
-  #         cpus: "1.0"
-  #         memory: 512M
-  #   command: ["run", "-c", "/app/config/config.yaml"]
-  #   networks:
-  #     - infraguard
+  # Enable with: docker compose --profile scale up -d
+  # Then set state.backend: redis in config.yaml (defaults to redis://redis:6379/0).
+  redis:
+    image: redis:7-alpine
+    container_name: infraguard-redis
+    profiles: ["scale"]
+    restart: unless-stopped
+    command: ["redis-server", "--appendonly", "yes", "--maxmemory", "256mb", "--maxmemory-policy", "allkeys-lru"]
+    volumes:
+      - redis-data:/data
+    read_only: false
+    security_opt:
+      - no-new-privileges:true
+    cap_drop:
+      - ALL
+    healthcheck:
+      test: ["CMD", "redis-cli", "ping"]
+      interval: 10s
+      timeout: 3s
+      retries: 5
+    networks:
+      - infraguard
+
+  # ── Additional redirector node (scale with --scale proxy-node=N) ────
+  # Requires the `scale` profile so Redis is up. Without a shared state
+  # backend this is broken - see comments on the redis service above.
+  #
+  # Enable with:
+  #   docker compose --profile scale up -d --scale proxy-node=3
+  proxy-node:
+    build: .
+    profiles: ["scale"]
+    restart: unless-stopped
+    env_file: .env
+    depends_on:
+      redis:
+        condition: service_healthy
+    ports:
+      - "443"
+    volumes:
+      - ./config:/app/config:ro
+      - ./examples:/app/examples:ro
+      - ./data:/app/data
+      - certs:/app/certs:ro
+    read_only: true
+    tmpfs:
+      - /tmp:noexec,nosuid,nodev,size=64m,uid=1000,gid=1000
+    security_opt:
+      - no-new-privileges:true
+    cap_drop:
+      - ALL
+    cap_add:
+      - NET_BIND_SERVICE
+    deploy:
+      resources:
+        limits:
+          cpus: "1.0"
+          memory: 512M
+    command: ["run", "-c", "/app/config/config.yaml"]
+    networks:
+      - infraguard
 
   # ── Command Post (multi-instance aggregator) ─────────────────────────
   # Aggregates stats, requests, and live events from multiple InfraGuard
@@ -395,6 +429,7 @@ volumes:
   geoip:
   pwndrop-data:
   ollama-data:
+  redis-data:
 
 networks:
   infraguard:

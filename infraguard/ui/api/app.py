@@ -126,6 +126,61 @@ def _get_rate_key(request: Request) -> str | None:
     return f"ip:{client_ip}"
 
 
+class SecurityHeadersMiddleware(BaseHTTPMiddleware):
+    """Attach hardening headers to every response.
+
+    Historically the dashboard shipped without CSP or HSTS. The inline
+    JS/CSS in ``index.html`` and ``decoys.html`` still forces
+    ``script-src 'self' 'unsafe-inline'`` - a proper bundler (see the
+    v0.6 web-UI task) lets us drop ``unsafe-inline`` - but CSP with
+    ``'unsafe-inline'`` is still meaningfully stronger than none because
+    it blocks external-origin script injection.
+
+    Headers set:
+      * ``Content-Security-Policy`` - restrictive default; allows same-
+        origin JS/CSS/WS + inline blocks for now.
+      * ``Strict-Transport-Security`` - HSTS 6 months, subdomains.
+        Emitted only for HTTPS responses so an operator on http-only
+        localhost is not locked out.
+      * ``X-Content-Type-Options: nosniff`` - MIME sniffing off.
+      * ``X-Frame-Options: DENY`` - no clickjacking.
+      * ``Referrer-Policy: no-referrer`` - no leakage to redirects.
+      * ``Permissions-Policy`` - deny sensor / geoloc / camera APIs.
+    """
+
+    _CSP = (
+        "default-src 'self'; "
+        "script-src 'self' 'unsafe-inline'; "
+        "style-src 'self' 'unsafe-inline'; "
+        "img-src 'self' data:; "
+        "connect-src 'self' ws: wss:; "
+        "font-src 'self' data:; "
+        "frame-ancestors 'none'; "
+        "base-uri 'self'; "
+        "form-action 'self'"
+    )
+    _HSTS = "max-age=15552000; includeSubDomains"
+    _PERMISSIONS = (
+        "accelerometer=(), camera=(), geolocation=(), gyroscope=(), "
+        "magnetometer=(), microphone=(), payment=(), usb=()"
+    )
+
+    async def dispatch(self, request: Request, call_next: RequestResponseEndpoint) -> Response:
+        response = await call_next(request)
+        headers = response.headers
+        # Set-if-absent - never clobber a route that intentionally
+        # overrode one (e.g. a decoy preview relaxing frame-ancestors).
+        headers.setdefault("Content-Security-Policy", self._CSP)
+        headers.setdefault("X-Content-Type-Options", "nosniff")
+        headers.setdefault("X-Frame-Options", "DENY")
+        headers.setdefault("Referrer-Policy", "no-referrer")
+        headers.setdefault("Permissions-Policy", self._PERMISSIONS)
+        # HSTS is only meaningful over HTTPS.
+        if request.url.scheme == "https":
+            headers.setdefault("Strict-Transport-Security", self._HSTS)
+        return response
+
+
 class AuthMiddleware(BaseHTTPMiddleware):
     async def dispatch(self, request: Request, call_next: RequestResponseEndpoint) -> Response:
         path = request.url.path
@@ -307,6 +362,10 @@ def create_api_app(
     app = Starlette(routes=routes, lifespan=lifespan)
     app.mount("/metrics", create_metrics_app())
     app.add_middleware(AuthMiddleware)
+    # Security headers must be the OUTERMOST middleware so it decorates
+    # every response - auth failures, rate-limit 429s, static files, and
+    # the JSON API alike.
+    app.add_middleware(SecurityHeadersMiddleware)
 
     # Attach shared state
     app.state.config = config

@@ -226,6 +226,25 @@ def load_config(path: str | Path) -> InfraGuardConfig:
 
     resolved = _drop_empty_strings(resolved)
 
+    # Resolve relative profile paths against the config file's directory so a
+    # bundle-relative ``profiles/foo.profile`` works whether the operator
+    # runs ``infraguard run -c bundle/config.yaml`` from anywhere on the
+    # host, or from inside the container with WORKDIR=/config. Absolute
+    # paths and env-var-templated paths (already resolved above) are left
+    # untouched. Fixes the v0.4 regression where ``config generate``
+    # emitted a container-only ``/config/profiles/...`` that broke every
+    # host-side subcommand.
+    if isinstance(resolved, dict):
+        domains = resolved.get("domains")
+        if isinstance(domains, dict):
+            base_dir = config_path.parent
+            for _domain, dcfg in domains.items():
+                if not isinstance(dcfg, dict):
+                    continue
+                pp = dcfg.get("profile_path")
+                if isinstance(pp, str) and pp and not Path(pp).is_absolute():
+                    dcfg["profile_path"] = str((base_dir / pp).resolve())
+
     return InfraGuardConfig.model_validate(resolved)
 
 

@@ -254,7 +254,7 @@ def _format_duration(seconds: int) -> str:
 def _read_cert_expiry(cert_path: Path) -> datetime | None:
     """Read certificate expiry date from a local PEM file. Returns None on failure.
 
-    Only reads the local certificate file — no network connection is made.
+    Only reads the local certificate file - no network connection is made.
     """
     try:
         import ssl

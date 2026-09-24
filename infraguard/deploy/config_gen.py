@@ -18,38 +18,108 @@ from infraguard.config.schema import (
     DropActionConfig,
     InfraGuardConfig,
     ListenerConfig,
+    TrackingConfig,
 )
 from infraguard.deploy.profile_detect import detect_profile_type
 from infraguard.models.common import DropActionType, ProfileType
 
 # ── docker-compose template ───────────────────────────────────────────
+#
+# Deliberately generated as an f-string in write_bundle so the volume list
+# doesn't drift between the two services. Notes on the shape:
+#
+# * The container ENTRYPOINT is ``infraguard`` (see repo Dockerfile), so
+#   ``command:`` is just the sub-command + its flags — writing
+#   ``command: infraguard run ...`` here yielded ``infraguard infraguard
+#   run ...`` at runtime (v0.4 bundle bug F1).
+# * The proxy expects its config at ``/app/config/config.yaml`` (the
+#   Dockerfile's default CMD path); the earlier bundle used ``/config/``
+#   which was silently unbound.
+# * ``/app/data`` needs a writable bind mount so SQLite can create the
+#   tracking DB (bug F2 — sqlite ``unable to open database file``).
+# * The dashboard ``command:`` used to be a bare ``dashboard`` — but
+#   ``infraguard dashboard`` REQUIRES ``-c`` (bug F3).
 
-_DOCKER_COMPOSE_TEMPLATE = """\
-version: "3.9"
-
+def _render_docker_compose(domain: str) -> str:
+    return f"""\
 services:
+  # ── Data-volume permission fixer ────────────────────────────────────
+  # Docker creates fresh named volumes owned by root, but InfraGuard
+  # runs as UID 1000 in the container. Without this init step the
+  # proxy/dashboard hit ``sqlite3.OperationalError: unable to open
+  # database file`` because ``/app/data`` is not writable (v0.4 bundle
+  # bug F2 — final layer). Mirrors ``data-init`` in the top-level
+  # docker-compose.yml, but scoped to the named volume so it also works
+  # from Windows/WSL where bind-mount ``chown`` does not stick.
+  data-init:
+    image: alpine:latest
+    container_name: infraguard-data-init
+    volumes:
+      - infraguard-data:/app/data
+    entrypoint: /bin/sh
+    command: ["-c", "mkdir -p /app/data && chown -R 1000:1000 /app/data"]
+    restart: "no"
+
   proxy:
     image: infraguard:latest
+    container_name: infraguard-proxy
     restart: unless-stopped
-    command: infraguard run -c /config/config.yaml
+    command: ["run", "-c", "/app/config/config.yaml"]
     env_file:
       - .env
+    environment:
+      # Bind embedded API to all interfaces so the dashboard container
+      # can reach it over the compose network. Not published to the
+      # host — only reachable inside the compose network.
+      - INFRAGUARD_API_BIND=0.0.0.0
     ports:
       - "443:443"
+    depends_on:
+      data-init:
+        condition: service_completed_successfully
+    tmpfs:
+      # Writable scratch for the intel-feed cache (default: ./.infraguard).
+      # Without it the container-side UID 1000 hits PermissionError when
+      # trying to persist downloaded feeds under /app/.infraguard.
+      - /app/.infraguard:noexec,nosuid,nodev,size=10m,uid=1000,gid=1000
     volumes:
-      - ./config.yaml:/config/config.yaml:ro
-      - ./profiles:/config/profiles:ro
+      - ./config.yaml:/app/config/config.yaml:ro
+      - ./profiles:/app/config/profiles:ro
+      # Managed volume — see data-init above for why. Inspect the DB with:
+      #   docker cp infraguard-proxy:/app/data/infraguard.db .
+      - infraguard-data:/app/data
 
   dashboard:
     image: infraguard:latest
+    container_name: infraguard-dashboard
     restart: unless-stopped
-    command: infraguard dashboard
+    command: ["dashboard", "-c", "/app/config/config.yaml"]
     env_file:
       - .env
+    environment:
+      # Same reasoning as the proxy — the dashboard's ``api.bind`` in
+      # config.yaml defaults to 127.0.0.1, but inside the container that
+      # means only the container itself can reach it. The published port
+      # (127.0.0.1:8080:8080) then delivers a connection refused. Bind
+      # to 0.0.0.0 so the compose port publish actually works.
+      - INFRAGUARD_API_BIND=0.0.0.0
+      - INFRAGUARD_PROXY_API=http://infraguard-proxy:8080
     ports:
       - "127.0.0.1:8080:8080"
+    depends_on:
+      data-init:
+        condition: service_completed_successfully
+      proxy:
+        condition: service_started
+    tmpfs:
+      - /app/.infraguard:noexec,nosuid,nodev,size=10m,uid=1000,gid=1000
     volumes:
-      - ./config.yaml:/config/config.yaml:ro
+      - ./config.yaml:/app/config/config.yaml:ro
+      - ./profiles:/app/config/profiles:ro
+      - infraguard-data:/app/data
+
+volumes:
+  infraguard-data:
 """
 
 # ── .env template ─────────────────────────────────────────────────────
@@ -172,12 +242,28 @@ def generate_config(
 
     api_cfg = APIConfig(
         auth_token="${INFRAGUARD_API_TOKEN}",
+        # Bind the dashboard API to 0.0.0.0 inside the container so the
+        # compose ``ports:`` publish (127.0.0.1:8080:8080) can reach it.
+        # The default is 127.0.0.1 which is safe on a bare host but
+        # renders the container port unusable — v0.4 bundle bug F5. The
+        # published mapping still restricts external exposure.
+        bind="0.0.0.0",
     )
+
+    # Force the tracking DB path to the container's writable volume
+    # mount. The default from :data:`~infraguard.config.schema.DEFAULT_DB_PATH`
+    # is platform-dependent — on Windows it resolves to
+    # ``C:\Users\<who>\.config\infraguard\infraguard.db`` and gets baked
+    # into the generated YAML, which the containerised proxy (running
+    # as UID 1000 on Linux) cannot open — v0.4 bundle bug F2 (root
+    # cause). ``${INFRAGUARD_DB_PATH}`` lets .env still override it.
+    tracking_cfg = TrackingConfig(db_path="${INFRAGUARD_DB_PATH}")
 
     return InfraGuardConfig(
         listeners=[listener_cfg],
         domains={domain: domain_cfg},
         api=api_cfg,
+        tracking=tracking_cfg,
     )
 
 
@@ -216,19 +302,32 @@ def write_bundle(
     config_yaml = yaml.dump(config_data, default_flow_style=False, allow_unicode=True)
     (out_dir / "config.yaml").write_text(config_yaml, encoding="utf-8")
 
-    # .env - fully populated with auto-generated secrets
+    # .env — fully populated with auto-generated secrets.
+    # A blank ``domain`` here would produce a malformed cert path
+    # ``/app/certs/live//fullchain.pem`` (v0.4 bug F4); the caller in
+    # infraguard/cli/config_cmds.py now passes domain/upstream through so
+    # the placeholder branch below only fires for direct API callers.
     env_content = _generate_env(
-        domain=domain,
-        upstream=upstream,
+        domain=domain or "example.com",
+        upstream=upstream or "https://10.0.0.5:8443",
         profile_type=profile_type,
     )
     (out_dir / ".env").write_text(env_content, encoding="utf-8")
 
-    # docker-compose.yml
-    (out_dir / "docker-compose.yml").write_text(_DOCKER_COMPOSE_TEMPLATE, encoding="utf-8")
+    # docker-compose.yml — templated per-bundle so the volume list is
+    # rendered once and can grow later (e.g. rules/, decoys/).
+    (out_dir / "docker-compose.yml").write_text(
+        _render_docker_compose(domain or "example.com"), encoding="utf-8"
+    )
 
-    # profiles/ - copy the profile so the bundle is self-contained
+    # profiles/ — copy the profile so the bundle is self-contained.
     if profile_source is not None:
         profiles_dir = out_dir / "profiles"
         profiles_dir.mkdir(exist_ok=True)
         shutil.copy2(profile_source, profiles_dir / profile_source.name)
+
+    # data/ — must exist and be writable for the SQLite tracking DB.
+    # Without this, ``docker compose up`` failed with
+    # ``sqlite3.OperationalError: unable to open database file`` because
+    # the compose bind-mount source did not exist (v0.4 bug F2).
+    (out_dir / "data").mkdir(exist_ok=True)

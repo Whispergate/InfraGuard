@@ -1,4 +1,4 @@
-"""Profile generators — produce native-format C2 profile text from wizard parameters.
+"""Profile generators - produce native-format C2 profile text from wizard parameters.
 
 Each generator accepts a dict of common + type-specific parameters and returns
 a string in the profile's native format (CS DSL, JSON, TOML, YAML).  Every
@@ -465,7 +465,7 @@ def generate_mythic_http_profile(params: dict) -> str:
     return content
 
 
-# ── Mythic (JSON — normalized C2Profile format) ─────────────────────────
+# ── Mythic (JSON - normalized C2Profile format) ─────────────────────────
 
 def generate_mythic_profile(params: dict) -> str:
     name = _get(params, "name", "Generated Mythic Profile")

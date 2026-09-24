@@ -1,0 +1,43 @@
+# Known scanner / crawler / bot User-Agent substrings.
+# Each line is a case-insensitive substring matched against the UA header.
+# Blank lines and '#' comments are ignored.
+
+bot
+crawl
+spider
+scan
+Shodan
+Censys
+Nmap
+Nikto
+Nessus
+Qualys
+Acunetix
+Burp
+ZAP
+sqlmap
+dirbuster
+gobuster
+ffuf
+wfuzz
+nuclei
+httpx
+curl
+wget
+python-requests
+python-urllib
+Go-http-client
+Java/
+libwww
+Googlebot
+bingbot
+AhrefsBot
+SemrushBot
+DotBot
+MJ12bot
+BaiduSpider
+YandexBot
+PetalBot
+facebookexternalhit
+Twitterbot
+LinkedInBot

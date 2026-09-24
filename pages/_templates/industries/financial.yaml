@@ -1,0 +1,78 @@
+# Auto-extracted from pages/FinancialBlog/index.html.
+# Regenerate the HTML with:
+#   infraguard decoy generate --industry financial -o pages/FinancialBlog/ --force
+
+brand: Meridian Wealth
+site_title: Meridian Wealth Advisors - Financial Insights Blog
+hero_title: Financial Insights & Market Analysis
+hero_subtitle: Expert perspectives on wealth management, retirement planning, and navigating today's complex
+  financial landscape.
+nav_links:
+- label: Insights
+  href: /
+- label: Services
+  href: /services
+- label: Our Team
+  href: /advisors
+- label: Contact
+  href: /contact
+posts:
+- date: March 31, 2026
+  read_time: 7 min read
+  title: 'Q1 2026 Market Recap: What Investors Need to Know'
+  snippet: The first quarter saw significant volatility driven by shifting Fed policy expectations and
+    renewed trade tensions. Despite a rocky February, equities recovered strongly in March. Our portfolio
+    strategists break down sector performance and outline positioning for Q2.
+  tags:
+  - Market Analysis
+  - Equities
+  - Q1 Review
+- date: March 24, 2026
+  read_time: 10 min read
+  title: 'Roth Conversions in a Down Market: A Strategic Opportunity'
+  snippet: Market pullbacks create unique tax planning opportunities. Converting traditional IRA assets
+    to Roth accounts at depressed valuations can lock in lower tax bills and maximize future tax-free
+    growth. We walk through the math and scenarios where conversion makes sense.
+  tags:
+  - Tax Planning
+  - Retirement
+  - Roth IRA
+- date: March 17, 2026
+  read_time: 5 min read
+  title: Understanding the New DOL Fiduciary Rule Changes
+  snippet: The Department of Labor's revised fiduciary rule expands the definition of investment advice,
+    affecting rollover recommendations and annuity sales. Here's what the changes mean for your retirement
+    accounts and how to ensure your advisor is acting in your best interest.
+  tags:
+  - Regulation
+  - Fiduciary
+  - Retirement
+- date: March 10, 2026
+  read_time: 8 min read
+  title: 'Estate Planning Essentials: Beyond the Basic Will'
+  snippet: A will alone is rarely sufficient for families with assets above $1M. Revocable living trusts,
+    beneficiary designations, and powers of attorney form a comprehensive estate framework. We outline
+    the key documents every family should have and common mistakes to avoid.
+  tags:
+  - Estate Planning
+  - Trusts
+  - Wealth Transfer
+- date: March 3, 2026
+  read_time: 6 min read
+  title: 'Municipal Bonds in 2026: Still a Tax-Efficient Haven?'
+  snippet: With state and local government finances stabilizing post-pandemic, municipal bonds continue
+    to offer compelling after-tax yields for high-bracket investors. We analyze credit quality trends,
+    duration risk, and optimal allocation strategies for muni exposure in current portfolios.
+  tags:
+  - Fixed Income
+  - Municipal Bonds
+  - Tax Efficiency
+footer_brand: Meridian Wealth Advisors, LLC
+footer_note: All rights reserved. Securities offered through Meridian Financial Services, Member FINRA/SIPC.</p>
+footer_links:
+- label: Privacy Policy
+  href: /privacy
+- label: Disclosures
+  href: /disclosures
+- label: Form CRS
+  href: /form-crs
