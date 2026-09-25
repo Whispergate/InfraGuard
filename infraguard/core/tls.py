@@ -22,7 +22,7 @@ from infraguard.config.schema import TLSConfig
 
 log = structlog.get_logger()
 
-_SELF_SIGNED_DIR = Path(".infraguard/tls")
+_SELF_SIGNED_DIR = Path(os.environ.get("INFRAGUARD_SELF_SIGNED_DIR", ".infraguard/tls"))
 
 
 def generate_self_signed_cert(

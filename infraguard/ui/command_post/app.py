@@ -28,6 +28,11 @@ from infraguard.ui.api.auth import (
 )
 from infraguard.ui.command_post.aggregator import MultiInstanceAggregator
 from infraguard.ui.command_post.config import CommandPostConfig
+from infraguard.ui.command_post.intel_routes import (
+    get_intel_pull,
+    get_taxii_collection,
+    post_intel_push,
+)
 
 log = structlog.get_logger()
 
@@ -109,6 +114,29 @@ def create_command_post_app(config: CommandPostConfig) -> Starlette:
         instance = body.pop("_instance", None)
         results = await aggregator.fan_out_delete("/api/intel/blocklist", body, instance)
         return JSONResponse({"status": "ok", "results": results})
+
+    # ── Plugin management (fans out to each proxy instance) ──────────
+    async def get_plugins(request: Request) -> JSONResponse:
+        """GET /api/plugins - the plugin roster of every registered instance."""
+        instances = await aggregator.list_plugins_all()
+        return JSONResponse({"instances": instances})
+
+    async def _plugin_toggle(request: Request, enabled: bool) -> JSONResponse:
+        name = request.path_params["name"]
+        instance = request.query_params.get("instance")  # None = fan out to all
+        results = await aggregator.toggle_plugin_all(name, enabled, instance)
+        return JSONResponse({
+            "plugin": name,
+            "enabled": enabled,
+            "instance": instance or "all",
+            "results": results,
+        })
+
+    async def enable_plugin_route(request: Request) -> JSONResponse:
+        return await _plugin_toggle(request, enabled=True)
+
+    async def disable_plugin_route(request: Request) -> JSONResponse:
+        return await _plugin_toggle(request, enabled=False)
 
     # ── WebSocket multiplexer ─────────────────────────────────────
 
@@ -199,6 +227,16 @@ def create_command_post_app(config: CommandPostConfig) -> Starlette:
             Route("/api/intel/whitelist", post_whitelist, methods=["POST"]),
             Route("/api/intel/blocklist", post_blocklist, methods=["POST"]),
             Route("/api/intel/blocklist", delete_blocklist, methods=["DELETE"]),
+            Route("/api/plugins", get_plugins, methods=["GET"]),
+            Route("/api/plugins/{name}/enable", enable_plugin_route, methods=["POST"]),
+            Route("/api/plugins/{name}/disable", disable_plugin_route, methods=["POST"]),
+            # Cross-instance intel sharing (v0.5). Proxies push IoCs and
+            # pull the fleet-wide blocklist; peers subscribe to the TAXII
+            # collection to get scanner indicators as a STIX 2.1 bundle.
+            Route("/api/intel/push", post_intel_push, methods=["POST"]),
+            Route("/api/intel/pull", get_intel_pull, methods=["GET"]),
+            Route("/taxii2/collections/{collection_id}/objects/",
+                  get_taxii_collection, methods=["GET"]),
             WebSocketRoute("/ws/events", ws_events),
         ],
         lifespan=lifespan,

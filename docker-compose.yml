@@ -35,6 +35,12 @@ services:
       # Port 8080 is NOT exposed to the host - only reachable within
       # the infraguard bridge network.
       - INFRAGUARD_API_BIND=0.0.0.0
+      # Self-signed cert dir; the tmpfs at /app/.infraguard would work
+      # too but the explicit override survives future rootfs tweaks.
+      - INFRAGUARD_SELF_SIGNED_DIR=/app/.infraguard/tls
+      # Config-history git repo. Home is read-only in this container,
+      # so land the audit repo on the writable data volume.
+      - INFRAGUARD_CONFIG_HISTORY=/app/data/config-history.git
     depends_on:
       cert-init:
         condition: service_completed_successfully
@@ -42,9 +48,13 @@ services:
         condition: service_completed_successfully
     ports:
       - "443:443"
+      - "443:443/udp"          # HTTP/3 QUIC when enabled via listeners: [{protocol: h3}]
       - "80:80"
     volumes:
-      - ./config:/app/config:ro
+      # rw so dashboard-driven mutations (drop-action, plugin toggle,
+      # profile swap) can persist back to config.yaml. Set :ro to lock
+      # the config against runtime writes.
+      - ./config:/app/config
       - ./examples:/app/examples:ro
       - ./rules:/app/rules:ro
       - ./pages:/app/pages:ro
@@ -108,11 +118,16 @@ services:
     environment:
       - INFRAGUARD_PROXY_API=http://infraguard-proxy:8080
       - INFRAGUARD_OLLAMA_URL=http://infraguard-ollama:11434
+      # Land any writes that might land here (drop-action fallback, cert
+      # regen) on the writable tmpfs instead of the read-only /home.
+      - INFRAGUARD_SELF_SIGNED_DIR=/app/.infraguard/tls
+      - INFRAGUARD_CONFIG_HISTORY=/app/data/config-history.git
     ports:
       - "8080:8080"
     volumes:
       - ./config:/app/config:ro
       - ./examples:/app/examples:ro
+      - ./rules:/app/rules:ro
       - ./data:/app/data
       - certs:/app/certs:ro
       - geoip:/app/geoip:ro
@@ -254,6 +269,7 @@ services:
     profiles: ["scale"]
     restart: unless-stopped
     command: ["redis-server", "--appendonly", "yes", "--maxmemory", "256mb", "--maxmemory-policy", "allkeys-lru"]
+    user: redis
     volumes:
       - redis-data:/data
     read_only: false
@@ -319,6 +335,8 @@ services:
     profiles: ["command-post"]
     restart: unless-stopped
     env_file: .env
+    environment:
+      INFRAGUARD_SELF_SIGNED_DIR: /tmp/tls
     ports:
       - "9090:9090"
     volumes:
@@ -423,6 +441,57 @@ services:
     networks:
       - infraguard
 
+  # ── Observability stack (opt-in, v0.5) ───────────────────────────────
+  # OpenTelemetry collector + Prometheus + Grafana. Enable with:
+  #   docker compose --profile observability up -d
+  # Then set observability.otel.enabled=true and endpoint=http://otel:4318
+  # in config.yaml. Grafana dashboard is auto-provisioned from
+  # deploy/grafana/infraguard.json.
+  otel:
+    image: otel/opentelemetry-collector-contrib:latest
+    container_name: infraguard-otel
+    profiles: ["observability"]
+    restart: unless-stopped
+    command: ["--config=/etc/otel/config.yaml"]
+    volumes:
+      - ./deploy/otel/config.yaml:/etc/otel/config.yaml:ro
+    ports:
+      - "4318:4318"      # OTLP HTTP
+      - "4317:4317"      # OTLP gRPC
+    networks:
+      - infraguard
+
+  prometheus:
+    image: prom/prometheus:latest
+    container_name: infraguard-prometheus
+    profiles: ["observability"]
+    restart: unless-stopped
+    volumes:
+      - ./deploy/prometheus/prometheus.yml:/etc/prometheus/prometheus.yml:ro
+      - prometheus-data:/prometheus
+    ports:
+      - "9091:9090"
+    networks:
+      - infraguard
+
+  grafana:
+    image: grafana/grafana:latest
+    container_name: infraguard-grafana
+    profiles: ["observability"]
+    restart: unless-stopped
+    environment:
+      - GF_SECURITY_ADMIN_PASSWORD=${GRAFANA_ADMIN_PASSWORD:-admin}
+      - GF_AUTH_ANONYMOUS_ENABLED=false
+    volumes:
+      - grafana-data:/var/lib/grafana
+      - ./deploy/grafana:/etc/grafana/provisioning/dashboards:ro
+    depends_on:
+      - prometheus
+    ports:
+      - "3000:3000"
+    networks:
+      - infraguard
+
 volumes:
   certs:
   certbot-www:
@@ -430,6 +499,8 @@ volumes:
   pwndrop-data:
   ollama-data:
   redis-data:
+  prometheus-data:
+  grafana-data:
 
 networks:
   infraguard:

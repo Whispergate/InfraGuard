@@ -1,0 +1,41 @@
+# OpenTelemetry collector for InfraGuard.
+#
+# Receives OTLP over HTTP (4318) and gRPC (4317) from the proxy and
+# dashboard, batches, and exports to any of the debug/logging paths
+# below. Adjust the exporters list for your backend (Jaeger, Tempo,
+# Honeycomb, Datadog, etc.).
+
+receivers:
+  otlp:
+    protocols:
+      http:
+        endpoint: 0.0.0.0:4318
+      grpc:
+        endpoint: 0.0.0.0:4317
+
+processors:
+  batch:
+    timeout: 5s
+    send_batch_size: 1024
+  memory_limiter:
+    check_interval: 5s
+    limit_mib: 256
+    spike_limit_mib: 64
+
+exporters:
+  # Local debug: prints spans to the collector's own logs.
+  debug:
+    verbosity: normal
+  # Uncomment to forward to an OTLP-compatible backend (Grafana Tempo,
+  # Honeycomb, Datadog Agent, etc.).
+  # otlphttp:
+  #   endpoint: https://tempo.example.com:4318
+  #   headers:
+  #     authorization: Bearer ${OTEL_AUTH_TOKEN}
+
+service:
+  pipelines:
+    traces:
+      receivers: [otlp]
+      processors: [memory_limiter, batch]
+      exporters: [debug]

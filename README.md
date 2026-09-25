@@ -16,7 +16,7 @@ InfraGuard sits between the internet and your C2 teamserver, validating every in
 ### Proxying & Listeners
 
 - **Multi-domain proxying** -- proxy multiple domains simultaneously, each with independent C2 profiles, upstreams, and rules
-- **Multi-protocol listeners** -- HTTP/HTTPS, DNS, MQTT, and WebSocket listeners running simultaneously with shared IP intelligence and event tracking
+- **Multi-protocol listeners** -- HTTP/HTTPS, HTTP/3 (QUIC), WebSocket, gRPC, DNS, MQTT, and TCP-tunnel listeners running simultaneously with shared IP intelligence and event tracking
 - **Circuit breaker** -- per-upstream failure protection with closed/open/half-open states; falls through to the domain's drop action when backends are unreachable
 - **Protocol failover** -- automatic failover and failback between listener protocols ranked by priority
 
@@ -80,7 +80,7 @@ InfraGuard sits between the internet and your C2 teamserver, validating every in
 - **SIEM integration** -- built-in plugins for Elasticsearch, Wazuh, and Syslog (CEF/JSON) with batched forwarding
 - **Webhook alerts** -- built-in plugins for Discord (embeds), Slack (Block Kit), and generic webhook; burn detection alerts route through the same plugin system
 - **Phishing.club integration** -- HMAC-signed webhook receiver that ingests phishing events and auto-allowlists clicking target IPs
-- **Plugin system** -- event-driven architecture with `on_event` hooks, per-plugin config, and event filtering
+- **Plugin system** -- event-driven architecture with `on_event` hooks, per-plugin config, and event filtering; every plugin can be toggled or loaded from the dashboard's **Plugins** tab without a restart, and the change persists back to `config.yaml` with a config-history audit commit
 
 ### Configuration & Deployment
 
@@ -371,7 +371,7 @@ infraguard/
 | Profile parsing | Regex state machine | Structured parser with full block/transform support |
 | C2 support | Cobalt Strike only | Cobalt Strike, Mythic, Brute Ratel C4, Sliver, Havoc, Nighthawk, PoshC2 |
 | Profile management | Manual file editing | Dashboard wizard with generate, import, hot-swap, and AI assist |
-| Protocols | HTTP only | HTTP, DNS, MQTT, WebSocket |
+| Protocols | HTTP only | HTTP, HTTP/3 (QUIC), WebSocket, gRPC, DNS, MQTT, TCP tunnel |
 | Filter model | Binary pass/fail | Scoring-based (0.0--1.0 threshold), 10-filter chain |
 | TLS fingerprinting | None | JA3 blocking (Masscan, ZGrab2, Shodan, curl, Python requests, Nmap) |
 | Sandbox detection | None | Headless browser / Safe Links / sandbox UA and header scoring |

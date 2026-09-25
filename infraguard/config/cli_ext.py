@@ -39,11 +39,34 @@ def _load_raw(config_path: Path) -> dict:
     return data
 
 
-def _save_raw(config_path: Path, data: dict) -> None:
+def _save_raw(config_path: Path, data: dict, *,
+              actor: str = "cli", summary: str = "config change") -> None:
+    """Write ``data`` back to ``config_path`` with a .bak and history commit.
+
+    The .bak is the one-step undo. The git history at
+    ``~/.config/infraguard/history.git`` (see
+    :class:`~infraguard.config.git_history.ConfigHistory`) is the
+    multi-step undo: ``infraguard config log`` shows every mutation and
+    ``infraguard config revert HEAD~N`` rolls back N changes.
+    """
+    import os
+
     bak = config_path.with_suffix(config_path.suffix + ".bak")
     shutil.copy2(config_path, bak)
     with config_path.open("w", encoding="utf-8") as f:
         yaml.dump(data, f, default_flow_style=False, allow_unicode=True, sort_keys=False)
+
+    # Best-effort git history commit. Never fails the save.
+    try:
+        from infraguard.config.git_history import ConfigHistory
+
+        history_dir = os.environ.get(
+            "INFRAGUARD_CONFIG_HISTORY",
+            str(Path.home() / ".config" / "infraguard" / "history.git"),
+        )
+        ConfigHistory(history_dir).record(config_path, actor=actor, summary=summary)
+    except Exception:
+        pass
 
 
 def _validate(config_path: Path) -> None:

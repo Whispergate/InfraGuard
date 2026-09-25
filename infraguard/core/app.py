@@ -51,9 +51,31 @@ def create_app(config: InfraGuardConfig) -> Starlette:
     # Load plugins
     plugins = load_plugins(config.plugins, config.plugin_settings)
 
+    # Optional shared-state backend for horizontally-scaled deploys.
+    # Reads ``state:`` block from config; falls back to InMemoryBackend
+    # so single-node behavior is unchanged.
+    state_backend = None
+    state_cfg = getattr(config, "state", None)
+    if state_cfg is not None:
+        from infraguard.state import StateConfig, build_state_backend
+
+        try:
+            state_backend = build_state_backend(
+                StateConfig(
+                    backend=getattr(state_cfg, "backend", "memory"),
+                    redis_url=getattr(state_cfg, "redis_url", "redis://redis:6379/0"),
+                    key_prefix=getattr(state_cfg, "key_prefix", "infraguard:"),
+                )
+            )
+            log.info("state_backend_ready",
+                     backend=getattr(state_cfg, "backend", "memory"))
+        except Exception as exc:
+            log.warning("state_backend_init_failed",
+                        error=str(exc), fallback="none (per-process state)")
+
     db = Database(config.tracking.db_path)
     recorder = EventRecorder(db, plugins=plugins)
-    router = DomainRouter(config, recorder=recorder, db=db)
+    router = DomainRouter(config, recorder=recorder, db=db, state_backend=state_backend)
 
     # Health endpoint path is configurable to avoid fingerprinting
     health_path = config.api.health_path.strip("/")
@@ -85,14 +107,77 @@ def create_app(config: InfraGuardConfig) -> Starlette:
 
     @asynccontextmanager
     async def lifespan(app: Starlette):
+        # OpenTelemetry setup (opt-in via config.observability.otel).
+        otel_cfg = getattr(getattr(config, "observability", None), "otel", None)
+        if otel_cfg is not None and getattr(otel_cfg, "enabled", False):
+            from infraguard.observability import setup_otel
+
+            setup_otel(
+                service_name=getattr(otel_cfg, "service_name", "infraguard-proxy"),
+                endpoint=getattr(otel_cfg, "endpoint", None),
+                resource_attrs=getattr(otel_cfg, "resource_attrs", None) or {},
+            )
+
         await db.connect()
         # Expose db and config on app state for auth and other handlers
         app.state.db = db
         app.state.config = config
+        app.state.router = router
+        app.state.state_backend = state_backend
+        app.state.plugins = plugins
         # Hydrate persistent caches (replay filter) from the now-connected database
         await router.startup()
-        # Start plugins (isolated - one failure doesn't stop others)
+
+        # Auto-rotation watchdog (burn score + cert expiry). Wired via
+        # ``config.watchdog`` if present. When ``auto_rotate: false`` the
+        # watchdog only emits events, so alert plugins still page but no
+        # cloud API is called.
+        watchdog = None
+        wd_cfg = getattr(config, "watchdog", None)
+        if wd_cfg is not None and getattr(wd_cfg, "enabled", False):
+            from infraguard.deploy.watchdog import RotationWatchdog, WatchdogConfig
+
+            wc = WatchdogConfig(
+                enabled=True,
+                poll_interval=getattr(wd_cfg, "poll_interval", 300),
+                burn_threshold=getattr(wd_cfg, "burn_threshold", 0.8),
+                burn_window=getattr(wd_cfg, "burn_window", 900),
+                cert_days_before=getattr(wd_cfg, "cert_days_before", 14),
+                cost_cap_usd=getattr(wd_cfg, "cost_cap_usd", None),
+                auto_rotate=getattr(wd_cfg, "auto_rotate", True),
+            )
+            watchdog = RotationWatchdog(wc, router, config)
+            await watchdog.start()
+            app.state.watchdog = watchdog
+
+        # Purple-team mirror (opt-in duplicate of allowed events to a
+        # blue-team collector). Never touches the C2 path.
+        purple = None
+        pt_cfg = getattr(config, "purple_team", None)
+        if pt_cfg is not None and getattr(pt_cfg, "enabled", False):
+            from infraguard.core.purple_team_mirror import (
+                PurpleMirror,
+                PurpleMirrorConfig,
+            )
+
+            purple = PurpleMirror(PurpleMirrorConfig(
+                enabled=True,
+                mirror_url=getattr(pt_cfg, "mirror_url", ""),
+                auth_header=getattr(pt_cfg, "auth_header", ""),
+                only_allowed=getattr(pt_cfg, "only_allowed", True),
+                max_queue_depth=getattr(pt_cfg, "max_queue_depth", 5000),
+                drop_body_over_kib=getattr(pt_cfg, "drop_body_over_kib", 128),
+            ))
+            await purple.start()
+            app.state.purple_mirror = purple
+            router._purple_mirror = purple
+        # Start plugins (isolated - one failure doesn't stop others).
+        # Disabled plugins skip startup so they don't open sockets or
+        # HTTP clients until re-enabled; ``enable_plugin`` calls
+        # ``on_startup`` when flipping one back on.
         for p in plugins:
+            if not getattr(p, "_runtime_enabled", True):
+                continue
             try:
                 await p.on_startup()
             except Exception:
@@ -207,21 +292,33 @@ def create_app(config: InfraGuardConfig) -> Starlette:
             _background_tasks.append(_rotation_task)
             app.state.rotation_scheduler = _rotation_scheduler
 
-        # Background task: initial feed load and periodic refresh
+        # Background task: initial feed load and periodic refresh.
+        # The initial refresh only blocks startup when ``require_feeds`` is
+        # set; otherwise it runs in the background so a single dead feed
+        # cannot deadlock the listener bind.
         if config.intel.feeds.enabled:
             from infraguard.intel.feeds import feed_refresh_loop, update_feeds
             feed_urls = config.intel.feeds.urls or None
-            # Initial feed load (respect require_feeds)
-            try:
-                await update_feeds(
-                    router.intel.blocklist,
-                    feed_urls,
-                    config.intel.feeds.cache_dir,
-                    require=config.intel.feeds.require_feeds,
-                )
-            except RuntimeError as e:
-                log.error("startup_feed_requirement_failed", error=str(e))
-                raise
+            if config.intel.feeds.require_feeds:
+                try:
+                    await update_feeds(
+                        router.intel.blocklist,
+                        feed_urls,
+                        config.intel.feeds.cache_dir,
+                        require=True,
+                    )
+                except RuntimeError as e:
+                    log.error("startup_feed_requirement_failed", error=str(e))
+                    raise
+            else:
+                _background_tasks.append(asyncio.create_task(
+                    update_feeds(
+                        router.intel.blocklist,
+                        feed_urls,
+                        config.intel.feeds.cache_dir,
+                        require=False,
+                    )
+                ))
             feed_task = asyncio.create_task(
                 feed_refresh_loop(
                     router.intel.blocklist,
@@ -236,6 +333,27 @@ def create_app(config: InfraGuardConfig) -> Starlette:
         _cleanup_task = asyncio.create_task(_session_cleanup_loop(db))
         _background_tasks.append(_cleanup_task)
 
+        # Background task: refresh the active-beacons + burn-score gauges
+        # every 15s so HPAs and Grafana panels stay honest.
+        async def _metrics_refresh_loop() -> None:
+            from infraguard.ui.api.metrics import (
+                prune_active_beacons,
+                set_burn_score,
+            )
+            while True:
+                await asyncio.sleep(15)
+                try:
+                    prune_active_beacons()
+                    scorer = getattr(router.intel, "burn_scorer", None)
+                    if scorer is not None and hasattr(scorer, "all_scores"):
+                        for domain, score in scorer.all_scores().items():
+                            set_burn_score(domain, float(score))
+                except Exception:
+                    log.debug("metrics_refresh_error")
+
+        _metrics_task = asyncio.create_task(_metrics_refresh_loop())
+        _background_tasks.append(_metrics_task)
+
         # ── Non-HTTP listeners (DNS, MQTT, WebSocket, TCP tunnel) ────
         # All non-HTTP listeners are started here so they ride alongside
         # the uvicorn HTTP listener in the same event loop.
@@ -248,6 +366,7 @@ def create_app(config: InfraGuardConfig) -> Starlette:
             "dns": ("infraguard.listeners.dns", "DNSListener"),
             "mqtt": ("infraguard.listeners.mqtt", "MQTTListener"),
             "websocket": ("infraguard.listeners.websocket", "WebSocketListener"),
+            "grpc": ("infraguard.listeners.grpc", "GRPCListener"),
         }
 
         for lis in config.listeners:
@@ -278,10 +397,13 @@ def create_app(config: InfraGuardConfig) -> Starlette:
                 continue
 
             # Build constructor kwargs - all listeners take (config, intel, recorder).
-            # DNSListener additionally accepts intel_config.
+            # DNSListener additionally accepts intel_config; GRPCListener
+            # needs the router so its handler can adapt frames.
             kwargs: dict = dict(config=lis, intel=router.intel, recorder=recorder)
             if lis.protocol == "dns":
                 kwargs["intel_config"] = config.intel
+            if lis.protocol == "grpc":
+                kwargs["router"] = router
 
             try:
                 listener_inst = cls(**kwargs)
@@ -322,6 +444,7 @@ def create_app(config: InfraGuardConfig) -> Starlette:
                 config, _dashboard_db, intel=router.intel, router=router,
             )
             _dashboard_app.state.burn_scorer = _burn_scorer
+            _dashboard_app.state.plugins = plugins
             if _pdns_monitor is not None:
                 _dashboard_app.state.pdns_monitor = _pdns_monitor
             _api_bind = os.environ.get("INFRAGUARD_API_BIND", config.api.bind)
@@ -382,6 +505,26 @@ def create_app(config: InfraGuardConfig) -> Starlette:
         # Stop rotation scheduler
         if _rotation_scheduler is not None:
             _rotation_scheduler.stop()
+
+        # Stop the auto-rotation watchdog.
+        if watchdog is not None:
+            await watchdog.stop()
+
+        # Stop the purple-team mirror + shared state backend.
+        if purple is not None:
+            await purple.stop()
+        if state_backend is not None:
+            try:
+                await state_backend.close()
+            except Exception:
+                log.debug("state_backend_close_failed")
+
+        # Flush OpenTelemetry spans before we exit.
+        try:
+            from infraguard.observability import shutdown_otel
+            shutdown_otel()
+        except Exception:
+            pass
 
         # 2. Stop recorder (cancels tracked tasks and does final flush)
         await recorder.stop()

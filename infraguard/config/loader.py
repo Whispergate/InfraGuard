@@ -180,7 +180,7 @@ def load_config(path: str | Path) -> InfraGuardConfig:
         plaintext = _decrypt_age_file(config_path)
         raw = yaml.safe_load(plaintext)
     else:
-        with open(config_path) as f:
+        with open(config_path, encoding="utf-8") as f:
             raw = yaml.safe_load(f)
 
         # Detect SOPS-encrypted YAML (has a top-level "sops" metadata key)
@@ -242,8 +242,19 @@ def load_config(path: str | Path) -> InfraGuardConfig:
                 if not isinstance(dcfg, dict):
                     continue
                 pp = dcfg.get("profile_path")
-                if isinstance(pp, str) and pp and not Path(pp).is_absolute():
-                    dcfg["profile_path"] = str((base_dir / pp).resolve())
+                if isinstance(pp, str) and pp:
+                    # Absolute POSIX paths (e.g. ``/app/examples/foo``)
+                    # are always meant for the container, so preserve
+                    # them even when the loader runs on Windows where
+                    # ``Path("/app/x").is_absolute()`` is False. Only
+                    # true relative paths get rewritten against the
+                    # config file's directory.
+                    if not (
+                        Path(pp).is_absolute()
+                        or pp.startswith("/")
+                        or (len(pp) > 1 and pp[1] == ":")
+                    ):
+                        dcfg["profile_path"] = str((base_dir / pp).resolve())
 
     return InfraGuardConfig.model_validate(resolved)
 

@@ -211,7 +211,7 @@ class DomainConfig(BaseModel):
 
 
 class ListenerConfig(BaseModel):
-    protocol: Literal["https", "http", "dns", "mqtt", "websocket", "tcp_tunnel"] = "https"
+    protocol: Literal["https", "http", "dns", "mqtt", "websocket", "grpc", "tcp_tunnel"] = "https"
     bind: str = "0.0.0.0"
     port: int = 443
     tls: TLSConfig | None = None
@@ -559,6 +559,63 @@ class OllamaConfig(BaseModel):
     timeout: int = 120
 
 
+class StateConfig(BaseModel):
+    """Shared-state backend for horizontally scaled deployments.
+
+    ``memory`` keeps replay cache, dynamic whitelist, beacon sessions, and
+    drop rate-limits per-process. ``redis`` moves them to a shared Redis
+    so replicas behind a load balancer see the same state.
+    """
+
+    backend: Literal["memory", "redis"] = "memory"
+    redis_url: str = "redis://redis:6379/0"
+    key_prefix: str = "infraguard:"
+
+
+class WatchdogConfig(BaseModel):
+    """Auto-rotation watchdog.
+
+    When burn score crosses ``burn_threshold`` over the last ``burn_window``
+    seconds, or the fronting certificate expires within ``cert_days_before``
+    days, the watchdog fires. ``auto_rotate: false`` restricts it to
+    alert-only.
+    """
+
+    enabled: bool = False
+    poll_interval: int = 300
+    burn_threshold: float = 0.8
+    burn_window: int = 900
+    cert_days_before: int = 14
+    cost_cap_usd: float | None = None
+    auto_rotate: bool = True
+
+
+class OTELConfig(BaseModel):
+    """OpenTelemetry exporter (OTLP) configuration."""
+
+    enabled: bool = False
+    service_name: str = "infraguard-proxy"
+    endpoint: str | None = None
+    resource_attrs: dict[str, str] = Field(default_factory=dict)
+
+
+class ObservabilityConfig(BaseModel):
+    """Wraps OTEL and any future exporters."""
+
+    otel: OTELConfig = Field(default_factory=OTELConfig)
+
+
+class PurpleTeamConfig(BaseModel):
+    """Blue-team mirror. Duplicates allowed requests to a collector."""
+
+    enabled: bool = False
+    mirror_url: str = ""
+    auth_header: str = ""
+    only_allowed: bool = True
+    max_queue_depth: int = 5000
+    drop_body_over_kib: int = 128
+
+
 class InfraGuardConfig(BaseModel):
     """Root configuration model for InfraGuard."""
 
@@ -577,6 +634,10 @@ class InfraGuardConfig(BaseModel):
     fronting: FrontingConfig = Field(default_factory=FrontingConfig)
     reporting: ReportScheduleConfig = Field(default_factory=ReportScheduleConfig)
     ollama: OllamaConfig = Field(default_factory=OllamaConfig)
+    state: StateConfig = Field(default_factory=StateConfig)
+    watchdog: WatchdogConfig = Field(default_factory=WatchdogConfig)
+    observability: ObservabilityConfig = Field(default_factory=ObservabilityConfig)
+    purple_team: PurpleTeamConfig = Field(default_factory=PurpleTeamConfig)
     decoy_pages_dir: str = "pages"
     plugins: list[str] = Field(default_factory=list)
     plugin_settings: dict[str, PluginSettings] = Field(default_factory=dict)

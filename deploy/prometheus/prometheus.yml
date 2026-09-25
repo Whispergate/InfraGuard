@@ -1,0 +1,21 @@
+global:
+  scrape_interval: 15s
+  evaluation_interval: 15s
+
+scrape_configs:
+  - job_name: "infraguard-dashboard"
+    metrics_path: /metrics
+    static_configs:
+      - targets: ["dashboard:8080"]
+        labels:
+          service: infraguard
+          component: dashboard
+
+  # Uncomment when running proxy replicas under --profile scale.
+  # - job_name: "infraguard-proxy"
+  #   metrics_path: /metrics
+  #   static_configs:
+  #     - targets: ["proxy:8080", "proxy-node:8080"]
+  #       labels:
+  #         service: infraguard
+  #         component: proxy

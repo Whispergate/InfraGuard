@@ -64,6 +64,11 @@ from infraguard.ui.api.routes.intel import (
     remove_blocklist,
 )
 from infraguard.ui.api.routes.nodes import heartbeat_node, list_nodes, register_node
+from infraguard.ui.api.routes.plugins import (
+    disable_plugin,
+    enable_plugin,
+    list_plugins,
+)
 from infraguard.ui.api.routes.pdns import (
     clear_pdns_history,
     get_pdns_events,
@@ -335,6 +340,9 @@ def create_api_app(
         Route("/api/intel/pdns/events", get_pdns_events, methods=["GET"]),
         Route("/api/intel/pdns/history/{domain}", get_pdns_history, methods=["GET"]),
         Route("/api/intel/pdns/history", clear_pdns_history, methods=["DELETE"]),
+        Route("/api/plugins", list_plugins, methods=["GET"]),
+        Route("/api/plugins/{name}/enable", enable_plugin, methods=["POST"]),
+        Route("/api/plugins/{name}/disable", disable_plugin, methods=["POST"]),
         Route("/api/config", get_config, methods=["GET"]),
         Route("/api/config/domains/{domain}/drop-action", update_drop_action, methods=["PATCH"]),
         Route("/api/config/domains/{domain}/profile", swap_profile, methods=["PATCH"]),

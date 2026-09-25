@@ -36,12 +36,22 @@ async def _forward_to_proxy(request: Request, path: str) -> JSONResponse | None:
     try:
         body = await request.body()
         cookies = dict(request.cookies)
+        # Forward the caller's Authorization header, or fall back to
+        # the dashboard's own token, so the proxy accepts the hop.
+        fwd_headers = {"Content-Type": "application/json"}
+        if "authorization" in request.headers:
+            fwd_headers["Authorization"] = request.headers["authorization"]
+        else:
+            _cfg = getattr(getattr(request.app.state, "config", None), "api", None)
+            _tok = getattr(_cfg, "auth_token", None) if _cfg is not None else None
+            if _tok:
+                fwd_headers["Authorization"] = f"Bearer {_tok}"
         async with httpx.AsyncClient(verify=False, timeout=10) as client:
             resp = await client.request(
                 method=request.method,
                 url=url,
                 content=body,
-                headers={"Content-Type": "application/json"},
+                headers=fwd_headers,
                 cookies=cookies,
             )
             return JSONResponse(resp.json(), status_code=resp.status_code)

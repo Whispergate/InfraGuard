@@ -32,8 +32,17 @@ class IPClassification:
 class IntelManager:
     """Central IP intelligence service combining all sources."""
 
-    def __init__(self, config: IntelConfig):
+    def __init__(self, config: IntelConfig, shared_whitelist=None):
+        """Optional ``shared_whitelist`` is an
+        :class:`infraguard.state.whitelist.SharedWhitelist` instance
+        wired at app-startup when the Redis backend is enabled. When
+        present, ``record_valid_request`` mirrors newly-whitelisted
+        IPs into it and ``is_blocked`` consults it before falling back
+        to the CIDR blocklist. Passed as ``None`` for the single-node
+        default so behavior is unchanged.
+        """
         self.config = config
+        self.shared_whitelist = shared_whitelist
 
         # Blocklist
         self.blocklist = CIDRList(name="blocklist")
@@ -250,16 +259,40 @@ class IntelManager:
         or dynamic whitelist. Does NOT perform GeoIP/ASN/DNS lookups.
         """
         ip_str = str(ip)
-        # Whitelisted IPs are never blocked
+        # Whitelisted IPs are never blocked. Local dict first (0 cost),
+        # then the shared overlay (Redis round-trip amortised by the
+        # SharedWhitelist's own cache).
         if self.dynamic_whitelist.is_whitelisted(ip_str):
             return False
         if self.whitelist.contains(ip):
             return False
+        if self.shared_whitelist is not None:
+            # Best-effort: if the check trips async we degrade to local.
+            try:
+                import asyncio
+                loop = asyncio.get_running_loop()
+                fut = asyncio.ensure_future(self.shared_whitelist.contains(ip_str))
+                # Non-blocking: only consult if already resolved.
+                if fut.done() and fut.result():
+                    return False
+            except RuntimeError:
+                pass
         return self.blocklist.contains(ip)
 
     def record_valid_request(self, ip: str) -> bool:
         """Record a valid C2 request for dynamic whitelisting.
 
         Returns True if this request caused the IP to be newly whitelisted.
+        Mirrors the promotion into the shared whitelist so peer proxies
+        see it too.
         """
-        return self.dynamic_whitelist.record_valid_request(ip)
+        newly = self.dynamic_whitelist.record_valid_request(ip)
+        if newly and self.shared_whitelist is not None:
+            try:
+                import asyncio
+                loop = asyncio.get_running_loop()
+                loop.create_task(self.shared_whitelist.add(ip))
+            except RuntimeError:
+                # No running loop (sync context). Fire-and-forget.
+                pass
+        return newly

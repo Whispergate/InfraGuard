@@ -55,6 +55,15 @@ ENV PYTHONDONTWRITEBYTECODE=1 \
 
 WORKDIR /app
 
+# ── Runtime OS packages ────────────────────────────────────────────────
+# git is required for the config-history audit repo (v0.5). The
+# dashboard commits every mutation to INFRAGUARD_CONFIG_HISTORY;
+# without git the persist call still succeeds but the audit log is
+# skipped.
+RUN apt-get update \
+    && apt-get install -y --no-install-recommends git \
+    && rm -rf /var/lib/apt/lists/*
+
 # ── Install runtime dependencies from pre-built wheels ─────────────────
 # Only install runtime deps; build tools (gcc, g++) are not in this stage.
 COPY --from=builder /wheels /wheels
@@ -67,6 +76,10 @@ RUN pip install --no-cache-dir --no-index --find-links /wheels \
 COPY --chown="${APP_UID}:${APP_GID}" infraguard/ /app/infraguard/
 COPY --chown="${APP_UID}:${APP_GID}" examples/ /app/examples/
 COPY --chown="${APP_UID}:${APP_GID}" pages/ /app/pages/
+# Rules directory ships as read-only signature files; data-driven intel
+# in v0.5 reads from here. Mount /app/rules read-only at runtime so
+# operators can hot-swap signatures without rebuilding the image.
+COPY --chown="${APP_UID}:${APP_GID}" rules/ /app/rules/
 
 # ── Prepare writable directories ────────────────────────────────────────
 # These will be backed by tmpfs or named volumes at runtime for read-only rootfs.
@@ -75,13 +88,15 @@ RUN mkdir -p /app/data /tmp/.pip-cache \
     && chown -R "${APP_UID}:${APP_GID}" /app/data /tmp/.pip-cache
 
 # ── Declare volume mount points (documentation only; compose manages mounts) ─
-VOLUME ["/app/data", "/app/config", "/app/certs", "/app/geoip"]
+VOLUME ["/app/data", "/app/config", "/app/certs", "/app/geoip", "/app/rules"]
 
 # ── Security: switch to non-root user ──────────────────────────────────
 USER "${APP_UID}:${APP_GID}"
 
 # ── Expose ports (informational) ────────────────────────────────────────
-EXPOSE 443 80 8080
+# 443/tcp (HTTP/1.1 + HTTP/2), 443/udp (HTTP/3 QUIC when enabled), 80/tcp
+# (ACME challenges + Alt-Svc discovery), 8080/tcp (dashboard API).
+EXPOSE 443/tcp 443/udp 80/tcp 8080/tcp
 
 # ── Health check (uses configurable path via env var) ───────────────────
 HEALTHCHECK --interval=30s --timeout=10s --start-period=15s --retries=5 \

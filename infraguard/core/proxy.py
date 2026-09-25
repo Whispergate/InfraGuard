@@ -119,19 +119,40 @@ class ProxyHandler:
 
     def _get_client(
         self, upstream: str, domain_config: DomainConfig | None = None
-    ) -> httpx.AsyncClient:
-        if upstream not in self._clients:
-            ssl_ctx = (
-                build_ssl_context(domain_config.ssl_verify, domain_config.ssl_ca_bundle)
-                if domain_config
-                else False
-            )
-            if domain_config and not domain_config.ssl_verify:
-                log.warning("ssl_verification_disabled", upstream=upstream)
-            self._clients[upstream] = httpx.AsyncClient(
-                verify=ssl_ctx,
-                follow_redirects=False,
-            )
+    ):
+        """Return an outbound client for ``upstream``.
+
+        When the domain configures ``tls_profile`` (e.g. ``chrome120``,
+        ``firefox109``), we try to hand back a curl_cffi AsyncSession
+        that presents the matching browser ClientHello. If curl_cffi is
+        not installed or the profile name is unknown we fall through to
+        the default httpx client with a WARNING logged once.
+        """
+        if upstream in self._clients:
+            return self._clients[upstream]
+
+        ssl_ctx = (
+            build_ssl_context(domain_config.ssl_verify, domain_config.ssl_ca_bundle)
+            if domain_config
+            else False
+        )
+        if domain_config and not domain_config.ssl_verify:
+            log.warning("ssl_verification_disabled", upstream=upstream)
+
+        tls_profile = getattr(domain_config, "tls_profile", None) if domain_config else None
+        if tls_profile:
+            from infraguard.core.utls_mimicry import build_mimic_client
+
+            mimic = build_mimic_client(tls_profile, verify=bool(ssl_ctx))
+            if mimic is not None:
+                log.info("outbound_client_tls_mimic", upstream=upstream, profile=tls_profile)
+                self._clients[upstream] = mimic
+                return mimic
+
+        self._clients[upstream] = httpx.AsyncClient(
+            verify=ssl_ctx,
+            follow_redirects=False,
+        )
         return self._clients[upstream]
 
     @staticmethod

@@ -1,0 +1,121 @@
+# ═══════════════════════════════════════════════════════════════════════
+# InfraGuard v0.5 - Detection Plugins
+# ═══════════════════════════════════════════════════════════════════════
+#
+# Layers extra classifiers on top of the built-in filter chain:
+#   ml_bot_classifier  → logistic-regression bot score (JA4 + UA + timing)
+#   greynoise          → GreyNoise Community lookup, flag internet scanners
+#   yara_scan          → YARA rules over request bodies / responses
+#   response_canary    → embed a canarytoken URL in outgoing HTML
+#   p0f_fingerprint    → passive OS fingerprint from SYN packets
+#   ja4_enricher       → attach JA4/JA4H fingerprints to every event
+#   geoip_enricher     → attach country/ASN/city to every event
+#
+# All are opt-in; enable the ones that fit the engagement's threat model.
+# YARA needs ``yara-python`` (native deps); the plugin no-ops without it.
+#
+# Required env vars:
+#   INFRAGUARD_TLS_CERT / INFRAGUARD_TLS_KEY
+#   MYTHIC_UPSTREAM
+#   INFRAGUARD_DB_PATH
+#   GREYNOISE_API_KEY          - optional (Community tier works keyless)
+#   YARA_RULES_DIR             - e.g. /etc/infraguard/yara
+#   CANARY_TOKEN_URL           - from canarytokens.org
+
+listeners:
+  - protocol: "https"
+    bind: "0.0.0.0"
+    port: 443
+    tls:
+      cert: "${INFRAGUARD_TLS_CERT}"
+      key: "${INFRAGUARD_TLS_KEY}"
+    domains:
+      - "static.example.net"
+
+domains:
+  static.example.net:
+    upstream: "${MYTHIC_UPSTREAM}"
+    profile_path: "/app/examples/mythic-httpx.json"
+    profile_type: "mythic"
+    drop_action:
+      type: "decoy"
+      target: "HealthcareBlog"
+
+api:
+  bind: "0.0.0.0"
+  port: 8080
+  auth_token: "${INFRAGUARD_API_TOKEN}"
+
+tracking:
+  db_path: "${INFRAGUARD_DB_PATH}"
+
+pipeline:
+  filter_mode: "scoring"
+  block_score_threshold: 0.7
+  enable_fingerprint_filter: true
+
+plugins:
+  - "ml_bot_classifier"
+  - "greynoise"
+  - "yara_scan"
+  - "response_canary"
+  - "p0f_fingerprint"
+  - "ja4_enricher"
+  - "geoip_enricher"
+
+plugin_settings:
+  ml_bot_classifier:
+    enabled: true
+    options:
+      # Ships with a baseline model in the wheel. Point at a retrained
+      # model on disk to override.
+      # model_path: "/etc/infraguard/bot-model.json"
+      block_threshold: 0.85    # 0.85+ score adds a hard block signal
+
+  greynoise:
+    enabled: true
+    options:
+      api_key: "${GREYNOISE_API_KEY}"    # blank = Community tier
+      # Any IP GreyNoise classifies as ``malicious`` or ``scanner``
+      # gets a +0.4 filter score bump.
+      classification_scores:
+        malicious: 0.9
+        scanner: 0.4
+        benign: -0.2
+
+  yara_scan:
+    enabled: true
+    options:
+      rules_dir: "${YARA_RULES_DIR}"
+      scan_requests: true
+      scan_responses: false    # perf hit on large payloads
+      action_on_request_hit: "block"
+      max_body_bytes: 1048576  # 1 MiB
+
+  response_canary:
+    enabled: true
+    options:
+      # Injected as an invisible <img src="..."> in every decoy HTML
+      # response. If it fires the blue team knows someone saved the
+      # page and opened it in a sandbox.
+      token_url: "${CANARY_TOKEN_URL}"
+      inject_paths: ["/", "/index.html", "/about"]
+
+  p0f_fingerprint:
+    enabled: true
+    options:
+      socket_path: "/var/run/p0f.sock"    # p0f v3 wire protocol
+
+  ja4_enricher:
+    enabled: true
+    options: {}
+
+  geoip_enricher:
+    enabled: true
+    options:
+      city_db: "/app/geoip/GeoLite2-City.mmdb"
+      asn_db: "/app/geoip/GeoLite2-ASN.mmdb"
+
+logging:
+  level: "INFO"
+  format: "json"

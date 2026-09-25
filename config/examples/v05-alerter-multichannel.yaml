@@ -1,0 +1,133 @@
+# ═══════════════════════════════════════════════════════════════════════
+# InfraGuard v0.5 - Multichannel Alerter Stack
+# ═══════════════════════════════════════════════════════════════════════
+#
+# Fans key events out to several destinations at once:
+#   pagerduty      → high-severity pages (cert expiring, all upstreams
+#                    dead, watchdog rotation failed)
+#   telegram_bot   → two-way ops chat: view status, kill sessions, ack
+#                    incidents from a phone during an engagement
+#   slack          → team channel, non-paging summary
+#   discord        → alternative to Slack for smaller teams
+#   generic_webhook → catch-all for Rocket.Chat / Mattermost / Teams
+#   syslog         → SIEM ingest
+#
+# Each plugin has its own ``event_filter`` block so noisy events (every
+# request) do not blast the paging channel. PagerDuty typically wants
+# ``high``-severity events only; Slack/Telegram can take medium.
+#
+# Required env vars:
+#   INFRAGUARD_TLS_CERT / INFRAGUARD_TLS_KEY
+#   MYTHIC_UPSTREAM
+#   INFRAGUARD_DB_PATH
+#   PAGERDUTY_INTEGRATION_KEY
+#   TELEGRAM_BOT_TOKEN
+#   TELEGRAM_ALLOWED_CHAT_IDS   - comma-separated int chat IDs
+#   SLACK_WEBHOOK_URL
+#   DISCORD_WEBHOOK_URL
+#   WEBHOOK_URL / WEBHOOK_TOKEN  - generic
+
+listeners:
+  - protocol: "https"
+    bind: "0.0.0.0"
+    port: 443
+    tls:
+      cert: "${INFRAGUARD_TLS_CERT}"
+      key: "${INFRAGUARD_TLS_KEY}"
+    domains:
+      - "static.example.net"
+
+domains:
+  static.example.net:
+    upstream: "${MYTHIC_UPSTREAM}"
+    profile_path: "/app/examples/mythic-httpx.json"
+    profile_type: "mythic"
+    drop_action:
+      type: "redirect"
+      target: "https://example.net"
+
+api:
+  bind: "0.0.0.0"
+  port: 8080
+  auth_token: "${INFRAGUARD_API_TOKEN}"
+
+tracking:
+  db_path: "${INFRAGUARD_DB_PATH}"
+
+pipeline:
+  filter_mode: "scoring"
+  block_score_threshold: 0.7
+
+plugins:
+  - "pagerduty"
+  - "telegram_bot"
+  - "slack"
+  - "discord"
+  - "generic_webhook"
+  - "syslog"
+
+plugin_settings:
+  # ── Paging: only fire on things a human needs to fix now ──────────
+  pagerduty:
+    enabled: true
+    event_filter:
+      include:
+        - "cert_expiring"
+        - "burn_threshold_exceeded"
+        - "rotation_failed"
+        - "all_upstreams_failed"
+        - "circuit_open"
+    options:
+      integration_key: "${PAGERDUTY_INTEGRATION_KEY}"
+      severity: "warning"    # events that also match "high" get bumped
+
+  # ── Two-way ops chat ─────────────────────────────────────────────
+  telegram_bot:
+    enabled: true
+    event_filter:
+      include:
+        - "circuit_open"
+        - "cert_expiring"
+        - "burn_threshold_exceeded"
+        - "beacon_new"           # first checkin from a fresh IP
+    options:
+      bot_token: "${TELEGRAM_BOT_TOKEN}"
+      allowed_chat_ids: "${TELEGRAM_ALLOWED_CHAT_IDS}"
+      # Commands: /status /sessions /kill <sid> /ack <alert_id>
+      command_prefix: "/"
+
+  # ── Team channel summaries ───────────────────────────────────────
+  slack:
+    enabled: true
+    event_filter:
+      exclude:
+        - "request_allowed"       # every allowed beacon is way too chatty
+        - "request_recorded"
+    options:
+      webhook_url: "${SLACK_WEBHOOK_URL}"
+
+  discord:
+    enabled: false                # pick Slack OR Discord, not both
+    options:
+      webhook_url: "${DISCORD_WEBHOOK_URL}"
+
+  # ── Catch-all HTTP for Rocket.Chat, Mattermost, MS Teams ─────────
+  generic_webhook:
+    enabled: false
+    options:
+      url: "${WEBHOOK_URL}"
+      token: "${WEBHOOK_TOKEN}"
+      # Format: {"event": "...", "ts": "...", "payload": {...}}
+
+  # ── SIEM ingest ──────────────────────────────────────────────────
+  syslog:
+    enabled: true
+    options:
+      host: "siem.internal"
+      port: 514
+      facility: "local4"
+      # RFC5424 with CEF-style key=value tail
+
+logging:
+  level: "INFO"
+  format: "json"

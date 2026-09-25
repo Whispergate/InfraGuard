@@ -73,6 +73,19 @@ ACTIVE_CONNECTIONS = Gauge(
     registry=REGISTRY,
 )
 
+ACTIVE_BEACONS = Gauge(
+    "infraguard_active_beacons",
+    "Distinct beacons seen in the recent-activity window (5 minutes).",
+    registry=REGISTRY,
+)
+
+BURN_SCORE = Gauge(
+    "infraguard_burn_score",
+    "Per-domain burn score from BurnScorer; 0 = healthy, 1 = fully burnt.",
+    ["domain"],
+    registry=REGISTRY,
+)
+
 # ---------------------------------------------------------------------------
 # State code mapping
 # ---------------------------------------------------------------------------
@@ -86,6 +99,39 @@ _STATE_CODES: dict[str, int] = {
 # ---------------------------------------------------------------------------
 # Update helpers
 # ---------------------------------------------------------------------------
+
+
+def record_beacon_activity() -> None:
+    """Increment the active-beacons gauge for the current window.
+
+    Called from the router's beacon-session hook. The gauge decays via
+    :func:`prune_active_beacons` on a timer; the pair together yields
+    an instantaneous "beacons seen in the last N minutes" reading that
+    an HPA can gate on.
+    """
+    _beacon_seen_ts.append(_time.time())
+
+
+def prune_active_beacons(window_seconds: int = 300) -> None:
+    """Drop stale entries and refresh the ``ACTIVE_BEACONS`` gauge."""
+    cutoff = _time.time() - window_seconds
+    while _beacon_seen_ts and _beacon_seen_ts[0] < cutoff:
+        _beacon_seen_ts.popleft()
+    ACTIVE_BEACONS.set(len(_beacon_seen_ts))
+
+
+def set_burn_score(domain: str, score: float) -> None:
+    """Publish the burn score for ``domain`` (0..1)."""
+    BURN_SCORE.labels(domain=domain).set(float(score))
+
+
+# In-process ring for active-beacon accounting. A shared-state backend
+# would give a cluster-wide number, but a single-node estimate is
+# sufficient for HPA input, so keep the state cheap.
+import time as _time
+from collections import deque
+
+_beacon_seen_ts: deque[float] = deque(maxlen=100_000)
 
 
 def update_circuit_breaker_metrics(breakers: dict[str, CircuitBreaker]) -> None:

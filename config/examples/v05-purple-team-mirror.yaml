@@ -1,0 +1,96 @@
+# ═══════════════════════════════════════════════════════════════════════
+# InfraGuard v0.5 - Purple-Team Mirror
+# ═══════════════════════════════════════════════════════════════════════
+#
+# During a purple-team engagement the blue team wants a copy of every
+# request that the redirector waves through, so their EDR/NDR pipeline
+# sees exactly what a real defender would see if they had visibility.
+#
+# The mirror is fire-and-forget: it never blocks the C2 path, drops
+# events past ``max_queue_depth``, and skips oversized bodies. Blocked
+# requests are NOT mirrored by default because the blue team wants to
+# score their detections against what actually reached the target.
+#
+# Stack:
+#   Internet → InfraGuard → C2
+#                  │
+#                  └── (async POST) → https://blue.internal/collect
+#
+# The collector should be a plain HTTP endpoint that accepts JSON:
+#   {
+#     "ts": "2026-09-25T01:23:45Z",
+#     "src_ip": "203.0.113.7",
+#     "method": "GET",
+#     "path": "/jquery-3.3.14.min.js",
+#     "headers": {...},
+#     "body_b64": "..."          (omitted if > drop_body_over_kib)
+#   }
+#
+# Required env vars:
+#   INFRAGUARD_TLS_CERT / INFRAGUARD_TLS_KEY
+#   MYTHIC_UPSTREAM
+#   INFRAGUARD_DB_PATH
+#   PURPLE_MIRROR_URL          - blue-team collector URL
+#   PURPLE_AUTH_HEADER         - full header value, e.g. "Bearer <token>"
+
+listeners:
+  - protocol: "https"
+    bind: "0.0.0.0"
+    port: 443
+    tls:
+      cert: "${INFRAGUARD_TLS_CERT}"
+      key: "${INFRAGUARD_TLS_KEY}"
+    domains:
+      - "cdn.example.com"
+
+domains:
+  cdn.example.com:
+    upstream: "${MYTHIC_UPSTREAM}"
+    profile_path: "/app/examples/mythic-httpx.json"
+    profile_type: "mythic"
+    drop_action:
+      type: "proxy"
+      target: "https://example.com"
+
+# ── Purple-team mirror (v0.5) ───────────────────────────────────────
+purple_team:
+  enabled: true
+  mirror_url: "${PURPLE_MIRROR_URL}"
+  auth_header: "${PURPLE_AUTH_HEADER}"
+  only_allowed: true            # false = mirror blocks too (very chatty)
+  max_queue_depth: 5000         # drop new events when queue is full
+  drop_body_over_kib: 128       # skip body for large uploads
+
+# ── Also record every allowed request into an SIEM for scoring ─────
+plugins:
+  - "elasticsearch"
+  - "syslog"
+plugin_settings:
+  elasticsearch:
+    enabled: true
+    options:
+      url: "${ELASTICSEARCH_URL}"
+      api_key: "${ELASTICSEARCH_API_KEY}"
+      index: "infraguard-purple"
+  syslog:
+    enabled: true
+    options:
+      host: "blue-siem.internal"
+      port: 514
+      facility: "local5"
+
+api:
+  bind: "0.0.0.0"
+  port: 8080
+  auth_token: "${INFRAGUARD_API_TOKEN}"
+
+tracking:
+  db_path: "${INFRAGUARD_DB_PATH}"
+
+pipeline:
+  filter_mode: "scoring"
+  block_score_threshold: 0.7
+
+logging:
+  level: "INFO"
+  format: "json"

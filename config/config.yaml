@@ -23,7 +23,7 @@ domains:
   # to the real jQuery site so the redirector looks legitimate.
   # cdn.example.com:
   #   upstream: "${INFRAGUARD_CS_UPSTREAM}"
-  #   profile_path: "examples/jquery-c2.3.14.profile"
+  #   profile_path: "/app/examples/jquery-c2.3.14.profile"
   #   profile_type: "cobalt_strike"
   #   whitelist_cidrs:
   #     - "192.168.1.0/24"       # operator subnet
@@ -59,7 +59,14 @@ domains:
   # get proxied to a real site so the redirector returns valid HTML.
   ${INFRAGUARD_DOMAIN}:
     upstream: "${INFRAGUARD_MYTHIC_UPSTREAM}"
-    profile_path: "examples/jquery-c2.3.14.profile.json"
+    # Absolute container path. ./examples is bind-mounted to
+    # /app/examples in docker-compose.yml; the relative form
+    # "examples/..." resolves against the config file's directory
+    # ``../examples/...`` is resolved by the loader against the config
+    # file's directory, so this reaches /app/examples/... in the
+    # container and <repo>/examples/... on the host. Both operators
+    # (Docker) and CLI users (pipx) hit the same file.
+    profile_path: "../examples/jquery-c2.3.14.profile.json"
     profile_type: "mythic"
     whitelist_cidrs: []      # empty = all IPs are allowed (no whitelist)
     drop_action:

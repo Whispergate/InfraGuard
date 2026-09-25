@@ -74,6 +74,7 @@ class DomainRouter:
         extra_filters: list | None = None,
         recorder: EventRecorder | None = None,
         db: Database | None = None,
+        state_backend=None,
     ):
         self.config = config
         self.proxy = ProxyHandler()
@@ -84,9 +85,27 @@ class DomainRouter:
         self._db = db
         self._content_backends: list[ContentBackend] = []
         self._breakers: dict[str, CircuitBreaker] = {}
+        self._state_backend = state_backend
 
-        # Initialize shared intel manager
-        self.intel = IntelManager(config.intel)
+        # Wire the state-backed overlays (SharedWhitelist, DropRateLimiter,
+        # beacon session bag) only when a backend was actually provided.
+        # Behavior on a single-node deploy is unchanged: every overlay
+        # falls back to per-process defaults when the backend is None.
+        from infraguard.state.beacons import compute_beacon_id, record_beacon_request
+        from infraguard.state.drop_rate_limit import DropRateLimiter
+        from infraguard.state.whitelist import SharedWhitelist
+
+        self._shared_whitelist = SharedWhitelist(state_backend) if state_backend else None
+        self._drop_rate_limiter = (
+            DropRateLimiter(state_backend) if state_backend else None
+        )
+        # Cache the callables so hot paths do not re-import.
+        self._compute_beacon_id = compute_beacon_id
+        self._record_beacon_request = record_beacon_request
+
+        # Initialize shared intel manager (pass the shared whitelist so
+        # is_blocked / record_valid_request can consult it).
+        self.intel = IntelManager(config.intel, shared_whitelist=self._shared_whitelist)
 
         # Domain fronting (SNI/Host header rewriting through CDN edges)
         self._fronting: DomainFronting | None = (
@@ -619,7 +638,7 @@ class DomainRouter:
                 request,
                 route.config.drop_action,
                 reason=result.summary,
-                pages_dir=self.config.decoy_pages_dir,
+                pages_dir=self.config.decoy_pages_dir, drop_rate_limiter=self._drop_rate_limiter,
             )
             filter_result_str = "block"
             filter_reason = "; ".join(result.blocking_reasons) or result.summary
@@ -671,7 +690,7 @@ class DomainRouter:
             resp = await handle_drop(
                 request, first_route.config.drop_action,
                 reason="no matching domain",
-                pages_dir=self.config.decoy_pages_dir,
+                pages_dir=self.config.decoy_pages_dir, drop_rate_limiter=self._drop_rate_limiter,
             )
             return None, resp
         return None, Response(status_code=404, content=b"Not Found")
@@ -742,8 +761,8 @@ class DomainRouter:
                 return await handle_drop(
                     request, route.config.drop_action,
                     reason="full_pipeline_block_before_content",
-                    pages_dir=self.config.decoy_pages_dir,
-                )
+                    pages_dir=self.config.decoy_pages_dir, drop_rate_limiter=self._drop_rate_limiter,
+            )
             return None
 
         # Default "ip_only": fast blocklist check only.
@@ -757,7 +776,7 @@ class DomainRouter:
             return await handle_drop(
                 request, route.config.drop_action,
                 reason="ip_blocked_before_content_route",
-                pages_dir=self.config.decoy_pages_dir,
+                pages_dir=self.config.decoy_pages_dir, drop_rate_limiter=self._drop_rate_limiter,
             )
         return None
 
@@ -771,6 +790,8 @@ class DomainRouter:
         if not self._recorder:
             return None
         for plugin in self._recorder._plugins:
+            if not getattr(plugin, "_runtime_enabled", True):
+                continue
             try:
                 plugin_result = await plugin.on_request(ctx)
                 if plugin_result is not None and not plugin_result.allowed:
@@ -783,8 +804,8 @@ class DomainRouter:
                     return await handle_drop(
                         request, route.config.drop_action,
                         reason=f"plugin:{getattr(plugin, 'name', 'unknown')}",
-                        pages_dir=self.config.decoy_pages_dir,
-                    )
+                        pages_dir=self.config.decoy_pages_dir, drop_rate_limiter=self._drop_rate_limiter,
+            )
             except Exception:
                 log.exception(
                     "plugin_on_request_error",
@@ -821,6 +842,33 @@ class DomainRouter:
                         max_uses=pt_cfg.default_max_uses,
                     )
                     ctx.metadata.setdefault("issued_tokens", {})[cr.path] = token
+
+        # Track the beacon in the cluster-wide session bag. Non-fatal:
+        # a state-backend hiccup logs at DEBUG and does not affect the
+        # response. Skipped for phishing / passthrough where the notion
+        # of a "beacon session" does not apply.
+        if route.config.profile_type not in PHISHING_PROFILE_TYPES:
+            ua = ctx.request.headers.get("user-agent", "")
+            ja3 = ctx.metadata.get("ja3")
+            beacon_id = self._compute_beacon_id(str(client_ip), ja3, ua)
+            session = await self._record_beacon_request(
+                self._state_backend,
+                beacon_id=beacon_id,
+                client_ip=str(client_ip),
+                ja3=ja3,
+                user_agent=ua,
+                domain=route.domain,
+            )
+            ctx.metadata["beacon_id"] = beacon_id
+            ctx.metadata["beacon_session"] = session
+            # HPA gates on the active-beacons gauge. See
+            # infraguard/ui/api/metrics.py for the prune loop.
+            try:
+                from infraguard.ui.api.metrics import record_beacon_activity
+
+                record_beacon_activity()
+            except Exception:
+                pass
 
     async def _forward_with_failover(
         self, request: Request, route: DomainRoute
@@ -878,7 +926,7 @@ class DomainRouter:
                 request,
                 route.config.drop_action,
                 reason="all_upstreams_failed",
-                pages_dir=self.config.decoy_pages_dir,
+                pages_dir=self.config.decoy_pages_dir, drop_rate_limiter=self._drop_rate_limiter,
             )
             return response, "block", "all_upstreams_failed"
         return response, "allow", None
@@ -908,6 +956,8 @@ class DomainRouter:
         if not self._recorder:
             return response
         for plugin in self._recorder._plugins:
+            if not getattr(plugin, "_runtime_enabled", True):
+                continue
             try:
                 modified = await plugin.on_response(ctx, response)
                 if modified is not None:
@@ -942,10 +992,33 @@ class DomainRouter:
         filter_score: float,
         start: float,
     ) -> None:
-        """Emit the tracking-DB event that captures one handled request."""
+        """Emit the tracking-DB event that captures one handled request.
+
+        Also mirrors to the purple-team collector if configured. The
+        mirror is fire-and-forget: a slow collector never blocks the
+        hot path.
+        """
+        duration_ms = (time.perf_counter() - start) * 1000
+        mirror = getattr(self, "_purple_mirror", None)
+        if mirror is not None and (
+            not mirror._cfg.only_allowed or filter_result_str == "allow"
+        ):
+            mirror.submit({
+                "domain": route.domain,
+                "client_ip": str(client_ip),
+                "method": request.method,
+                "uri": request.url.path,
+                "user_agent": request.headers.get("user-agent", ""),
+                "filter_result": filter_result_str,
+                "filter_reason": filter_reason,
+                "filter_score": filter_score,
+                "response_status": response.status_code,
+                "duration_ms": round(duration_ms, 1),
+                "beacon_id": ctx.metadata.get("beacon_id"),
+                "request_hash": ctx.metadata.get("request_hash", ""),
+            })
         if not self._recorder:
             return
-        duration_ms = (time.perf_counter() - start) * 1000
         self._recorder.record(
             RequestEvent.now(
                 domain=route.domain,
@@ -1045,7 +1118,7 @@ class DomainRouter:
                     "guard_blocked", filter_score, start, content_config.track,
                     request_hash=request_hash,
                 )
-                return await handle_drop(request, route.config.drop_action)
+                return await handle_drop(request, route.config.drop_action, drop_rate_limiter=self._drop_rate_limiter)
 
         # One-time payload token validation
         if content_config.require_token and self._token_store is not None:

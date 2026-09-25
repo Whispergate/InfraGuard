@@ -1,0 +1,51 @@
+{{- if .Values.autoscaling.enabled }}
+# HPA scales the proxy on the ``infraguard_active_beacons`` custom
+# metric emitted by /metrics. Requires prometheus-adapter or an
+# equivalent Custom Metrics API provider. Without one, the HPA sits
+# in the "unable to fetch metric" state and does not scale.
+apiVersion: autoscaling/v2
+kind: HorizontalPodAutoscaler
+metadata:
+  name: {{ include "infraguard.fullname" . }}-proxy
+  labels: {{- include "infraguard.labels" . | nindent 4 }}
+spec:
+  scaleTargetRef:
+    apiVersion: apps/v1
+    kind: Deployment
+    name: {{ include "infraguard.fullname" . }}-proxy
+  minReplicas: {{ .Values.autoscaling.minReplicas }}
+  maxReplicas: {{ .Values.autoscaling.maxReplicas }}
+  metrics:
+    - type: Pods
+      pods:
+        metric:
+          name: infraguard_active_beacons
+        target:
+          type: AverageValue
+          averageValue: {{ .Values.autoscaling.targetBeaconsPerReplica }}
+    - type: Resource
+      resource:
+        name: cpu
+        target:
+          type: Utilization
+          averageUtilization: {{ .Values.autoscaling.cpuUtilization }}
+    - type: Resource
+      resource:
+        name: memory
+        target:
+          type: Utilization
+          averageUtilization: {{ .Values.autoscaling.memoryUtilization }}
+  behavior:
+    scaleUp:
+      stabilizationWindowSeconds: 60
+      policies:
+        - type: Pods
+          value: 1
+          periodSeconds: 60
+    scaleDown:
+      stabilizationWindowSeconds: 300
+      policies:
+        - type: Pods
+          value: 1
+          periodSeconds: 120
+{{- end }}

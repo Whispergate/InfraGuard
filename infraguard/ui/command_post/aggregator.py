@@ -75,6 +75,29 @@ class InstanceClient:
         except Exception:
             return None
 
+    async def list_plugins(self) -> dict | None:
+        """GET /api/plugins on this instance."""
+        try:
+            resp = await self._get_client().get("/api/plugins")
+            resp.raise_for_status()
+            return resp.json()
+        except Exception:
+            log.warning("instance_fetch_error", instance=self.name, endpoint="plugins")
+            return None
+
+    async def toggle_plugin(self, name: str, enabled: bool) -> dict | None:
+        """POST /api/plugins/{name}/enable|disable on this instance."""
+        verb = "enable" if enabled else "disable"
+        try:
+            resp = await self._get_client().post(f"/api/plugins/{name}/{verb}")
+            return resp.json()
+        except Exception as exc:
+            log.warning(
+                "plugin_toggle_forward_failed",
+                instance=self.name, plugin=name, enabled=enabled, error=str(exc),
+            )
+            return None
+
     async def close(self) -> None:
         if self._client and not self._client.is_closed:
             await self._client.aclose()
@@ -188,6 +211,30 @@ class MultiInstanceAggregator:
         targets = self.clients if instance is None else [c for c in self.clients if c.name == instance]
         results = await asyncio.gather(*[c.delete_json(path, body) for c in targets])
         return [r for r in results if r is not None]
+
+    async def list_plugins_all(self) -> list[dict]:
+        """Fetch the plugin roster from every instance, tagged by instance."""
+        async def _one(client: InstanceClient) -> dict:
+            data = await client.list_plugins()
+            return {
+                "instance": client.name,
+                "url": client.url,
+                "reachable": data is not None,
+                "data": data or {},
+            }
+        results = await asyncio.gather(*[_one(c) for c in self.clients])
+        return list(results)
+
+    async def toggle_plugin_all(
+        self, name: str, enabled: bool, instance: str | None = None,
+    ) -> list[dict]:
+        """Toggle a plugin on one instance (by ``instance`` name) or all."""
+        targets = self.clients if instance is None else [c for c in self.clients if c.name == instance]
+        results = await asyncio.gather(*[c.toggle_plugin(name, enabled) for c in targets])
+        return [
+            {"instance": c.name, "url": c.url, "result": r}
+            for c, r in zip(targets, results)
+        ]
 
     async def close(self) -> None:
         for client in self.clients:

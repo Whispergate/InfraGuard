@@ -49,17 +49,41 @@ async def handle_drop(
     reason: str = "",
     pages_dir: str = "pages",
     persona: PersonaConfig | None = None,
+    drop_rate_limiter=None,
 ) -> Response:
-    """Execute the configured drop action for a blocked request."""
+    """Execute the configured drop action for a blocked request.
+
+    When ``drop_rate_limiter`` is provided (a
+    :class:`~infraguard.state.drop_rate_limit.DropRateLimiter`), the
+    source IP's drop quota is checked first. Requests over the quota
+    receive a bare TCP reset (status 444, empty body) instead of the
+    real drop response so the redirector does not become an amplifier
+    or leak the domain's drop_action to a scanner.
+    """
     resolved_persona = persona or config.persona or PersonaConfig()
     target = _select_target(config)
+
+    client_host = request.client.host if request.client else "unknown"
+
+    if drop_rate_limiter is not None and client_host != "unknown":
+        try:
+            if await drop_rate_limiter.should_soft_drop(client_host):
+                log.info(
+                    "drop_soft_limited",
+                    client=client_host,
+                    path=request.url.path,
+                    reason=reason,
+                )
+                return Response(status_code=444, content=b"")
+        except Exception:
+            log.debug("drop_rate_limit_check_failed", client=client_host)
 
     log.info(
         "request_blocked",
         action=config.type.value,
         target=target,
         reason=reason,
-        client=request.client.host if request.client else "unknown",
+        client=client_host,
         path=request.url.path,
     )
 
