@@ -18,12 +18,23 @@ import json
 import os
 import stat
 import subprocess
+import sys
+
+import pytest
+
+# Windows does not honor POSIX mode bits the same way; ``os.chmod(f,
+# 0o600)`` on NTFS produces ``0o666`` when read back with
+# ``stat.S_IMODE``. Skip the tests that assert on the mode word rather
+# than papering over what is a real behavioural difference.
+_skip_windows_perms = pytest.mark.skipif(
+    sys.platform == "win32",
+    reason="Windows does not honor POSIX mode bits; 0o600 reads back as 0o666.",
+)
 from pathlib import Path
 from unittest.mock import MagicMock, call, patch
 
 import pytest
 from click.testing import CliRunner
-
 
 # ---------------------------------------------------------------------------
 # TerraformProvider tests
@@ -53,6 +64,7 @@ class TestCheckTerraform:
 class TestWriteTfvars:
     """_write_tfvars() creates terraform.tfvars.json with 0o600 permissions."""
 
+    @_skip_windows_perms
     def test_creates_file_with_correct_permissions(self, tmp_path):
         from infraguard.deploy.providers.base import TerraformProvider
 
@@ -78,9 +90,9 @@ class TestWriteTfvars:
 
     def test_no_var_flag_usage(self, tmp_path):
         """Secrets must be passed via -var-file, never as -var CLI flags."""
-        from infraguard.deploy.providers import base
-
         import inspect
+
+        from infraguard.deploy.providers import base
         source = inspect.getsource(base)
         # Ensure no "-var " is used as CLI flag (only -var-file is acceptable)
         assert '"-var "' not in source
@@ -377,6 +389,7 @@ class TestDecryptState:
         assert "-i" in called_cmd
         assert str(identity) in called_cmd
 
+    @_skip_windows_perms
     def test_decrypt_returns_temp_path(self, tmp_path):
         from infraguard.deploy.state import decrypt_state
 

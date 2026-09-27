@@ -16,7 +16,6 @@ from infraguard.core.failover import (
     create_failover_manager,
 )
 
-
 # ── Fixtures ──────────────────────────────────────────────────────────────
 
 @pytest.fixture

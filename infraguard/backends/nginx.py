@@ -7,7 +7,7 @@ header checks, IP allow/deny, TLS, and proxy_pass to the upstream C2.
 from __future__ import annotations
 
 from infraguard.backends.base import GeneratorOptions
-from infraguard.config.schema import DomainConfig, InfraGuardConfig
+from infraguard.config.schema import InfraGuardConfig
 from infraguard.profiles.models import C2Profile
 
 
@@ -32,7 +32,7 @@ def generate_nginx(
         server_names = " ".join([domain_name, *aliases])
 
         # ── server block ──────────────────────────────────────────────
-        lines.append(f"server {{")
+        lines.append("server {")
         lines.append(f"    server_name {server_names};")
         lines.append(f"    listen {options.listen_host}:{options.listen_port} ssl;")
         lines.append("")
@@ -50,7 +50,7 @@ def generate_nginx(
             lines.extend([
                 f"    ssl_certificate     {cert};",
                 f"    ssl_certificate_key {key};",
-                f"    ssl_protocols       TLSv1.2 TLSv1.3;",
+                "    ssl_protocols       TLSv1.2 TLSv1.3;",
                 "",
             ])
 

@@ -189,7 +189,7 @@ def _poll_health(instance_ip: str, port: int = 8080) -> bool:
 def _make_provider(engine: str, cloud_provider: str, work_dir: Path):
     """Return a TerraformProvider or PulumiProvider based on *engine*."""
     if engine == "pulumi":
-        from infraguard.deploy.providers.pulumi import PulumiProvider, PulumiError
+        from infraguard.deploy.providers.pulumi import PulumiError, PulumiProvider
         try:
             return PulumiProvider(cloud_provider, work_dir)
         except PulumiError as exc:
@@ -401,11 +401,11 @@ def deploy_run(
     click.echo(f"  SSH: ssh {ssh_user}@{instance_ip}")
 
     # ── Step 2: Wait for cloud-init bootstrap ────────────────────────
-    click.echo(f"\n[2/6] Waiting for cloud-init (Docker install + image build)...")
+    click.echo("\n[2/6] Waiting for cloud-init (Docker install + image build)...")
     _wait_for_bootstrap(instance_ip, ssh_key, user=ssh_user)
 
     # ── Step 3: Generate config bundle ───────────────────────────────
-    click.echo(f"\n[3/6] Generating config bundle...")
+    click.echo("\n[3/6] Generating config bundle...")
 
     # Detect profile type for .env upstream variable mapping
     detected_type = detect_profile_type(c2_profile)
@@ -454,7 +454,7 @@ def deploy_run(
     click.echo("  .env deployed")
 
     # ── Step 5: Start docker compose services ────────────────────────
-    click.echo(f"\n[5/6] Starting InfraGuard services...")
+    click.echo("\n[5/6] Starting InfraGuard services...")
 
     # Non-root users need sudo for docker on AWS/Azure
     sudo = "" if ssh_user == "root" else "sudo "
@@ -467,7 +467,7 @@ def deploy_run(
         click.echo("  proxy + dashboard started")
 
     # ── Step 6: Health check ─────────────────────────────────────────
-    click.echo(f"\n[6/6] Polling health endpoint...")
+    click.echo("\n[6/6] Polling health endpoint...")
     try:
         _poll_health(instance_ip, port=443)
         click.echo("  Health check passed!")
@@ -894,7 +894,7 @@ def deploy_rotate(
 
     # 7. Summary
     click.echo("\nRotation complete:")
-    click.echo(f"  Old instance destroyed")
+    click.echo("  Old instance destroyed")
     click.echo(f"  New instance active: {new_ip}")
     click.echo(f"  New domain: {new_domain}")
     click.echo(f"  New work dir: {new_work_dir}")

@@ -1,0 +1,87 @@
+{{- if .Values.dashboard.enabled }}
+apiVersion: apps/v1
+kind: Deployment
+metadata:
+  name: {{ include "infraguard.fullname" . }}-dashboard
+  labels:
+    {{- include "infraguard.labels" . | nindent 4 }}
+    app.kubernetes.io/component: dashboard
+spec:
+  replicas: {{ .Values.dashboard.replicaCount }}
+  selector:
+    matchLabels: {{- include "infraguard.dashboardSelectorLabels" . | nindent 6 }}
+  template:
+    metadata:
+      annotations:
+        checksum/config: {{ include (print $.Template.BasePath "/configmap.yaml") . | sha256sum }}
+      labels: {{- include "infraguard.dashboardSelectorLabels" . | nindent 8 }}
+    spec:
+      {{- with .Values.image.pullSecrets }}
+      imagePullSecrets: {{- toYaml . | nindent 8 }}
+      {{- end }}
+      securityContext: {{- toYaml .Values.podSecurityContext | nindent 8 }}
+      containers:
+        - name: dashboard
+          image: "{{ .Values.image.repository }}:{{ .Values.image.tag }}"
+          imagePullPolicy: {{ .Values.image.pullPolicy }}
+          args: ["dashboard", "-c", "/app/config/config.yaml"]
+          ports:
+            - name: api
+              containerPort: 8080
+              protocol: TCP
+          env:
+            - name: INFRAGUARD_API_BIND
+              value: "0.0.0.0"
+            - name: INFRAGUARD_PROXY_API
+              value: "http://{{ include "infraguard.fullname" . }}-proxy:8080"
+            {{- with .Values.extraEnv }}
+            {{- toYaml . | nindent 12 }}
+            {{- end }}
+          envFrom:
+            {{- if .Values.secrets.create }}
+            - secretRef:
+                name: {{ include "infraguard.fullname" . }}-secrets
+            {{- end }}
+            {{- range .Values.secrets.existingSecrets }}
+            - secretRef:
+                name: {{ . }}
+            {{- end }}
+          volumeMounts:
+            - name: config
+              mountPath: /app/config
+              readOnly: true
+            - name: data
+              mountPath: /app/data
+            - name: tmp
+              mountPath: /tmp
+            - name: infraguard-tmp
+              mountPath: /app/.infraguard
+          securityContext: {{- toYaml .Values.containerSecurityContext | nindent 12 }}
+          resources: {{- toYaml .Values.dashboard.resources | nindent 12 }}
+          # /api/auth/check is one of the few unauthenticated paths.
+          # The dashboard auto-enables HTTPS whenever the config has a
+          # listener with a ``tls:`` block, which is the recommended
+          # setup; probing there without ``scheme: HTTPS`` returns EOF.
+          livenessProbe:
+            httpGet: { path: /api/auth/check, port: api, scheme: HTTPS }
+            initialDelaySeconds: 15
+            periodSeconds: 30
+          readinessProbe:
+            httpGet: { path: /api/auth/check, port: api, scheme: HTTPS }
+            initialDelaySeconds: 5
+            periodSeconds: 10
+      volumes:
+        - name: config
+          configMap:
+            name: {{ include "infraguard.fullname" . }}-config
+        - name: data
+          emptyDir: {}
+        - name: tmp
+          emptyDir:
+            medium: Memory
+            sizeLimit: 64Mi
+        - name: infraguard-tmp
+          emptyDir:
+            medium: Memory
+            sizeLimit: 16Mi
+{{- end }}

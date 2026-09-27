@@ -15,7 +15,6 @@ import time
 from ipaddress import ip_address
 
 import structlog
-from starlette.applications import Starlette
 from starlette.routing import WebSocketRoute
 from starlette.websockets import WebSocket, WebSocketDisconnect
 

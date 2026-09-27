@@ -11,14 +11,13 @@ from starlette.responses import Response
 
 from infraguard.config.schema import FrontingRuleConfig
 from infraguard.core.fronting import (
+    _CDN_BLOCKED_HEADERS,
+    _CDN_DEFAULT_PROBES,
     CDNProvider,
     DomainFronting,
     FrontingHealthReport,
     FrontingHealthStatus,
-    _CDN_BLOCKED_HEADERS,
-    _CDN_DEFAULT_PROBES,
 )
-
 
 # ── Fixtures ──────────────────────────────────────────────────────────────
 

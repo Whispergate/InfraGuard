@@ -28,7 +28,6 @@ from infraguard.profiles.models import (
     HttpTransaction,
     MessageConfig,
     ServerConfig,
-    Transform,
 )
 
 

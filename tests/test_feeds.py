@@ -3,7 +3,7 @@
 from __future__ import annotations
 
 import asyncio
-from datetime import datetime, timedelta, timezone
+from datetime import UTC, datetime, timedelta, timezone
 from unittest.mock import AsyncMock, MagicMock, patch
 
 import httpx
@@ -12,13 +12,12 @@ import pytest
 import infraguard.intel.feeds as feeds_module
 from infraguard.intel.feeds import (
     _STALENESS_THRESHOLD_HOURS,
-    fetch_feed,
     feed_refresh_loop,
+    fetch_feed,
     get_feed_status,
     update_feeds,
 )
 from infraguard.intel.ip_lists import CIDRList
-
 
 # ---------------------------------------------------------------------------
 # Helpers
@@ -119,7 +118,7 @@ async def test_fetch_feed_updates_feed_status_on_success():
     mock_client.__aexit__ = AsyncMock(return_value=False)
     mock_client.get = succeed
 
-    before = datetime.now(timezone.utc)
+    before = datetime.now(UTC)
     with _patch_fast_retry():
         with patch("infraguard.intel.feeds.httpx.AsyncClient", return_value=mock_client):
             result = await fetch_feed(url)
@@ -144,7 +143,7 @@ async def test_fetch_feed_updates_feed_status_on_success():
 async def test_feed_refresh_loop_logs_stale_warning():
     """feed_refresh_loop should log feed_stale warning for feeds stale > 24h."""
     url = "http://stale.example/feed.txt"
-    stale_time = datetime.now(timezone.utc) - timedelta(hours=_STALENESS_THRESHOLD_HOURS + 2)
+    stale_time = datetime.now(UTC) - timedelta(hours=_STALENESS_THRESHOLD_HOURS + 2)
 
     blocklist = _make_blocklist()
 

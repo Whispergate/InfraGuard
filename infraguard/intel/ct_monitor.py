@@ -14,7 +14,6 @@ When a new issuance is detected:
 from __future__ import annotations
 
 import asyncio
-import time
 from typing import TYPE_CHECKING
 
 import httpx
@@ -37,8 +36,8 @@ class CTMonitor:
         self,
         domains: list[str],
         interval_hours: float = 6.0,
-        burn_detector: "BurnDetector | None" = None,
-        recorder: "EventRecorder | None" = None,
+        burn_detector: BurnDetector | None = None,
+        recorder: EventRecorder | None = None,
     ) -> None:
         self._domains = domains
         self._interval = interval_hours * 3600

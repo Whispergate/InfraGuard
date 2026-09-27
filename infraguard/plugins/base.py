@@ -4,7 +4,6 @@ from __future__ import annotations
 
 from typing import Any, Protocol, runtime_checkable
 
-from starlette.requests import Request
 from starlette.responses import Response
 
 from infraguard.models.common import FilterResult
@@ -36,6 +35,12 @@ class BasePlugin:
 
     name: str = "unnamed"
     version: str = "0.0.0"
+    # Runtime toggle mutated by the dashboard. When false, the recorder
+    # and router skip this plugin's hooks without reloading it. Config
+    # ``plugin_settings.<name>.enabled=false`` sets this at boot; a
+    # ``POST /api/plugins/<name>/disable`` flips it at runtime and
+    # writes the same key back to the config file.
+    _runtime_enabled: bool = True
 
     def configure(self, settings: Any) -> None:
         """Called by the loader with this plugin's PluginSettings."""

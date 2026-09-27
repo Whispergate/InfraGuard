@@ -1,0 +1,24 @@
+<svg width="100%" viewBox="0 0 200 200" xmlns="http://www.w3.org/2000/svg">
+  <defs>
+    
+  </defs>
+
+  <!-- Shield fill -->
+  <path d="M60 38 L140 38 L164 62 L164 118 Q164 158 100 178 Q36 158 36 118 L36 62 Z" fill="#A32D2D" fill-opacity="0.07" stroke="none" style="fill:rgb(163, 45, 45);stroke:none;color:rgb(251, 251, 254);stroke-width:1px;stroke-linecap:butt;stroke-linejoin:miter;opacity:1;font-family:&quot;Anthropic Sans&quot;, -apple-system, BlinkMacSystemFont, &quot;Segoe UI&quot;, sans-serif;font-size:16px;font-weight:400;text-anchor:start;dominant-baseline:auto"/>
+
+  <!-- Shield outer -->
+  <path d="M60 38 L140 38 L164 62 L164 118 Q164 158 100 178 Q36 158 36 118 L36 62 Z" fill="none" stroke="#A32D2D" stroke-width="3" stroke-linejoin="round" style="fill:none;stroke:rgb(226, 75, 74);color:rgb(251, 251, 254);stroke-width:3px;stroke-linecap:butt;stroke-linejoin:round;opacity:1;font-family:&quot;Anthropic Sans&quot;, -apple-system, BlinkMacSystemFont, &quot;Segoe UI&quot;, sans-serif;font-size:16px;font-weight:400;text-anchor:start;dominant-baseline:auto"/>
+
+  <!-- Shield inner accent -->
+  <path d="M68 50 L132 50 L150 68 L150 116 Q150 148 100 165 Q50 148 50 116 L50 68 Z" fill="none" stroke="#A32D2D" stroke-width="1" stroke-linejoin="round" opacity="0.35" style="fill:none;stroke:rgb(226, 75, 74);color:rgb(251, 251, 254);stroke-width:1px;stroke-linecap:butt;stroke-linejoin:round;opacity:0.35;font-family:&quot;Anthropic Sans&quot;, -apple-system, BlinkMacSystemFont, &quot;Segoe UI&quot;, sans-serif;font-size:16px;font-weight:400;text-anchor:start;dominant-baseline:auto"/>
+
+  <!-- Lock body -->
+  <rect x="83" y="108" width="34" height="28" rx="5" fill="#A32D2D" style="fill:rgb(226, 75, 74);stroke:none;color:rgb(251, 251, 254);stroke-width:1px;stroke-linecap:butt;stroke-linejoin:miter;opacity:1;font-family:&quot;Anthropic Sans&quot;, -apple-system, BlinkMacSystemFont, &quot;Segoe UI&quot;, sans-serif;font-size:16px;font-weight:400;text-anchor:start;dominant-baseline:auto"/>
+
+  <!-- Lock shackle -->
+  <path d="M89 108 L89 94 Q89 80 100 80 Q111 80 111 94 L111 108" fill="none" stroke="#A32D2D" stroke-width="5" stroke-linecap="round" style="fill:none;stroke:rgb(226, 75, 74);color:rgb(251, 251, 254);stroke-width:5px;stroke-linecap:round;stroke-linejoin:miter;opacity:1;font-family:&quot;Anthropic Sans&quot;, -apple-system, BlinkMacSystemFont, &quot;Segoe UI&quot;, sans-serif;font-size:16px;font-weight:400;text-anchor:start;dominant-baseline:auto"/>
+
+  <!-- Keyhole -->
+  <circle cx="100" cy="120" r="4" fill="#ffffff" opacity="0.85" style="fill:rgb(17, 17, 17);stroke:none;color:rgb(251, 251, 254);stroke-width:1px;stroke-linecap:butt;stroke-linejoin:miter;opacity:0.85;font-family:&quot;Anthropic Sans&quot;, -apple-system, BlinkMacSystemFont, &quot;Segoe UI&quot;, sans-serif;font-size:16px;font-weight:400;text-anchor:start;dominant-baseline:auto"/>
+  <line x1="100" y1="124" x2="100" y2="131" stroke="#ffffff" stroke-width="3" stroke-linecap="round" opacity="0.85" style="fill:rgb(0, 0, 0);stroke:rgb(255, 255, 255);color:rgb(251, 251, 254);stroke-width:3px;stroke-linecap:round;stroke-linejoin:miter;opacity:0.85;font-family:&quot;Anthropic Sans&quot;, -apple-system, BlinkMacSystemFont, &quot;Segoe UI&quot;, sans-serif;font-size:16px;font-weight:400;text-anchor:start;dominant-baseline:auto"/>
+</svg>

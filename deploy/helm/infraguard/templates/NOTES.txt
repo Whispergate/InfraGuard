@@ -1,0 +1,34 @@
+InfraGuard {{ .Chart.AppVersion }} deployed to release {{ .Release.Name }}.
+
+Services:
+  - Proxy (HTTPS):    {{ include "infraguard.fullname" . }}-proxy:{{ .Values.proxy.service.port }}
+  - Proxy (QUIC):     {{ include "infraguard.fullname" . }}-proxy:{{ .Values.proxy.service.quicPort }}/UDP
+{{- if .Values.dashboard.enabled }}
+  - Dashboard:        {{ include "infraguard.fullname" . }}-dashboard:{{ .Values.dashboard.service.port }}
+{{- end }}
+{{- if .Values.redis.enabled }}
+  - Redis:            {{ include "infraguard.fullname" . }}-redis:6379
+{{- end }}
+
+Next steps:
+
+  # Show pod status
+  kubectl get pods -l app.kubernetes.io/instance={{ .Release.Name }}
+
+  # Reach the dashboard
+  kubectl port-forward svc/{{ include "infraguard.fullname" . }}-dashboard 8080:{{ .Values.dashboard.service.port }}
+
+  # Show the current API token (rotate immediately in production)
+  kubectl get secret {{ include "infraguard.fullname" . }}-secrets -o jsonpath='{.data.INFRAGUARD_API_TOKEN}' | base64 -d
+
+{{- if .Values.autoscaling.enabled }}
+
+Autoscaling is enabled. The HPA reads the ``infraguard_active_beacons``
+custom metric; if you have not installed prometheus-adapter yet the HPA
+will report "unable to fetch metric" until you do. Example:
+
+  helm repo add prometheus-community https://prometheus-community.github.io/helm-charts
+  helm install prometheus-adapter prometheus-community/prometheus-adapter \
+       --set prometheus.url=http://prometheus-operated.monitoring.svc \
+       --set-file rules.custom={{ "{{" }} .Files.Get "adapter-rules.yaml" {{ "}}" }}
+{{- end }}

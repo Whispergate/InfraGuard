@@ -14,11 +14,11 @@ from starlette.requests import Request
 from starlette.responses import FileResponse, RedirectResponse, Response, StreamingResponse
 
 from infraguard.config.schema import CanaryConfig, DropActionConfig, PersonaConfig
-from infraguard.core.headers import sanitize_response_headers
 from infraguard.core.ssl_context import build_ssl_context
 from infraguard.intel.canary import inject_all_canaries
 from infraguard.models.common import DropActionType
-from .headers import sanitize_response_headers, preserve_multi_value_headers
+
+from .headers import preserve_multi_value_headers, sanitize_response_headers
 
 log = structlog.get_logger()
 
@@ -49,17 +49,41 @@ async def handle_drop(
     reason: str = "",
     pages_dir: str = "pages",
     persona: PersonaConfig | None = None,
+    drop_rate_limiter=None,
 ) -> Response:
-    """Execute the configured drop action for a blocked request."""
+    """Execute the configured drop action for a blocked request.
+
+    When ``drop_rate_limiter`` is provided (a
+    :class:`~infraguard.state.drop_rate_limit.DropRateLimiter`), the
+    source IP's drop quota is checked first. Requests over the quota
+    receive a bare TCP reset (status 444, empty body) instead of the
+    real drop response so the redirector does not become an amplifier
+    or leak the domain's drop_action to a scanner.
+    """
     resolved_persona = persona or config.persona or PersonaConfig()
     target = _select_target(config)
+
+    client_host = request.client.host if request.client else "unknown"
+
+    if drop_rate_limiter is not None and client_host != "unknown":
+        try:
+            if await drop_rate_limiter.should_soft_drop(client_host):
+                log.info(
+                    "drop_soft_limited",
+                    client=client_host,
+                    path=request.url.path,
+                    reason=reason,
+                )
+                return Response(status_code=444, content=b"")
+        except Exception:
+            log.debug("drop_rate_limit_check_failed", client=client_host)
 
     log.info(
         "request_blocked",
         action=config.type.value,
         target=target,
         reason=reason,
-        client=request.client.host if request.client else "unknown",
+        client=client_host,
         path=request.url.path,
     )
 
@@ -76,6 +100,24 @@ async def handle_drop(
         return await _tarpit_response(resolved_persona)
 
     elif config.type == DropActionType.DECOY:
+        # Operators occasionally set ``target`` to a URL through the
+        # dashboard, expecting decoy to also do redirects. Detect that
+        # and act as if the type were ``redirect`` rather than trying
+        # to open a bogus ``<pages_dir>/<url>`` directory and 404-ing.
+        if isinstance(target, str) and target.startswith(("http://", "https://")):
+            log.warning(
+                "decoy_target_is_url_coerced_to_redirect",
+                target=target,
+                hint="Change drop_action.type to 'redirect' for URL targets.",
+            )
+            return Response(
+                status_code=302,
+                headers={
+                    "Location": target,
+                    "Server": resolved_persona.server_header,
+                    **resolved_persona.extra_headers,
+                },
+            )
         return _serve_decoy_spa(
             target, request, pages_dir, resolved_persona,
             canary=config.canary,

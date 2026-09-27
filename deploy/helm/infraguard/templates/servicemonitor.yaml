@@ -1,0 +1,19 @@
+{{- if .Values.serviceMonitor.enabled }}
+# Requires the Prometheus Operator's ServiceMonitor CRD in the cluster.
+apiVersion: monitoring.coreos.com/v1
+kind: ServiceMonitor
+metadata:
+  name: {{ include "infraguard.fullname" . }}
+  {{- with .Values.serviceMonitor.namespace }}
+  namespace: {{ . }}
+  {{- end }}
+  labels: {{- include "infraguard.labels" . | nindent 4 }}
+spec:
+  selector:
+    matchLabels: {{- include "infraguard.dashboardSelectorLabels" . | nindent 6 }}
+  endpoints:
+    - port: api
+      path: /metrics
+      interval: {{ .Values.serviceMonitor.interval }}
+      scrapeTimeout: {{ .Values.serviceMonitor.scrapeTimeout }}
+{{- end }}

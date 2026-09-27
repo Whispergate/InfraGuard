@@ -1,160 +1,107 @@
-# InfraGuard Docker Configuration
-# Environment variables are loaded from .env automatically.
-# Full reference with all options: config/test-config-full.yaml
-
 listeners:
-  - bind: "0.0.0.0"
-    port: 443
-    tls:
-      cert: "${INFRAGUARD_TLS_CERT}"
-      key: "${INFRAGUARD_TLS_KEY}"
-    domains:
-      - "${INFRAGUARD_DOMAIN}"
-  - bind: "0.0.0.0"
-    port: 80
-    domains:
-      - "${INFRAGUARD_DOMAIN}"
-
+- bind: 0.0.0.0
+  port: 443
+  tls:
+    cert: ${INFRAGUARD_TLS_CERT}
+    key: ${INFRAGUARD_TLS_KEY}
+  domains:
+  - ${INFRAGUARD_DOMAIN}
+- bind: 0.0.0.0
+  port: 80
+  domains:
+  - ${INFRAGUARD_DOMAIN}
 domains:
-
-  # ── Cobalt Strike domain ────────────────────────────────────────────
-  # Fronts a CS teamserver behind a jQuery CDN lookalike.
-  # Requests that don't match the malleable profile are redirected
-  # to the real jQuery site so the redirector looks legitimate.
-  # cdn.example.com:
-  #   upstream: "${INFRAGUARD_CS_UPSTREAM}"
-  #   profile_path: "examples/jquery-c2.3.14.profile"
-  #   profile_type: "cobalt_strike"
-  #   whitelist_cidrs:
-  #     - "192.168.1.0/24"       # operator subnet
-  #     - "10.0.0.0/8"           # internal range
-  #   decoy_dir: null             # or path to static site served to blocked visitors
-  #   drop_action:
-  #     type: "redirect"
-  #     target: "https://jquery.com"
-
-    # ── Content delivery routes (optional) ──────────────────────────
-    # Evaluated BEFORE the C2 profile filter. Serve payloads, decoys,
-    # or static files at specific paths without affecting beacon traffic.
-    # content_routes:
-    #   - path: "/downloads/*"
-    #     backend:
-    #       type: "pwndrop"
-    #       target: "http://pwndrop:80"    # Docker internal URL
-    #       auth_token: "${PWNDROP_TOKEN}"
-    #     conditional:
-    #       score_threshold: 0.5           # bots/scanners get decoy instead
-    #       scanner_backend:
-    #         type: "http_proxy"
-    #         target: "https://jquery.com"
-    #     track: true
-    #   - path: "/assets/*"
-    #     backend:
-    #       type: "filesystem"
-    #       target: "/app/decoys"
-
-  # ── Mythic domain ───────────────────────────────────────────────────
-  # Fronts a Mythic teamserver behind a generic CDN static-assets page.
-  # Uses the Mythic HTTPX JSON profile format. Non-matching requests
-  # get proxied to a real site so the redirector returns valid HTML.
   ${INFRAGUARD_DOMAIN}:
-    upstream: "${INFRAGUARD_MYTHIC_UPSTREAM}"
-    profile_path: "examples/jquery-c2.3.14.profile.json"
-    profile_type: "mythic"
-    whitelist_cidrs: []      # empty = all IPs are allowed (no whitelist)
+    upstream: ${INFRAGUARD_MYTHIC_UPSTREAM}
+    profile_path: ../examples/jquery-c2.3.14.profile.json
+    profile_type: mythic
+    whitelist_cidrs: []
     drop_action:
-      type: "decoy"
-      target: "${IG_DECOY_SITE}"
+      type: decoy
+      target: ${IG_DECOY_SITE}
     content_routes:
-      # Mythic-hosted stage-2 payload at a clean URL.
-      # Guard: beacon IP required + Windows UA + no proxy headers + single-use token.
-      - path: "/jquery-3.7.1.min.js"
-        backend:
-          type: "mythic_file"
-          target: "${MYTHIC_URL}"          # e.g. https://10.0.0.5:7443
-          file_id: "${MYTHIC_STAGE2_FILE_ID}"
-          ssl_verify: false
-          headers:
-            Content-Disposition: "attachment; filename=\"jquery-3.7.1.min.js\""
-        guard:
-          require_beacon_ip: true
-          allowed_user_agents:
-            - "^Mozilla/5\\.0 \\(Windows NT"
-            - "WinHTTP"
-          forbidden_headers:
-            - "Via"
-            - "X-Forwarded-For"
-        require_token: true
-        rate_limit:
-          enabled: true
-          max_downloads: 1
-          window_seconds: 3600
-        conditional:
-          score_threshold: 0.5
-          scanner_backend:
-            type: "http_proxy"
-            target: "https://jquery.com"
-        track: true
-      # Mythic file store proxy - any file by UUID: /dl/<uuid>
-      - path: "/dl/*"
-        backend:
-          type: "mythic_file"
-          target: "${MYTHIC_URL}"
-          ssl_verify: false
-        guard:
-          require_beacon_ip: true
-          forbidden_headers:
-            - "Via"
-            - "X-Forwarded-For"
-        rate_limit:
-          enabled: true
-          max_downloads: 5
-          window_seconds: 300
-        track: true
-      # PwnDrop payload delivery (rate-limited, scanner-aware)
-      - path: "/downloads/*"
-        backend:
-          type: "pwndrop"
-          target: "http://pwndrop:80"
-          auth_token: "${PWNDROP_TOKEN}"
-        rate_limit:
-          enabled: true
-          max_downloads: 3
-          window_seconds: 300
-        conditional:
-          score_threshold: 0.5
-          scanner_backend:
-            type: "http_proxy"
-            target: "https://jquery.com"
-        track: true
-
+    - path: /jquery-3.7.1.min.js
+      backend:
+        type: mythic_file
+        target: ${MYTHIC_URL}
+        file_id: ${MYTHIC_STAGE2_FILE_ID}
+        ssl_verify: false
+        headers:
+          Content-Disposition: attachment; filename="jquery-3.7.1.min.js"
+      guard:
+        require_beacon_ip: true
+        allowed_user_agents:
+        - ^Mozilla/5\.0 \(Windows NT
+        - WinHTTP
+        forbidden_headers:
+        - Via
+        - X-Forwarded-For
+      require_token: true
+      rate_limit:
+        enabled: true
+        max_downloads: 1
+        window_seconds: 3600
+      conditional:
+        score_threshold: 0.5
+        scanner_backend:
+          type: http_proxy
+          target: https://jquery.com
+      track: true
+    - path: /dl/*
+      backend:
+        type: mythic_file
+        target: ${MYTHIC_URL}
+        ssl_verify: false
+      guard:
+        require_beacon_ip: true
+        forbidden_headers:
+        - Via
+        - X-Forwarded-For
+      rate_limit:
+        enabled: true
+        max_downloads: 5
+        window_seconds: 300
+      track: true
+    - path: /downloads/*
+      backend:
+        type: pwndrop
+        target: http://pwndrop:80
+        auth_token: ${PWNDROP_TOKEN}
+      rate_limit:
+        enabled: true
+        max_downloads: 3
+        window_seconds: 300
+      conditional:
+        score_threshold: 0.5
+        scanner_backend:
+          type: http_proxy
+          target: https://jquery.com
+      track: true
 intel:
   auto_block_scanners: true
   dynamic_whitelist_threshold: 3
-  geoip_db: "${INFRAGUARD_GEOIP_DB}"
-  geoip_asn_db: "${INFRAGUARD_GEOIP_ASN_DB}"
-  geoip_country_db: "${INFRAGUARD_GEOIP_COUNTRY_DB}"
-  banned_ip_file: "${INFRAGUARD_BANNED_IP_FILE}"
-  rules_dir: "${INFRAGUARD_RULES_DIR}"    # auto-ingest .htaccess / robots.txt on startup
+  geoip_db: ${INFRAGUARD_GEOIP_DB}
+  geoip_asn_db: ${INFRAGUARD_GEOIP_ASN_DB}
+  geoip_country_db: ${INFRAGUARD_GEOIP_COUNTRY_DB}
+  banned_ip_file: ${INFRAGUARD_BANNED_IP_FILE}
+  rules_dir: ${INFRAGUARD_RULES_DIR}
   dns_enum_nxdomain_threshold: 15
   dns_enum_window_seconds: 30
   feeds:
     enabled: true
   ct_monitor:
-    enabled: false                        # set true + add domains to enable CT log alerting
+    enabled: false
     interval_hours: 6.0
-    monitored_domains: []                 # empty = auto-populate from domain keys above
+    monitored_domains: []
   reputation_monitor:
-    enabled: false                        # set true to check URLhaus / OpenPhish on schedule
+    enabled: false
     interval_hours: 4.0
     check_urlhaus: true
     check_openphish: true
-
 tracking:
-  db_path: "${INFRAGUARD_DB_PATH}"
-
+  db_path: ${INFRAGUARD_DB_PATH}
 pipeline:
-  filter_mode: "${INFRAGUARD_FILTER_MODE}"  # "scoring" or "hard"
+  filter_mode: ${INFRAGUARD_FILTER_MODE}
   block_score_threshold: 0.7
   replay_window_seconds: 86400
   replay_persist: true
@@ -167,25 +114,24 @@ pipeline:
   ja3_filter:
     log_ja3: true
     block_unknown: false
-    ja3_header: "x-ja3"             # set by nginx ssl_fingerprint / HAProxy JA3
-
+    ja3_header: x-ja3
 api:
-  bind: "0.0.0.0"
+  bind: 0.0.0.0
   port: 8080
-  auth_token: "${INFRAGUARD_API_TOKEN}"
-  health_path: "/${INFRAGUARD_HEALTH_PATH}"
-
+  auth_token: ${INFRAGUARD_API_TOKEN}
+  health_path: /${INFRAGUARD_HEALTH_PATH}
 payload_tokens:
-  enabled: false                          # set true to gate content routes behind one-time tokens
+  enabled: false
   default_ttl_seconds: 3600
   default_max_uses: 1
-  token_header: "X-DL-Token"
-  token_param: "_t"
-  issuance_header: "X-Payload-Token"
-
-decoy_pages_dir: "${IG_DECOY_PAGES_DIR}"  # base directory for decoy SPA sites
-
+  token_header: X-DL-Token
+  token_param: _t
+  issuance_header: X-Payload-Token
+decoy_pages_dir: ${IG_DECOY_PAGES_DIR}
 logging:
-  level: "${INFRAGUARD_LOG_LEVEL}"
-  format: "json"
+  level: ${INFRAGUARD_LOG_LEVEL}
+  format: json
+plugin_settings:
+  example:
+    enabled: false
 

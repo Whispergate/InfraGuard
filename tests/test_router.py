@@ -18,7 +18,6 @@ from infraguard.config.schema import (
 )
 from infraguard.models.common import ContentBackendType
 
-
 # ── Helpers ───────────────────────────────────────────────────────────
 
 def _make_request(
@@ -203,7 +202,7 @@ class TestContentRouteFilterOrdering:
             route.content_resolver = mock_resolver_inst
 
             # Simulate pipeline blocking the request
-            from infraguard.models.common import FilterResult, FilterAction
+            from infraguard.models.common import FilterAction, FilterResult
             block_filter_result = FilterResult(
                 action=FilterAction.BLOCK,
                 reason="bot detected",

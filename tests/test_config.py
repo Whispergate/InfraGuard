@@ -7,7 +7,7 @@ from unittest.mock import patch
 
 import pytest
 
-from infraguard.config.loader import load_config, _resolve_env_vars
+from infraguard.config.loader import _resolve_env_vars, load_config
 from infraguard.config.schema import (
     ContentBackendConfig,
     ContentRouteConfig,
@@ -212,9 +212,16 @@ class TestStartupValidation:
 
     def test_profile_valid_path_initializes_without_error(self, tmp_path: Path):
         """Test 1: Valid profile_path files - DomainRouter initializes without error."""
+        from unittest.mock import MagicMock, patch
+
         from infraguard.core.router import DomainRouter
-        from unittest.mock import patch, MagicMock
-        from infraguard.profiles.models import C2Profile, HttpTransaction, ClientConfig, ServerConfig, MessageConfig
+        from infraguard.profiles.models import (
+            C2Profile,
+            ClientConfig,
+            HttpTransaction,
+            MessageConfig,
+            ServerConfig,
+        )
 
         profile_file = tmp_path / "test.profile"
         profile_file.write_text("# profile")
@@ -274,9 +281,16 @@ class TestStartupValidation:
 
     def test_startup_missing_profile_identifies_specific_domain(self, tmp_path: Path):
         """Test 3: Multiple domains, one missing profile - error names the bad domain."""
-        from infraguard.core.router import DomainRouter
         from unittest.mock import patch
-        from infraguard.profiles.models import C2Profile, HttpTransaction, ClientConfig, ServerConfig, MessageConfig
+
+        from infraguard.core.router import DomainRouter
+        from infraguard.profiles.models import (
+            C2Profile,
+            ClientConfig,
+            HttpTransaction,
+            MessageConfig,
+            ServerConfig,
+        )
 
         good_file = tmp_path / "good.profile"
         good_file.write_text("# profile")
@@ -470,12 +484,12 @@ class TestExtendedSchemaValidation:
 
     def test_infraguard_config_integrates_all_sections(self):
         from infraguard.config.schema import (
+            DomainConfig,
+            FrontingConfig,
             InfraGuardConfig,
             ListenerConfig,
-            DomainConfig,
-            TimingConfig,
             RotationConfig,
-            FrontingConfig,
+            TimingConfig,
         )
         cfg = InfraGuardConfig(
             listeners=[ListenerConfig()],

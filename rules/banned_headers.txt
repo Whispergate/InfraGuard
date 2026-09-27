@@ -1,0 +1,15 @@
+# HTTP header name/value keyword blocklist. If any of these substrings
+# appears in a request's header set, the header filter drops it.
+# One term per line.
+
+burp
+zap
+nikto
+nessus
+qualys
+acunetix
+sqlmap
+nmap
+masscan
+wpscan
+dirbuster

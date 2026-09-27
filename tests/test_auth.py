@@ -4,7 +4,7 @@ from __future__ import annotations
 
 import asyncio
 import time
-from datetime import datetime, timedelta, timezone
+from datetime import UTC, datetime, timedelta, timezone
 from unittest.mock import AsyncMock, MagicMock, patch
 
 import pytest
@@ -24,7 +24,6 @@ from infraguard.ui.api.auth import (
     login_handler,
     validate_session,
 )
-
 
 # ── Fixtures ──────────────────────────────────────────────────────────
 
@@ -205,7 +204,7 @@ class TestSessionPersistence:
     async def test_validate_session_false_for_expired(self, db: Database):
         """validate_session returns False for a session past its expiry and deletes the row."""
         # Insert an already-expired session directly
-        now = datetime.now(timezone.utc)
+        now = datetime.now(UTC)
         past = (now - timedelta(seconds=1)).isoformat()
         session_id = "exp-sess-001"
         await db.conn.execute(
@@ -235,7 +234,7 @@ class TestSessionPersistence:
         assert await validate_session(db, session_id, "tok2") is True
 
         # Manipulate expires_at to be in the past to simulate TTL expiry
-        past = (datetime.now(timezone.utc) - timedelta(seconds=1)).isoformat()
+        past = (datetime.now(UTC) - timedelta(seconds=1)).isoformat()
         await db.conn.execute(
             "UPDATE sessions SET expires_at = ? WHERE session_id = ?",
             (past, session_id),

@@ -27,6 +27,11 @@ class GeoInfo:
     asn: int | None = None
     org: str | None = None
     continent: str | None = None
+    # Only populated when the City DB (or Country DB with a location
+    # block) is present; the Command Post's Fleet Map plots blocked
+    # sources at these coordinates.
+    latitude: float | None = None
+    longitude: float | None = None
 
 
 class GeoIPLookup:
@@ -86,9 +91,15 @@ class GeoIPLookup:
                     info.country_code = country.get("iso_code")
                     info.country_name = country.get("names", {}).get("en")
                     info.continent = data.get("continent", {}).get("code")
-                    # City is only in the City DB
+                    # City + coordinates are only in the City DB
                     if self._city_reader:
                         info.city = data.get("city", {}).get("names", {}).get("en")
+                    loc = data.get("location") or {}
+                    lat = loc.get("latitude")
+                    lon = loc.get("longitude")
+                    if isinstance(lat, (int, float)) and isinstance(lon, (int, float)):
+                        info.latitude = float(lat)
+                        info.longitude = float(lon)
             except (ValueError, TypeError, KeyError) as e:
                 log.warning("geoip_lookup_error", ip=str(ip), error_type=type(e).__name__, error=str(e))
 

@@ -16,7 +16,7 @@ InfraGuard sits between the internet and your C2 teamserver, validating every in
 ### Proxying & Listeners
 
 - **Multi-domain proxying** -- proxy multiple domains simultaneously, each with independent C2 profiles, upstreams, and rules
-- **Multi-protocol listeners** -- HTTP/HTTPS, DNS, MQTT, and WebSocket listeners running simultaneously with shared IP intelligence and event tracking
+- **Multi-protocol listeners** -- HTTP/HTTPS, HTTP/3 (QUIC), WebSocket, gRPC, DNS, MQTT, and TCP-tunnel listeners running simultaneously with shared IP intelligence and event tracking
 - **Circuit breaker** -- per-upstream failure protection with closed/open/half-open states; falls through to the domain's drop action when backends are unreachable
 - **Protocol failover** -- automatic failover and failback between listener protocols ranked by priority
 
@@ -62,25 +62,35 @@ InfraGuard sits between the internet and your C2 teamserver, validating every in
 
 - **Infrastructure rotation** -- one-click blue-green Terraform rotation across 5 cloud providers with pre-flight checks, rollback, and age-encrypted state
 - **Rotation scheduling** -- automated rotation policies: fixed interval, burn-triggered, request-count threshold, and staggered rolling
+- **Auto-rotation watchdog** -- polls burn score and cert expiry on an interval; auto-rotates when the burn threshold trips or a cert has under N days left, or falls back to alert-only mode with a cost cap
+- **Circuit breakers** -- per-upstream failure tracking with HEALTHY / PROBING / TRIPPED states and configurable recovery timeout, surfaced live in the dashboard's Upstreams widget
 - **Domain fronting** -- CDN-based C2 routing via SNI/Host header split with CDN header stripping and SSRF protection
 - **Dead man's switch** -- operator heartbeat TTL that auto-stops C2 forwarding if the operator fails to check in
+- **Purple-team mirror** -- fire-and-forget duplicate of allowed events to a blue-team collector for engagement scoring
+- **Shared state backend (Redis)** -- optional cross-node replay cache, dynamic whitelist, beacon session bag, and drop rate-limit so horizontally scaled replicas see the same state
 - **Edge proxies** -- Cloudflare Worker and AWS Lambda for domain fronting through CDN infrastructure, edge country blocking, and host rewriting
 
 ### Dashboard & Operator Tools
 
 - **Web dashboard** -- real-time SPA with login page, live request feed, domain stats, top blocked IPs, WebSocket event streaming, and inline block/whitelist/unblock actions
-- **Decoy page management** -- list, preview, and edit decoy HTML pages directly from the dashboard
-- **Command Post** -- multi-instance aggregation dashboard that merges stats, requests, and live events from multiple InfraGuard nodes into a single view
+- **Decoy page management** -- list, preview, and edit decoy HTML pages directly from the dashboard; per-domain **Canary Overview** (pixel / hidden link / hidden form toggles) and a **Canary Hits** panel that surfaces every scanner or sandbox that pulled a decoy asset
+- **Decoy tokens with dedicated callback endpoints** -- injected tracking pixel, hidden link, and hidden form each fire a `canary_hit` event on `/_ig/px|hp|hf?c=<token>`; hits land in the tracking DB with `filter_result=canary_hit` and stream live to the Decoys page and any subscribed alerter plugin
+- **Plugins tab** -- lists loaded plugins with runtime `enable / disable` toggles (no restart) and a **Plugin Marketplace** to add any of the 29 built-in plugins with one click; every mutation persists to `config.yaml` and lands as a commit in the config-history repo
+- **Command Post** -- multi-instance aggregation dashboard that merges stats, requests, and live events from multiple InfraGuard nodes into a single view, with a **Fleet Map** (MapLibre) that plots each proxy plus every blocked-source IP at its geolocated lat/lon and a fan-out plugin toggle for cross-instance operations
 - **Terminal UI** -- Textual-based TUI with login screen, live API polling, color-coded request log
 - **Engagement reports** -- self-contained HTML, JSON, or CSV reports with per-domain breakdowns, filter effectiveness, and operator audit trail
-- **Prometheus metrics** -- `/metrics` endpoint exposing request counters, upstream latency histograms, circuit breaker state, feed freshness, and active connections
+- **Prometheus metrics** -- `/metrics` endpoint exposing request counters, upstream latency histograms, circuit breaker state, feed freshness, active connections, and the `infraguard_active_beacons` gauge the Helm HPA scales on
+- **OpenTelemetry** -- opt-in OTLP traces + metrics exporter; observability compose profile stands up an OTEL collector plus Prometheus + auto-provisioned Grafana overview dashboard
+- **Kubernetes Helm chart** -- proxy, dashboard, Redis StatefulSet, ServiceMonitor, and HPA on the active-beacon gauge; ships under `deploy/helm/infraguard/`
 
 ### Integrations & Plugins
 
 - **SIEM integration** -- built-in plugins for Elasticsearch, Wazuh, and Syslog (CEF/JSON) with batched forwarding
-- **Webhook alerts** -- built-in plugins for Discord (embeds), Slack (Block Kit), and generic webhook; burn detection alerts route through the same plugin system
+- **Webhook alerts** -- built-in plugins for Discord (embeds), Slack (Block Kit), generic webhook, **PagerDuty** (Events API v2, dedup keyed), and **Telegram** (two-way ops chat: `/status`, `/sessions`, `/kill`, `/ack` from a phone)
+- **Detection plugins** -- YARA rules over request bodies, GreyNoise Community lookup, ML bot classifier (logistic regression on JA4 + UA + timing), response canary (canarytokens.org), p0f v3 fingerprinting, JA4/JA4H enrichment, GeoIP enrichment
+- **Response manipulators** -- HTML rewriter, payload watermark, signature stripper, JS challenge, cache mimicry, slow tarpit, shadow-block (return 200 to scanners so they never adapt)
 - **Phishing.club integration** -- HMAC-signed webhook receiver that ingests phishing events and auto-allowlists clicking target IPs
-- **Plugin system** -- event-driven architecture with `on_event` hooks, per-plugin config, and event filtering
+- **Plugin system** -- event-driven architecture with `on_event` hooks, per-plugin config, and event filtering; every plugin can be toggled or loaded from the dashboard's **Plugins** tab without a restart, and the change persists back to `config.yaml` with a config-history audit commit
 
 ### Configuration & Deployment
 
@@ -140,6 +150,30 @@ infraguard generate apache -c config.yaml            Generate Apache VirtualHost
 
 infraguard init -o config.yaml                       Generate starter config
 infraguard validate -c config.yaml                   Validate config file
+
+infraguard simulate-beacon -c config.yaml --domain <d> Run one synthetic beacon
+                                                     through the loaded filter
+                                                     pipeline in-process
+infraguard drop-preview -c config.yaml --domain <d>   Render the drop-action
+                                                     response without any live
+                                                     traffic (decoy / redirect
+                                                     / tarpit preview)
+infraguard events tail -c config.yaml                 Tail the tracking DB as a
+                                                     structured event stream
+infraguard profile transpile <in> --to <c2>           Convert a C2 profile
+                                                     between formats using the
+                                                     shared profile IR
+infraguard preflight -c config.yaml                   Adversary-emulation
+                                                     self-test: DNS, cert,
+                                                     upstream, decoy dir,
+                                                     writes a Markdown report
+
+infraguard config set <domains.<d>.upstream> <value>  Mutate config from CLI;
+                                                     writes .bak, atomic file
+                                                     replace, and commit to the
+                                                     config-history git repo
+infraguard config log                                 Show mutation history
+infraguard config revert HEAD~N                       Roll back N mutations
 ```
 
 ### Generator options
@@ -339,64 +373,31 @@ Uncomment the `proxy-node` service in `docker-compose.yml` to enable.
 | `pwndrop-data` | PwnDrop uploaded files and database |
 | `ollama-data` | Ollama model weights and configuration |
 
-## Architecture
+> On Linux hosts, `chown -R 1000:1000 config/` if you want dashboard-driven mutations
+> (drop-action, profile swap, plugin toggle) to persist back to `config.yaml`. The
+> container's non-root uid needs write permission on the mount.
 
+## Kubernetes Deployment
+
+Helm chart under `deploy/helm/infraguard/` deploys the proxy, dashboard, Redis
+StatefulSet, and an HPA that scales the proxy on the `infraguard_active_beacons`
+custom metric (needs `prometheus-adapter` in-cluster). See the wiki's
+[Kubernetes Deployment](https://infraguard.whispergate.org/docs/deployment/kubernetes/)
+page for the full guide.
+
+```bash
+# One-shot install
+helm install infraguard deploy/helm/infraguard \
+    --namespace infraguard --create-namespace \
+    -f my-values.yaml
+
+# Get the API token the chart minted
+kubectl get secret -n infraguard infraguard-secrets \
+    -o jsonpath='{.data.INFRAGUARD_API_TOKEN}' | base64 -d
 ```
-infraguard/
-    __init__.py              Package init
-    __main__.py              python -m infraguard entry
-    main.py                  Click CLI
-    config/                  YAML config loading, .env support, Pydantic validation
-    core/                    ASGI proxy engine (app, proxy, router, TLS, drop actions, content delivery)
-    profiles/                C2 profile parsers and generators (8 types)
-    pipeline/                Request validation filters (JA3, IP, bot, header, DNS, geo, profile, replay, enumeration, sandbox)
-    intel/                   IP intelligence (blocklists, GeoIP, rDNS, feeds, rule ingestion)
-    tracking/                SQLite persistence (request logging, stats, node registry)
-    plugins/                 Plugin system (protocol, loader, builtins)
-    ui/
-        api/                 REST API + WebSocket (Starlette)
-        web/                 SPA dashboard (HTML/JS/CSS)
-        tui/                 Terminal UI (Textual) with login screen
-        command_post/        Multi-instance aggregation dashboard
-    listeners/               Protocol listeners (HTTP, DNS, MQTT, WebSocket)
-    backends/                Config generators (Nginx, Caddy, Apache)
-    models/                  Shared types and event models
-```
 
-## Comparison with RedWarden
-
-| Feature | RedWarden | InfraGuard |
-|---|---|---|
-| Architecture | Single ~99KB file | Modular package |
-| Profile parsing | Regex state machine | Structured parser with full block/transform support |
-| C2 support | Cobalt Strike only | Cobalt Strike, Mythic, Brute Ratel C4, Sliver, Havoc, Nighthawk, PoshC2 |
-| Profile management | Manual file editing | Dashboard wizard with generate, import, hot-swap, and AI assist |
-| Protocols | HTTP only | HTTP, DNS, MQTT, WebSocket |
-| Filter model | Binary pass/fail | Scoring-based (0.0--1.0 threshold), 10-filter chain |
-| TLS fingerprinting | None | JA3 blocking (Masscan, ZGrab2, Shodan, curl, Python requests, Nmap) |
-| Sandbox detection | None | Headless browser / Safe Links / sandbox UA and header scoring |
-| Enumeration detection | None | Path enumeration + DNS NXDOMAIN tracking with auto-block |
-| Burn detection | None | CT log monitoring, domain reputation, cross-domain analyst detection, confidence scoring |
-| Infrastructure resilience | None | Circuit breaker, protocol failover, dead man's switch, infrastructure rotation |
-| Payload delivery | None | PwnDrop, Mythic file store, filesystem, HTTP proxy with conditional delivery |
-| Payload protection | None | One-time tokens, per-route rate limiting, delivery guards |
-| Phishing protection | None | Campaign token validation (static list or HMAC-signed) |
-| Operator UI | None | Web dashboard + Terminal UI + multi-instance Command Post |
-| Observability | None | Prometheus metrics, engagement reports, structured logging |
-| Config generation | None | Nginx, Caddy, Apache with full customization |
-| Rule ingestion | None | .htaccess + robots.txt parser |
-| Threat intel feeds | None | Auto-update from 5 public sources |
-| Plugin system | Basic 4-method interface | Event-driven with on_event hooks + per-plugin config |
-| SIEM integration | None | Elasticsearch, Wazuh, Syslog (CEF/JSON) |
-| Webhook alerts | None | Discord, Slack, generic webhook |
-| Whitelist intelligence | None | Auto-enrich CIDRs with ASN/org/country on startup |
-| Anti-replay | SQLite hash | Persistent SQLite with in-memory L1 cache, survives restarts |
-| Drop actions | redirect, reset, proxy | redirect, reset, proxy, tarpit |
-| TLS management | Manual only | Auto self-signed + Let's Encrypt integration |
-| Edge deployment | None | Cloudflare Worker + AWS Lambda edge proxies with domain fronting |
-| Config security | None | age and SOPS encryption, validation checks, API key management |
-| Deployment | Manual | Docker Compose with health checks |
-| Async | Tornado callbacks | Native async/await (ASGI + uvicorn) |
+The chart's probes hit `/health` on the HTTPS listener with `scheme: HTTPS`, so
+the container needs a `tls:` block in the config (self-signed fallback is fine).
 
 ## Contributions
 

@@ -115,8 +115,7 @@ def _parse(data: bytes) -> ClientHelloFields | None:
     ext_total_len = struct.unpack(">H", data[pos:pos + 2])[0]
     pos += 2
     ext_end = pos + ext_total_len
-    if ext_end > len(data):
-        ext_end = len(data)
+    ext_end = min(ext_end, len(data))
 
     while pos + 4 <= ext_end:
         ext_type = struct.unpack(">H", data[pos:pos + 2])[0]
@@ -161,4 +160,4 @@ def compute_ja3(fields: ClientHelloFields) -> str:
         f"{'-'.join(str(c) for c in fields.elliptic_curves)},"
         f"{'-'.join(str(f) for f in fields.ec_point_formats)}"
     )
-    return hashlib.md5(ja3_str.encode()).hexdigest()  # noqa: S324 - JA3 spec requires MD5
+    return hashlib.md5(ja3_str.encode()).hexdigest()

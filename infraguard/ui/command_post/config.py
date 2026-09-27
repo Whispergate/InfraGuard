@@ -13,6 +13,15 @@ class InstanceConfig:
     name: str
     url: str
     token: str = ""
+    # InfraGuard proxies default to a self-signed TLS cert, so the Command
+    # Post's HTTP client turns cert verification off by default. Set to
+    # ``true`` per-instance when the target has a real CA-signed cert.
+    verify_ssl: bool = False
+    # Optional lat/lon for the fleet map. When omitted, the Command Post
+    # falls back to a name-based region hint (eu-west-1 -> Falkenstein, etc.)
+    # so most operators get sensible positioning without extra config.
+    lat: float | None = None
+    lon: float | None = None
 
 
 @dataclass
@@ -51,6 +60,9 @@ class CommandPostConfig:
                 name=inst.get("name", f"instance-{i}"),
                 url=inst.get("url", ""),
                 token=inst.get("token", ""),
+                verify_ssl=bool(inst.get("verify_ssl", False)),
+                lat=inst.get("lat"),
+                lon=inst.get("lon"),
             )
             for i, inst in enumerate(raw.get("instances", []))
         ]

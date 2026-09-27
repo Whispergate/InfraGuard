@@ -86,8 +86,9 @@ class EventBroadcaster:
         """WebSocket endpoint handler with authentication."""
         expected_token = ws.app.state.config.api.auth_token
         if expected_token:
-            # Check session cookie
-            session_id = ws.cookies.get(SESSION_COOKIE, "")
+            # Check session cookie (per-app; falls back to legacy name)
+            _cookie = getattr(ws.app.state, "session_cookie_name", SESSION_COOKIE)
+            session_id = ws.cookies.get(_cookie, "")
 
             db = ws.app.state.db
             session_ok = session_id and await validate_session(db, session_id, expected_token)

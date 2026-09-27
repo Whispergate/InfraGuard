@@ -11,7 +11,6 @@ the configured TTL.
 
 from __future__ import annotations
 
-import asyncio
 import secrets
 import time
 from dataclasses import dataclass

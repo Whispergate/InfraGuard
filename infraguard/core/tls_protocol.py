@@ -22,11 +22,10 @@ Uvicorn extension point:
 from __future__ import annotations
 
 import asyncio
-from typing import Any
 
 import structlog
 
-from infraguard.core.ja3 import ClientHelloFields, compute_ja3, parse_client_hello
+from infraguard.core.ja3 import compute_ja3, parse_client_hello
 
 log = structlog.get_logger()
 

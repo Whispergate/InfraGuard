@@ -36,7 +36,7 @@ import json
 import time
 from collections import defaultdict, deque
 from dataclasses import dataclass, field
-from typing import TYPE_CHECKING, Iterable
+from typing import TYPE_CHECKING
 
 import httpx
 import structlog
@@ -96,8 +96,8 @@ class PassiveDNSMonitor:
         nxdomain_spike_threshold: int = 5,
         nxdomain_window_seconds: int = 3600,
         alert_on_first_seen: bool = True,
-        burn_detector: "BurnDetector | None" = None,
-        recorder: "EventRecorder | None" = None,
+        burn_detector: BurnDetector | None = None,
+        recorder: EventRecorder | None = None,
     ) -> None:
         self._domains = [d.lower().strip() for d in domains if d.strip()]
         self._interval = interval_hours * 3600

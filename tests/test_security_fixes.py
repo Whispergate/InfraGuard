@@ -42,7 +42,6 @@ from infraguard.core.ssl_context import build_ssl_context
 from infraguard.models.common import FilterAction, FilterResult, ProfileType
 from infraguard.pipeline.base import FilterPipeline, RequestContext
 
-
 # ── RESL-01: Circuit breaker per-upstream failover ─────────────────────────
 
 class TestCircuitBreakerFailover:
@@ -352,8 +351,8 @@ class TestDecoyPathTraversal:
     @pytest.mark.asyncio
     async def test_path_traversal_blocked(self, tmp_path: Path):
         """../.. paths are blocked with 403."""
-        from infraguard.core.drop import _serve_decoy_spa
         from infraguard.config.schema import PersonaConfig
+        from infraguard.core.drop import _serve_decoy_spa
 
         pages_dir = tmp_path / "pages"
         site_dir = pages_dir / "decoy"
@@ -372,8 +371,8 @@ class TestDecoyPathTraversal:
     @pytest.mark.asyncio
     async def test_normal_path_served(self, tmp_path: Path):
         """Normal paths are served correctly."""
-        from infraguard.core.drop import _serve_decoy_spa
         from infraguard.config.schema import PersonaConfig
+        from infraguard.core.drop import _serve_decoy_spa
 
         pages_dir = tmp_path / "pages"
         site_dir = pages_dir / "decoy"
@@ -477,7 +476,7 @@ class TestSessionCookieSecurity:
     @pytest.mark.asyncio
     async def test_login_sets_secure_cookie_https(self):
         """Over HTTPS, cookie has Secure flag set."""
-        from infraguard.ui.api.auth import login_handler, SESSION_COOKIE
+        from infraguard.ui.api.auth import SESSION_COOKIE, login_handler
 
         req = MagicMock()
         req.client = MagicMock()
@@ -500,7 +499,7 @@ class TestSessionCookieSecurity:
     @pytest.mark.asyncio
     async def test_login_no_secure_flag_http(self):
         """Over HTTP, cookie does NOT have Secure flag."""
-        from infraguard.ui.api.auth import login_handler, SESSION_COOKIE
+        from infraguard.ui.api.auth import SESSION_COOKIE, login_handler
 
         req = MagicMock()
         req.client = MagicMock()

@@ -35,7 +35,7 @@ class BotFilter:
         # Check against known bot patterns
         if self._ua_regex and self._ua_regex.search(ua):
             return FilterResult.block(
-                reason=f"Bot/scanner User-Agent detected",
+                reason="Bot/scanner User-Agent detected",
                 filter_name=self.name,
                 score=0.9,
             )

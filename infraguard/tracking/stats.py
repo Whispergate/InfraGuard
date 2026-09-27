@@ -25,6 +25,11 @@ class OverviewStats:
     unique_ips: int
     domains: list[DomainStats]
     top_blocked_ips: list[tuple[str, int]]
+    # Per-delivery breakdown; sum <= blocked_requests (leftovers were
+    # bare drops with type=reset which count under blocked but not here).
+    decoy_requests: int = 0
+    tarpit_requests: int = 0
+    redirect_requests: int = 0
 
 
 class StatsQuery:
@@ -36,22 +41,32 @@ class StatsQuery:
     async def overview(self, hours: int = 24) -> OverviewStats:
         time_param = f"-{int(hours)} hours"
 
+        # ``block`` here means "did not reach the C2 upstream" and now
+        # includes the delivery-method verdicts the router writes for
+        # decoy/tarpit/redirect/reset. The individual counts are kept
+        # for the Overview KPI tile that breaks them out.
+        _DROP_SQL = (
+            "filter_result IN ('block','decoy','tarpit','redirect','reset')"
+        )
         totals = await self.db.fetchone(
-            """SELECT
+            f"""SELECT
                 COUNT(*) as total,
                 SUM(CASE WHEN filter_result = 'allow' THEN 1 ELSE 0 END) as allowed,
-                SUM(CASE WHEN filter_result = 'block' THEN 1 ELSE 0 END) as blocked,
+                SUM(CASE WHEN {_DROP_SQL} THEN 1 ELSE 0 END) as blocked,
+                SUM(CASE WHEN filter_result = 'decoy' THEN 1 ELSE 0 END) as decoy,
+                SUM(CASE WHEN filter_result = 'tarpit' THEN 1 ELSE 0 END) as tarpit,
+                SUM(CASE WHEN filter_result = 'redirect' THEN 1 ELSE 0 END) as redirect,
                 COUNT(DISTINCT client_ip) as unique_ips
             FROM requests WHERE timestamp > datetime('now', ?)""",
             (time_param,),
         )
 
         domain_rows = await self.db.fetchall(
-            """SELECT
+            f"""SELECT
                 domain,
                 COUNT(*) as total,
                 SUM(CASE WHEN filter_result = 'allow' THEN 1 ELSE 0 END) as allowed,
-                SUM(CASE WHEN filter_result = 'block' THEN 1 ELSE 0 END) as blocked,
+                SUM(CASE WHEN {_DROP_SQL} THEN 1 ELSE 0 END) as blocked,
                 COUNT(DISTINCT client_ip) as unique_ips
             FROM requests WHERE timestamp > datetime('now', ?)
             GROUP BY domain""",
@@ -59,9 +74,9 @@ class StatsQuery:
         )
 
         top_blocked = await self.db.fetchall(
-            """SELECT client_ip, COUNT(*) as cnt
+            f"""SELECT client_ip, COUNT(*) as cnt
             FROM requests
-            WHERE filter_result = 'block' AND timestamp > datetime('now', ?)
+            WHERE {_DROP_SQL} AND timestamp > datetime('now', ?)
             GROUP BY client_ip
             ORDER BY cnt DESC
             LIMIT 10""",
@@ -87,6 +102,9 @@ class StatsQuery:
             unique_ips=totals["unique_ips"] if totals else 0,
             domains=domains,
             top_blocked_ips=[(r["client_ip"], r["cnt"]) for r in top_blocked],
+            decoy_requests=(totals["decoy"] or 0) if totals else 0,
+            tarpit_requests=(totals["tarpit"] or 0) if totals else 0,
+            redirect_requests=(totals["redirect"] or 0) if totals else 0,
         )
 
     async def content_stats(self, hours: int = 24) -> list[dict]:
@@ -107,13 +125,33 @@ class StatsQuery:
         return rows
 
     async def recent_requests(
-        self, limit: int = 50, domain: str | None = None
+        self,
+        limit: int = 50,
+        domain: str | None = None,
+        filter_result: str | None = None,
     ) -> list[dict]:
-        sql = "SELECT * FROM requests"
+        """Return recent request rows, most-recent first.
+
+        ``filter_result`` accepts either a single verdict
+        (``canary_hit``, ``allow``, ``block`` …) or a comma-separated
+        list. Handy for the dashboard's Canary Hits panel, which only
+        needs ``canary_hit`` rows and would otherwise miss them behind
+        a wall of newer block traffic.
+        """
+        clauses: list[str] = []
         params: tuple = ()
         if domain:
-            sql += " WHERE domain = ?"
-            params = (domain,)
+            clauses.append("domain = ?")
+            params = (*params, domain)
+        if filter_result:
+            values = [v.strip() for v in filter_result.split(",") if v.strip()]
+            if values:
+                placeholders = ",".join(["?"] * len(values))
+                clauses.append(f"filter_result IN ({placeholders})")
+                params = (*params, *values)
+        sql = "SELECT * FROM requests"
+        if clauses:
+            sql += " WHERE " + " AND ".join(clauses)
         sql += " ORDER BY id DESC LIMIT ?"
         params = (*params, limit)
         return await self.db.fetchall(sql, params)

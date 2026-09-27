@@ -37,12 +37,22 @@ async def _forward_to_proxy(request: Request, path: str) -> JSONResponse | None:
     try:
         body = await request.body()
         cookies = dict(request.cookies)
+        # Forward the caller's Authorization header, or fall back to
+        # the dashboard's own token, so the proxy accepts the hop.
+        fwd_headers = {"Content-Type": "application/json"}
+        if "authorization" in request.headers:
+            fwd_headers["Authorization"] = request.headers["authorization"]
+        else:
+            _cfg = getattr(getattr(request.app.state, "config", None), "api", None)
+            _tok = getattr(_cfg, "auth_token", None) if _cfg is not None else None
+            if _tok:
+                fwd_headers["Authorization"] = f"Bearer {_tok}"
         async with httpx.AsyncClient(verify=False, timeout=10) as client:
             resp = await client.request(
                 method=request.method,
                 url=url,
                 content=body,
-                headers={"Content-Type": "application/json"},
+                headers=fwd_headers,
                 cookies=cookies,
             )
             return JSONResponse(resp.json(), status_code=resp.status_code)
@@ -71,11 +81,25 @@ def _sanitize_config(obj):
 
 
 async def get_config(request: Request) -> JSONResponse:
-    """GET /api/config - return current configuration (sanitized)."""
+    """GET /api/config - return current configuration (sanitized).
+
+    Forward to the proxy when running as the standalone dashboard so the
+    response reflects any runtime mutations (drop-action, profile swap,
+    plugin toggle) that have not yet been re-read from disk here.
+    """
+    router = getattr(request.app.state, "router", None)
+    if router is None:
+        forwarded = await _forward_to_proxy(request, "/api/config")
+        if forwarded is not None:
+            return forwarded
+
     config: InfraGuardConfig = request.app.state.config
 
-    # Sanitize: don't expose auth tokens
-    config_dict = config.model_dump()
+    # ``mode="json"`` coerces PosixPath / Enum / datetime / etc. into
+    # JSON-friendly primitives; without it starlette's JSONResponse
+    # hits a ``TypeError: PosixPath is not JSON serializable`` on
+    # config fields like ``TLSConfig.cert``.
+    config_dict = config.model_dump(mode="json")
     if "api" in config_dict and "auth_token" in config_dict["api"]:
         config_dict["api"]["auth_token"] = "***" if config_dict["api"]["auth_token"] else None
 
@@ -85,9 +109,19 @@ async def get_config(request: Request) -> JSONResponse:
 
 
 async def get_domains(request: Request) -> JSONResponse:
-    """GET /api/config/domains - list configured domains."""
+    """GET /api/config/domains - list configured domains.
+
+    The standalone dashboard container mirrors config from disk at boot
+    but never sees runtime mutations (profile swap, drop-action edit)
+    that happen on the proxy's own copy. Forward the read to the proxy
+    so the UI sees the truth right after a mutation.
+    """
     config: InfraGuardConfig = request.app.state.config
     router = getattr(request.app.state, "router", None)
+    if router is None:
+        forwarded = await _forward_to_proxy(request, "/api/config/domains")
+        if forwarded is not None:
+            return forwarded
     domains = {}
     for name, dc in config.domains.items():
         uris = []
@@ -186,11 +220,122 @@ async def update_drop_action(request: Request) -> JSONResponse:
             if field in canary_update:
                 setattr(dc.drop_action.canary, field, canary_update[field])
 
+    # Persist the mutation back to config.yaml so it survives a
+    # restart. Without this the dashboard change looked like it
+    # took effect (the running config was mutated) but the next
+    # container start would revert.
+    persisted, persist_error = _persist_drop_action(
+        Path(os.environ.get("INFRAGUARD_CONFIG", "config/config.yaml")),
+        domain,
+        dc.drop_action,
+        actor=str(getattr(request.state, "user", None) or "dashboard"),
+    )
+
     return JSONResponse({
         "status": "ok",
         "domain": domain,
         "drop_action": dc.drop_action.model_dump(),
+        "persisted": persisted,
+        "persist_error": persist_error,
     })
+
+
+def _persist_drop_action(config_path: Path, domain: str, drop_action, actor: str):
+    """Write ``domains[<domain>].drop_action`` back to the YAML config."""
+    if not config_path.exists():
+        return False, f"config file not found: {config_path}"
+    try:
+        import yaml as _yaml
+        with config_path.open("r", encoding="utf-8") as f:
+            data = _yaml.safe_load(f) or {}
+    except Exception as exc:
+        return False, f"config parse failed: {exc}"
+
+    domains = data.setdefault("domains", {}) or {}
+    key = _match_domain_key(domains, domain)
+    if key is None:
+        return False, f"domain {domain!r} missing from config"
+    dcfg = domains[key]
+    da_dump = drop_action.model_dump(mode="json")
+    # Only write scalars back at the leaves so we don't turn ``target``
+    # into a JSON blob the loader can't round-trip.
+    dcfg["drop_action"] = da_dump
+    domain = key  # preserve the templated key on disk
+    domains[domain] = dcfg
+    data["domains"] = domains
+
+    # .bak is best-effort; a permission error must not block the real
+    # atomic write below.
+    try:
+        import shutil
+        bak = config_path.with_suffix(config_path.suffix + ".bak")
+        shutil.copy2(config_path, bak)
+    except Exception as exc:
+        log.debug("config_bak_skipped", error=str(exc))
+    try:
+        _atomic_yaml_write(config_path, data)
+    except PermissionError as exc:
+        return False, (
+            f"config write denied: {exc}. Fix host ownership so uid 1000 "
+            f"can write the config dir (``chown -R 1000:1000 config/``)."
+        )
+    except Exception as exc:
+        return False, f"config write failed: {exc}"
+
+    try:
+        from infraguard.config.git_history import ConfigHistory
+        hd = os.environ.get(
+            "INFRAGUARD_CONFIG_HISTORY",
+            str(Path.home() / ".config" / "infraguard" / "history.git"),
+        )
+        ConfigHistory(hd).record(
+            config_path, actor=actor,
+            summary=f"drop_action for {domain} -> {da_dump.get('type')}",
+        )
+    except Exception:
+        pass
+    return True, None
+
+
+def _match_domain_key(domains: dict, target: str) -> str | None:
+    """Find the config key that resolves to ``target``.
+
+    Config authors often write ``${INFRAGUARD_DOMAIN}`` as the key so
+    the same file works across environments; the loader env-expands it
+    when it constructs ``InfraGuardConfig.domains``. Dashboard requests
+    hit us with the expanded name, so a naive lookup misses the
+    templated key. Match direct first, then env-expand each key and
+    compare.
+    """
+    import os
+    import re
+
+    if target in domains:
+        return target
+    _env = re.compile(r"\$\{([^}]+)\}")
+    for k in domains.keys():
+        if not isinstance(k, str):
+            continue
+        resolved = _env.sub(lambda m: os.environ.get(m.group(1), ""), k)
+        if resolved == target:
+            return k
+    return None
+
+
+def _atomic_yaml_write(path: Path, data: dict) -> None:
+    """Write ``data`` to ``path`` via a tmp file + rename so a partial
+    write can never leave the config truncated with stale bytes past
+    EOF (the failure mode we saw on a Windows bind-mount)."""
+    import yaml as _yaml
+    tmp = path.with_suffix(path.suffix + ".tmp")
+    with tmp.open("w", encoding="utf-8") as f:
+        _yaml.dump(data, f, default_flow_style=False, allow_unicode=True, sort_keys=False)
+        f.flush()
+        try:
+            os.fsync(f.fileno())
+        except OSError:
+            pass
+    os.replace(tmp, path)
 
 
 _PROFILE_EXTENSIONS = {".profile", ".json", ".yaml", ".yml", ".toml"}
@@ -202,28 +347,40 @@ async def list_profiles(request: Request) -> JSONResponse:
 
     config: InfraGuardConfig = request.app.state.config
 
-    search_dirs = {Path("profiles"), Path("examples"), Path("data/profiles")}
+    # Canonicalise directories with ``.resolve()`` so ``examples`` and
+    # ``/app/examples`` (both real when a config uses an absolute
+    # profile_path) don't get treated as two separate search roots and
+    # yield duplicate rows in the dropdown.
+    raw_dirs = {Path("profiles"), Path("examples"), Path("data/profiles")}
     for dc in config.domains.values():
         if dc.profile_path:
-            search_dirs.add(Path(dc.profile_path).parent)
+            raw_dirs.add(Path(dc.profile_path).parent)
+    search_dirs = set()
+    for d in raw_dirs:
+        try:
+            if d.exists() and d.is_dir():
+                search_dirs.add(d.resolve())
+        except OSError:
+            pass
 
-    seen: set[str] = set()
+    seen_files: set[Path] = set()
     profiles = []
-    for d in sorted(search_dirs):
-        if not d.exists() or not d.is_dir():
-            continue
+    for d in sorted(search_dirs, key=str):
         for f in sorted(d.iterdir()):
             if not f.is_file() or f.suffix.lower() not in _PROFILE_EXTENSIONS:
                 continue
-            rel = str(f)
-            if rel in seen:
+            try:
+                canonical = f.resolve()
+            except OSError:
+                canonical = f
+            if canonical in seen_files:
                 continue
-            seen.add(rel)
+            seen_files.add(canonical)
             try:
                 ptype = detect_profile_type(f).value
             except (ValueError, Exception):
                 ptype = "unknown"
-            profiles.append({"path": rel, "name": f.name, "type": ptype})
+            profiles.append({"path": str(f), "name": f.name, "type": ptype})
 
     return JSONResponse({"profiles": profiles})
 
@@ -320,6 +477,15 @@ async def swap_profile(request: Request) -> JSONResponse:
 
     route.profile = new_profile
 
+    # Persist so the swap survives a restart.
+    persisted, persist_error = _persist_profile_swap(
+        Path(os.environ.get("INFRAGUARD_CONFIG", "config/config.yaml")),
+        domain,
+        str(profile_path),
+        profile_type.value,
+        actor=str(getattr(request.state, "user", None) or "dashboard"),
+    )
+
     return JSONResponse({
         "status": "ok",
         "domain": domain,
@@ -329,7 +495,62 @@ async def swap_profile(request: Request) -> JSONResponse:
             "path": str(profile_path),
             "uris": new_profile.all_uris(),
         },
+        "persisted": persisted,
+        "persist_error": persist_error,
     })
+
+
+def _persist_profile_swap(config_path: Path, domain: str, profile_path: str,
+                          profile_type: str, actor: str):
+    """Write profile_path / profile_type back to the YAML config."""
+    if not config_path.exists():
+        return False, f"config file not found: {config_path}"
+    try:
+        import yaml as _yaml
+        with config_path.open("r", encoding="utf-8") as f:
+            data = _yaml.safe_load(f) or {}
+    except Exception as exc:
+        return False, f"config parse failed: {exc}"
+
+    domains = data.setdefault("domains", {}) or {}
+    key = _match_domain_key(domains, domain)
+    if key is None:
+        return False, f"domain {domain!r} missing from config"
+    dcfg = domains[key]
+    dcfg["profile_path"] = profile_path
+    dcfg["profile_type"] = profile_type
+    domains[domain] = dcfg
+    data["domains"] = domains
+
+    try:
+        import shutil
+        bak = config_path.with_suffix(config_path.suffix + ".bak")
+        shutil.copy2(config_path, bak)
+    except Exception as exc:
+        log.debug("config_bak_skipped", error=str(exc))
+    try:
+        _atomic_yaml_write(config_path, data)
+    except PermissionError as exc:
+        return False, (
+            f"config write denied: {exc}. Fix host ownership so uid 1000 "
+            f"can write the config dir (``chown -R 1000:1000 config/``)."
+        )
+    except Exception as exc:
+        return False, f"config write failed: {exc}"
+
+    try:
+        from infraguard.config.git_history import ConfigHistory
+        hd = os.environ.get(
+            "INFRAGUARD_CONFIG_HISTORY",
+            str(Path.home() / ".config" / "infraguard" / "history.git"),
+        )
+        ConfigHistory(hd).record(
+            config_path, actor=actor,
+            summary=f"profile swap for {domain} -> {profile_type}",
+        )
+    except Exception:
+        pass
+    return True, None
 
 
 # ── Content-based profile type detection (for import without filename) ──
@@ -407,7 +628,7 @@ def _safe_filename(filename: str) -> Path | None:
 
 
 async def upload_profile(request: Request) -> JSONResponse:
-    """POST /api/profiles/upload — import a profile from pasted/uploaded content."""
+    """POST /api/profiles/upload - import a profile from pasted/uploaded content."""
     try:
         body = await request.json()
     except Exception:
@@ -475,7 +696,7 @@ async def upload_profile(request: Request) -> JSONResponse:
 
 
 async def generate_profile_endpoint(request: Request) -> JSONResponse:
-    """POST /api/profiles/generate — generate a new profile from wizard params."""
+    """POST /api/profiles/generate - generate a new profile from wizard params."""
     from infraguard.profiles.generators import generate_profile
 
     try:

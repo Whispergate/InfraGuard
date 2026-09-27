@@ -1,0 +1,166 @@
+# Default values for InfraGuard. Override with -f my-values.yaml or --set.
+
+image:
+  repository: infraguard
+  tag: "0.5.0"
+  pullPolicy: IfNotPresent
+  pullSecrets: []
+
+# Prefix for every rendered resource name (helps when running two
+# environments in one namespace).
+nameOverride: ""
+fullnameOverride: ""
+
+# ---------------------------------------------------------------------------
+# Proxy (the redirector itself)
+# ---------------------------------------------------------------------------
+proxy:
+  replicaCount: 1              # ignored when autoscaling.enabled
+  service:
+    type: ClusterIP            # LoadBalancer / NodePort for external
+    port: 443
+    quicPort: 443              # UDP; only listened on when a h3 listener is configured
+  resources:
+    limits:   { cpu: "1", memory: "512Mi" }
+    requests: { cpu: "250m", memory: "128Mi" }
+  # Bind-mount for the rules dir (data-driven intel). Provide as a
+  # ConfigMap or a PVC depending on how often the operator hot-swaps.
+  rulesConfigMap: ""           # empty = use the image's shipped rules/
+  # Log level override.
+  logLevel: INFO
+
+# ---------------------------------------------------------------------------
+# Dashboard (web UI)
+# ---------------------------------------------------------------------------
+dashboard:
+  enabled: true
+  replicaCount: 1
+  service:
+    type: ClusterIP
+    port: 8080
+  resources:
+    limits:   { cpu: "500m", memory: "256Mi" }
+    requests: { cpu: "100m", memory: "64Mi" }
+
+# ---------------------------------------------------------------------------
+# Config
+# ---------------------------------------------------------------------------
+config:
+  # Full contents of config.yaml. Rendered into a ConfigMap and
+  # mounted at /app/config/config.yaml. Override with --set-file or
+  # a values file.
+  contents: |
+    listeners:
+      - protocol: https
+        bind: 0.0.0.0
+        port: 443
+    api:
+      bind: 0.0.0.0
+      port: 8080
+      auth_token: ${INFRAGUARD_API_TOKEN}
+    domains: {}
+    pipeline:
+      block_score_threshold: 0.7
+    state:
+      backend: redis
+      redis_url: redis://{{ include "infraguard.fullname" . }}-redis:6379/0
+    tracking:
+      db_path: /app/data/infraguard.db
+
+# ---------------------------------------------------------------------------
+# Secrets (dashboard API token, LE email, cloud creds, etc.).
+# Anything under ``.secrets.data`` is rendered into a Kubernetes Secret
+# and exposed to both proxy and dashboard as env vars.
+# ---------------------------------------------------------------------------
+secrets:
+  create: true
+  # Names of existing secrets to also mount (chart does not manage them).
+  existingSecrets: []
+  data: {}
+  # data:
+  #   INFRAGUARD_API_TOKEN: "changeme-generated-by-secrets-tool"
+  #   INFRAGUARD_DOMAIN_EMAIL: "ops@example.com"
+
+# ---------------------------------------------------------------------------
+# Redis (shared state backend). Required for autoscaling; leaving
+# ``enabled: false`` runs single-node with the in-memory backend.
+# ---------------------------------------------------------------------------
+redis:
+  enabled: true
+  image:
+    repository: redis
+    tag: "7-alpine"
+    pullPolicy: IfNotPresent
+  storage:
+    size: 1Gi
+    storageClassName: ""
+  resources:
+    limits:   { cpu: "500m", memory: "256Mi" }
+    requests: { cpu: "50m",  memory: "64Mi" }
+
+# ---------------------------------------------------------------------------
+# Ingress (default: none; operators typically expose 443 via a
+# LoadBalancer service or their own ingress controller).
+# ---------------------------------------------------------------------------
+ingress:
+  enabled: false
+  className: nginx
+  annotations: {}
+  hosts:
+    - host: infraguard.example.com
+      paths:
+        - path: /
+          pathType: Prefix
+  tls: []
+
+# ---------------------------------------------------------------------------
+# Horizontal Pod Autoscaler on the ``infraguard_active_beacons`` custom
+# metric. Requires prometheus-adapter (or an equivalent Custom Metrics
+# API provider) that scrapes /metrics on the dashboard service.
+# ---------------------------------------------------------------------------
+autoscaling:
+  enabled: false               # off by default; opt-in
+  minReplicas: 1
+  maxReplicas: 5
+  # HPA target: scale up when >= 50 active beacons per replica.
+  targetBeaconsPerReplica: 50
+  # Extra CPU + memory guards so a runaway plugin does not sit under
+  # the target and refuse to scale.
+  cpuUtilization: 80
+  memoryUtilization: 80
+
+# ---------------------------------------------------------------------------
+# Prometheus scrape (ServiceMonitor for the operator to install).
+# Skipped when the CRD is not present.
+# ---------------------------------------------------------------------------
+serviceMonitor:
+  enabled: false
+  interval: 15s
+  scrapeTimeout: 10s
+  namespace: ""                # empty = same namespace as the release
+
+# ---------------------------------------------------------------------------
+# Node placement + pod security. Reasonable defaults; override for
+# tight environments.
+# ---------------------------------------------------------------------------
+podSecurityContext:
+  runAsNonRoot: true
+  runAsUser: 1000
+  runAsGroup: 1000
+  fsGroup: 1000
+
+containerSecurityContext:
+  allowPrivilegeEscalation: false
+  readOnlyRootFilesystem: true
+  capabilities:
+    drop: ["ALL"]
+    add:  ["NET_BIND_SERVICE"]
+
+nodeSelector: {}
+tolerations: []
+affinity: {}
+
+# Extra env vars applied to both proxy and dashboard pods.
+extraEnv: []
+# - name: INFRAGUARD_LOG_LEVEL
+#   value: DEBUG

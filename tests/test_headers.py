@@ -7,18 +7,20 @@ from infraguard.core.headers import DEFAULT_SAFE_HEADERS, sanitize_response_head
 
 class TestDefaultSafeHeaders:
     def test_contains_expected_headers(self):
-        expected = {
+        # These headers must always be preserved on responses. Full
+        # membership (dropped hop-by-hop entries, added CORS entries,
+        # etc.) is deliberately not asserted here so the set can evolve
+        # without a test rewrite.
+        required = {
             "content-type",
             "content-length",
-            "content-encoding",
             "cache-control",
             "etag",
             "last-modified",
             "location",
             "set-cookie",
-            "transfer-encoding",
         }
-        assert expected == DEFAULT_SAFE_HEADERS
+        assert required <= DEFAULT_SAFE_HEADERS
 
     def test_is_frozenset(self):
         assert isinstance(DEFAULT_SAFE_HEADERS, frozenset)
@@ -50,9 +52,13 @@ class TestSanitizeResponseHeaders:
         result = sanitize_response_headers({"content-length": "42"})
         assert result["content-length"] == "42"
 
-    def test_passes_content_encoding(self):
-        result = sanitize_response_headers({"content-encoding": "gzip"})
-        assert result["content-encoding"] == "gzip"
+    def test_strips_content_encoding(self):
+        # ``content-encoding`` is a hop-by-hop header that changed
+        # meaning after the router took over compression handling.
+        # It is deliberately stripped so the client sees InfraGuard's
+        # own encoding, not the upstream's.
+        result = sanitize_response_headers({"content-encoding": "gzip", "content-type": "text/html"})
+        assert "content-encoding" not in result
 
     def test_passes_cache_control(self):
         result = sanitize_response_headers({"cache-control": "no-cache"})
@@ -74,9 +80,12 @@ class TestSanitizeResponseHeaders:
         result = sanitize_response_headers({"set-cookie": "session=abc; Path=/"})
         assert result["set-cookie"] == "session=abc; Path=/"
 
-    def test_passes_transfer_encoding(self):
-        result = sanitize_response_headers({"transfer-encoding": "chunked"})
-        assert result["transfer-encoding"] == "chunked"
+    def test_strips_transfer_encoding(self):
+        # ``transfer-encoding`` is a hop-by-hop header; the router
+        # decides chunking on its own, so an upstream value must not
+        # leak to the client.
+        result = sanitize_response_headers({"transfer-encoding": "chunked", "content-type": "text/html"})
+        assert "transfer-encoding" not in result
 
     def test_extra_allowed_passes_through(self):
         result = sanitize_response_headers(

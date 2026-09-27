@@ -24,8 +24,8 @@ import re
 from dataclasses import dataclass, field
 from pathlib import Path
 
-import yaml
 import structlog
+import yaml
 
 log = structlog.get_logger()
 

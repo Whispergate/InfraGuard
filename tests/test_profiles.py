@@ -5,10 +5,9 @@ from pathlib import Path
 import pytest
 
 from infraguard.profiles.cobalt_strike import CobaltStrikeParser, parse_cobalt_strike_file
-from infraguard.profiles.mythic import MythicHTTPParser, parse_mythic_file
 from infraguard.profiles.models import C2Profile, Transform
+from infraguard.profiles.mythic import MythicHTTPParser, parse_mythic_file
 from infraguard.profiles.transforms import TransformChain
-
 
 # ── Cobalt Strike parser ──────────────────────────────────────────────
 

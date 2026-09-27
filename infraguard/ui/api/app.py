@@ -25,10 +25,10 @@ from infraguard.ui.api.auth import (
     login_handler,
     logout_handler,
 )
+from infraguard.ui.api.metrics import create_metrics_app
 from infraguard.ui.api.rate_limit import (
     APIKeyManager,
     InMemoryRateLimiterBackend,
-    RateLimitMiddleware,
     RedisRateLimiterBackend,
     TokenBucketRateLimiter,
     UsageTracker,
@@ -39,6 +39,7 @@ from infraguard.ui.api.rate_limit import (
     rotate_api_key,
 )
 from infraguard.ui.api.routes.ai import ai_chat, ai_status
+from infraguard.ui.api.routes.burn import get_burn_score, get_burn_scores
 from infraguard.ui.api.routes.config import (
     generate_profile_endpoint,
     get_config,
@@ -48,6 +49,16 @@ from infraguard.ui.api.routes.config import (
     update_drop_action,
     upload_profile,
 )
+from infraguard.ui.api.routes.dashboard import (
+    get_circuit_breakers,
+    get_deadman,
+    get_rotations,
+    get_watchdog,
+    post_burn,
+    post_burn_clear,
+    post_heartbeat,
+    post_rotate_preflight,
+)
 from infraguard.ui.api.routes.decoys import (
     get_decoy_file,
     list_decoy_pages,
@@ -55,8 +66,13 @@ from infraguard.ui.api.routes.decoys import (
     preview_decoy_page,
     update_decoy_file,
 )
-from infraguard.ui.api.routes.intel import add_blocklist, add_whitelist, classify_ip, remove_blocklist
 from infraguard.ui.api.routes.health import get_health, get_health_summary
+from infraguard.ui.api.routes.intel import (
+    add_blocklist,
+    add_whitelist,
+    classify_ip,
+    remove_blocklist,
+)
 from infraguard.ui.api.routes.nodes import heartbeat_node, list_nodes, register_node
 from infraguard.ui.api.routes.pdns import (
     clear_pdns_history,
@@ -64,11 +80,14 @@ from infraguard.ui.api.routes.pdns import (
     get_pdns_history,
     get_pdns_status,
 )
+from infraguard.ui.api.routes.plugins import (
+    disable_plugin,
+    enable_plugin,
+    list_plugins,
+)
 from infraguard.ui.api.routes.reports import export_report
 from infraguard.ui.api.routes.requests import get_requests
 from infraguard.ui.api.routes.stats import get_content_stats, get_stats
-from infraguard.ui.api.routes.burn import get_burn_score, get_burn_scores
-from infraguard.ui.api.metrics import create_metrics_app
 from infraguard.ui.api.websocket import EventBroadcaster
 
 log = structlog.get_logger()
@@ -116,14 +135,71 @@ def _get_rate_key(request: Request) -> str | None:
         token = auth[7:]
         return f"bearer:{token[:16]}"
 
-    # Check session cookie
-    session_id = request.cookies.get("ig_session")
+    # Check session cookie (per-app name; dashboard uses ``ig_session``,
+    # Command Post uses ``ig_cp_session``).
+    cookie_name = getattr(request.app.state, "session_cookie_name", "ig_session")
+    session_id = request.cookies.get(cookie_name)
     if session_id:
         return f"session:{session_id[:16]}"
 
     # Fallback to IP
     client_ip = request.client.host if request.client else "unknown"
     return f"ip:{client_ip}"
+
+
+class SecurityHeadersMiddleware(BaseHTTPMiddleware):
+    """Attach hardening headers to every response.
+
+    Historically the dashboard shipped without CSP or HSTS. The inline
+    JS/CSS in ``index.html`` and ``decoys.html`` still forces
+    ``script-src 'self' 'unsafe-inline'`` - a proper bundler (see the
+    v0.6 web-UI task) lets us drop ``unsafe-inline`` - but CSP with
+    ``'unsafe-inline'`` is still meaningfully stronger than none because
+    it blocks external-origin script injection.
+
+    Headers set:
+      * ``Content-Security-Policy`` - restrictive default; allows same-
+        origin JS/CSS/WS + inline blocks for now.
+      * ``Strict-Transport-Security`` - HSTS 6 months, subdomains.
+        Emitted only for HTTPS responses so an operator on http-only
+        localhost is not locked out.
+      * ``X-Content-Type-Options: nosniff`` - MIME sniffing off.
+      * ``X-Frame-Options: DENY`` - no clickjacking.
+      * ``Referrer-Policy: no-referrer`` - no leakage to redirects.
+      * ``Permissions-Policy`` - deny sensor / geoloc / camera APIs.
+    """
+
+    _CSP = (
+        "default-src 'self'; "
+        "script-src 'self' 'unsafe-inline'; "
+        "style-src 'self' 'unsafe-inline'; "
+        "img-src 'self' data:; "
+        "connect-src 'self' ws: wss:; "
+        "font-src 'self' data:; "
+        "frame-ancestors 'none'; "
+        "base-uri 'self'; "
+        "form-action 'self'"
+    )
+    _HSTS = "max-age=15552000; includeSubDomains"
+    _PERMISSIONS = (
+        "accelerometer=(), camera=(), geolocation=(), gyroscope=(), "
+        "magnetometer=(), microphone=(), payment=(), usb=()"
+    )
+
+    async def dispatch(self, request: Request, call_next: RequestResponseEndpoint) -> Response:
+        response = await call_next(request)
+        headers = response.headers
+        # Set-if-absent - never clobber a route that intentionally
+        # overrode one (e.g. a decoy preview relaxing frame-ancestors).
+        headers.setdefault("Content-Security-Policy", self._CSP)
+        headers.setdefault("X-Content-Type-Options", "nosniff")
+        headers.setdefault("X-Frame-Options", "DENY")
+        headers.setdefault("Referrer-Policy", "no-referrer")
+        headers.setdefault("Permissions-Policy", self._PERMISSIONS)
+        # HSTS is only meaningful over HTTPS.
+        if request.url.scheme == "https":
+            headers.setdefault("Strict-Transport-Security", self._HSTS)
+        return response
 
 
 class AuthMiddleware(BaseHTTPMiddleware):
@@ -276,6 +352,9 @@ def create_api_app(
         Route("/api/intel/pdns/events", get_pdns_events, methods=["GET"]),
         Route("/api/intel/pdns/history/{domain}", get_pdns_history, methods=["GET"]),
         Route("/api/intel/pdns/history", clear_pdns_history, methods=["DELETE"]),
+        Route("/api/plugins", list_plugins, methods=["GET"]),
+        Route("/api/plugins/{name}/enable", enable_plugin, methods=["POST"]),
+        Route("/api/plugins/{name}/disable", disable_plugin, methods=["POST"]),
         Route("/api/config", get_config, methods=["GET"]),
         Route("/api/config/domains/{domain}/drop-action", update_drop_action, methods=["PATCH"]),
         Route("/api/config/domains/{domain}/profile", swap_profile, methods=["PATCH"]),
@@ -296,6 +375,15 @@ def create_api_app(
         # Infrastructure health
         Route("/api/health", get_health, methods=["GET"]),
         Route("/api/health/summary", get_health_summary, methods=["GET"]),
+        Route("/api/health/circuit-breakers", get_circuit_breakers, methods=["GET"]),
+        Route("/api/health/watchdog", get_watchdog, methods=["GET"]),
+        Route("/api/health/deadman", get_deadman, methods=["GET"]),
+        Route("/api/health/rotations", get_rotations, methods=["GET"]),
+        # Operator actions the dashboard's buttons hit
+        Route("/api/rotate/preflight", post_rotate_preflight, methods=["POST"]),
+        Route("/api/burn/trigger", post_burn, methods=["POST"]),
+        Route("/api/burn/clear", post_burn_clear, methods=["POST"]),
+        Route("/api/heartbeat", post_heartbeat, methods=["POST"]),
         # WebSocket
         WebSocketRoute("/ws/events", broadcaster.handler),
     ]
@@ -307,6 +395,10 @@ def create_api_app(
     app = Starlette(routes=routes, lifespan=lifespan)
     app.mount("/metrics", create_metrics_app())
     app.add_middleware(AuthMiddleware)
+    # Security headers must be the OUTERMOST middleware so it decorates
+    # every response - auth failures, rate-limit 429s, static files, and
+    # the JSON API alike.
+    app.add_middleware(SecurityHeadersMiddleware)
 
     # Attach shared state
     app.state.config = config

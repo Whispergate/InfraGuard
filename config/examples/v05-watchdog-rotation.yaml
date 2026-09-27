@@ -1,0 +1,98 @@
+# ═══════════════════════════════════════════════════════════════════════
+# InfraGuard v0.5 - Auto-Rotation Watchdog
+# ═══════════════════════════════════════════════════════════════════════
+#
+# Watches the burn score (blocklist hits + scanner activity + reputation
+# feed hits over a rolling window) and the fronting cert expiry, and
+# either rotates automatically or fires an alert.
+#
+# Two modes:
+#   auto_rotate: true   → watchdog calls the rotation policy directly
+#                        (Terraform apply, cloud API), then re-issues
+#                        certs and reloads config.
+#   auto_rotate: false  → watchdog only emits events; alert plugins
+#                        page an operator who runs ``infraguard rotate``
+#                        manually. Safer for a first rollout.
+#
+# Requires a rotation policy under ``rotation:``. See the c2-*.yaml
+# examples for provider blocks (AWS/GCP/Azure/Hetzner).
+#
+# Required env vars:
+#   INFRAGUARD_TLS_CERT / INFRAGUARD_TLS_KEY
+#   MYTHIC_UPSTREAM
+#   INFRAGUARD_DB_PATH
+#   TF_VAR_hetzner_token       - if using the terraform rotation policy
+
+listeners:
+  - protocol: "https"
+    bind: "0.0.0.0"
+    port: 443
+    tls:
+      cert: "${INFRAGUARD_TLS_CERT}"
+      key: "${INFRAGUARD_TLS_KEY}"
+    domains:
+      - "static.example.net"
+
+domains:
+  static.example.net:
+    upstream: "${MYTHIC_UPSTREAM}"
+    profile_path: "/app/examples/mythic-httpx.json"
+    profile_type: "mythic"
+    drop_action:
+      type: "redirect"
+      target: "https://example.net"
+
+# ── Auto-rotation watchdog (v0.5) ───────────────────────────────────
+# ``burn_threshold`` is a 0..1 score; 0.8 means 4 of 5 recent requests
+# from a rolling ``burn_window`` fired a block. Tune down for hot
+# domains, up for high-value ones you never want to rotate on noise.
+watchdog:
+  enabled: true
+  poll_interval: 300           # seconds between checks
+  burn_threshold: 0.8
+  burn_window: 900             # 15 minutes rolling
+  cert_days_before: 14         # rotate/renew when cert expires within 14 days
+  cost_cap_usd: 50.0           # refuse rotation this cycle if cloud spend > cap
+  auto_rotate: false           # start alert-only, flip to true after tuning
+
+# ── Rotation policy the watchdog calls (auto_rotate: true) ──────────
+# Even in alert-only mode this block still needs to exist so a manual
+# ``infraguard rotate`` has somewhere to go.
+rotation:
+  policy:
+    type: "terraform"
+    module_path: "/app/infra/hetzner"
+    variables:
+      hetzner_token: "${TF_VAR_hetzner_token}"
+      location: "nbg1"
+
+# ── Alerter that pages when watchdog fires (alert-only workflow) ───
+plugins:
+  - "pagerduty"
+plugin_settings:
+  pagerduty:
+    enabled: true
+    options:
+      integration_key: "${PAGERDUTY_INTEGRATION_KEY}"
+      severity: "warning"
+      event_types:
+        - cert_expiring
+        - burn_threshold_exceeded
+        - rotation_failed
+        - all_upstreams_failed
+
+api:
+  bind: "0.0.0.0"
+  port: 8080
+  auth_token: "${INFRAGUARD_API_TOKEN}"
+
+tracking:
+  db_path: "${INFRAGUARD_DB_PATH}"
+
+pipeline:
+  filter_mode: "scoring"
+  block_score_threshold: 0.7
+
+logging:
+  level: "INFO"
+  format: "json"

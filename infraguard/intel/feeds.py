@@ -8,12 +8,18 @@ refresh via an asyncio background task with exponential backoff retry.
 from __future__ import annotations
 
 import asyncio
-from datetime import datetime, timezone
+from datetime import UTC, datetime
 from pathlib import Path
 
 import httpx
 import structlog
-from tenacity import AsyncRetrying, RetryError, retry_if_exception_type, stop_after_attempt, wait_exponential
+from tenacity import (
+    AsyncRetrying,
+    RetryError,
+    retry_if_exception_type,
+    stop_after_attempt,
+    wait_exponential,
+)
 
 from infraguard.intel.ip_lists import CIDRList
 
@@ -124,7 +130,7 @@ async def fetch_feed(url: str, timeout: float = 30.0) -> list[str]:
                         entries=len(entries),
                         attempt=attempt.retry_state.attempt_number,
                     )
-                    _feed_status[url] = datetime.now(timezone.utc)
+                    _feed_status[url] = datetime.now(UTC)
                     _persist_feed_status()
                     return entries
         except RetryError:
@@ -149,7 +155,7 @@ def save_feed_cache(entries: list[str], cache_dir: str) -> Path:
     cache_path = Path(cache_dir)
     cache_path.mkdir(parents=True, exist_ok=True)
     cache_file = cache_path / "feed_blocklist.txt"
-    now = datetime.now(timezone.utc).isoformat()
+    now = datetime.now(UTC).isoformat()
     lines = [f"# InfraGuard feed cache - updated {now}\n"]
     lines.extend(f"{entry}\n" for entry in sorted(entries))
     cache_file.write_text("".join(lines), encoding="utf-8")
@@ -210,7 +216,7 @@ async def feed_refresh_loop(
             log.exception("feed_refresh_error", error_type=type(e).__name__)
 
         # Check staleness per-feed
-        now = datetime.now(timezone.utc)
+        now = datetime.now(UTC)
         for url, last_success in _feed_status.items():
             if last_success is None:
                 log.warning("feed_never_refreshed", url=url)

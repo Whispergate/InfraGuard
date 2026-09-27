@@ -35,8 +35,9 @@ from __future__ import annotations
 import hashlib
 import hmac
 import json
-from datetime import datetime, timezone
-from typing import Any, Callable, Awaitable
+from collections.abc import Awaitable, Callable
+from datetime import UTC, datetime
+from typing import Any
 
 import structlog
 from starlette.requests import Request
@@ -113,11 +114,11 @@ def make_webhook_handler(
         created_at_raw = payload.get("createdAt")
 
         try:
-            ts = datetime.fromisoformat(created_at_raw) if created_at_raw else datetime.now(timezone.utc)
+            ts = datetime.fromisoformat(created_at_raw) if created_at_raw else datetime.now(UTC)
             if ts.tzinfo is None:
-                ts = ts.replace(tzinfo=timezone.utc)
+                ts = ts.replace(tzinfo=UTC)
         except (ValueError, TypeError):
-            ts = datetime.now(timezone.utc)
+            ts = datetime.now(UTC)
 
         is_high_value = event_id in _HIGH_VALUE_EVENTS
 

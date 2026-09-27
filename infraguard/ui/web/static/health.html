@@ -3,7 +3,7 @@
 <head>
     <meta charset="UTF-8">
     <meta name="viewport" content="width=device-width, initial-scale=1.0">
-    <title>InfraGuard — Infrastructure Health</title>
+    <title>InfraGuard - Infrastructure Health</title>
     <link rel="icon" type="image/svg+xml" href="/static/infraguard_icon.svg">
     <style>
         :root {
@@ -156,6 +156,7 @@
         /* ── Refresh indicator ──────────────────────────────── */
         .refresh-info { font-size: 11px; color: var(--text-dim); }
     </style>
+    <link rel="stylesheet" href="/static/ig-theme.css">
 </head>
 <body>
 
@@ -163,7 +164,7 @@
     <div class="header">
         <div class="header-brand">
             <img src="/static/infraguard_icon.svg" alt="" class="header-icon">
-            <h1>InfraGuard — Infrastructure Health</h1>
+            <h1>InfraGuard - Infrastructure Health</h1>
         </div>
         <div class="header-right">
             <span class="status-dot ok" id="overall-dot">&#9679;</span>
@@ -175,10 +176,11 @@
     </div>
 
     <!-- ── Nav ─────────────────────────────────────────────── -->
-    <div class="nav">
+    <div class="nav" role="navigation" aria-label="Dashboard sections">
         <a href="/">Overview</a>
         <a href="/static/decoys.html">Decoys</a>
         <a href="/static/health.html" class="active">Health</a>
+        <a href="/static/plugins.html">Plugins</a>
     </div>
 
     <div class="grid">
@@ -186,26 +188,26 @@
         <!-- ── Top-level metric cards ─────────────────────── -->
         <div class="card">
             <h3>Uptime</h3>
-            <div class="value green" id="uptime">—</div>
+            <div class="value green" id="uptime">-</div>
             <div class="sub" id="uptime-seconds"></div>
         </div>
 
         <div class="card">
             <h3>Request Rate (24h)</h3>
-            <div class="value" id="req-rate">—</div>
+            <div class="value" id="req-rate">-</div>
             <div class="sub">req/min</div>
         </div>
 
         <div class="card">
             <h3>Block Rate (24h)</h3>
-            <div class="value" id="block-rate">—</div>
+            <div class="value" id="block-rate">-</div>
             <div class="progress-wrap"><div class="progress-bar green" id="block-rate-bar" style="width:0%"></div></div>
             <div class="sub" id="block-rate-detail"></div>
         </div>
 
         <div class="card">
             <h3>Avg Upstream Latency (1h)</h3>
-            <div class="value" id="avg-latency">—</div>
+            <div class="value" id="avg-latency">-</div>
             <div class="sub">milliseconds</div>
         </div>
 
@@ -271,6 +273,66 @@
             </table>
         </div>
 
+        <!-- ── Dead-man's switch (new v0.6) ────────────────── -->
+        <div class="card two-col">
+            <h3>Dead-Man's Switch <span id="deadman-status" style="font-weight:normal;text-transform:none;color:var(--text-dim);"></span></h3>
+            <div id="deadman-body">
+                <div class="value" id="deadman-remaining" style="color:var(--green);">-</div>
+                <div class="sub" id="deadman-detail">Loading...</div>
+                <div class="progress-wrap"><div class="progress-bar green" id="deadman-bar" style="width:0%"></div></div>
+                <div class="sub" id="deadman-heartbeat" style="margin-top:8px;"></div>
+            </div>
+        </div>
+
+        <!-- ── Watchdog thresholds (new v0.6) ──────────────── -->
+        <div class="card two-col">
+            <h3>Rotation Watchdog <span id="watchdog-status" style="font-weight:normal;text-transform:none;color:var(--text-dim);"></span></h3>
+            <table>
+                <thead><tr><th>Signal</th><th>Threshold</th><th>Status</th></tr></thead>
+                <tbody id="watchdog-table">
+                    <tr><td colspan="3" style="color:var(--text-dim)">Loading...</td></tr>
+                </tbody>
+            </table>
+        </div>
+
+        <!-- ── Circuit breakers (new v0.6) ─────────────────── -->
+        <div class="card full-width">
+            <h3>Upstream Circuit Breakers <span id="breaker-summary" style="font-weight:normal;text-transform:none;color:var(--text-dim);"></span></h3>
+            <table>
+                <thead>
+                    <tr>
+                        <th>Upstream</th>
+                        <th>State</th>
+                        <th>Failures</th>
+                        <th>Threshold</th>
+                        <th>Recovery timeout</th>
+                        <th>Opened</th>
+                    </tr>
+                </thead>
+                <tbody id="breaker-table">
+                    <tr><td colspan="6" style="color:var(--text-dim)">Loading...</td></tr>
+                </tbody>
+            </table>
+        </div>
+
+        <!-- ── Rotation history (new v0.6) ─────────────────── -->
+        <div class="card two-col">
+            <h3>Rotation History <span id="rotation-count" style="font-weight:normal;text-transform:none;color:var(--text-dim);"></span></h3>
+            <table>
+                <thead>
+                    <tr>
+                        <th>When</th>
+                        <th>Action</th>
+                        <th>Operator</th>
+                        <th>Details</th>
+                    </tr>
+                </thead>
+                <tbody id="rotation-table">
+                    <tr><td colspan="4" style="color:var(--text-dim)">Loading...</td></tr>
+                </tbody>
+            </table>
+        </div>
+
         <!-- ── Node health ────────────────────────────────── -->
         <div class="card two-col">
             <h3>Node / Upstream Health</h3>
@@ -329,14 +391,14 @@
 
         // ── Formatters ────────────────────────────────────────
         function fmtAgo(seconds) {
-            if (seconds == null) return '—';
+            if (seconds == null) return '-';
             if (seconds < 60) return seconds + 's ago';
             if (seconds < 3600) return Math.floor(seconds / 60) + 'm ago';
             return Math.floor(seconds / 3600) + 'h ago';
         }
 
         function fmtIso(isoStr) {
-            if (!isoStr) return '—';
+            if (!isoStr) return '-';
             try {
                 return new Date(isoStr).toLocaleString();
             } catch(e) { return isoStr; }
@@ -382,10 +444,10 @@
                 <tr>
                     <td>${esc(c.listener)}</td>
                     <td style="max-width:200px;overflow:hidden;text-overflow:ellipsis;white-space:nowrap;" title="${esc(c.cert_path)}">${esc(c.cert_path)}</td>
-                    <td>${c.expires_at ? fmtIso(c.expires_at) : '—'}</td>
+                    <td>${c.expires_at ? fmtIso(c.expires_at) : '-'}</td>
                     <td>
                         <span class="cert-days" style="color:${c.days_until_expiry == null ? 'var(--text-dim)' : c.days_until_expiry < 0 ? 'var(--red)' : c.days_until_expiry < 7 ? 'var(--yellow)' : 'var(--green)'}">
-                            ${c.days_until_expiry != null ? c.days_until_expiry : '—'}
+                            ${c.days_until_expiry != null ? c.days_until_expiry : '-'}
                         </span>
                     </td>
                     <td><span class="badge ${esc(c.status)}">${esc(c.status)}</span></td>
@@ -404,8 +466,8 @@
                 const shortUrl = f.url.replace(/^https?:\/\//, '').split('/').slice(0, 2).join('/');
                 return `<tr>
                     <td title="${esc(f.url)}" style="max-width:220px;overflow:hidden;text-overflow:ellipsis;white-space:nowrap;">${esc(shortUrl)}</td>
-                    <td>${f.last_refresh ? fmtIso(f.last_refresh) : '—'}</td>
-                    <td>${f.hours_since != null ? f.hours_since : '—'}</td>
+                    <td>${f.last_refresh ? fmtIso(f.last_refresh) : '-'}</td>
+                    <td>${f.hours_since != null ? f.hours_since : '-'}</td>
                     <td><span class="badge ${esc(f.status)}">${esc(f.status)}</span></td>
                 </tr>`;
             }).join('');
@@ -421,7 +483,7 @@
             tbody.innerHTML = byDomain.map(d => `
                 <tr>
                     <td>${esc(d.domain)}</td>
-                    <td>${d.avg_ms != null ? d.avg_ms + ' ms' : '—'}</td>
+                    <td>${d.avg_ms != null ? d.avg_ms + ' ms' : '-'}</td>
                     <td>${esc(d.requests)}</td>
                 </tr>
             `).join('');
@@ -438,11 +500,125 @@
                 <tr>
                     <td>${esc(n.name)}</td>
                     <td>${esc(n.address)}</td>
-                    <td>${n.last_heartbeat ? fmtIso(n.last_heartbeat) : '—'}</td>
-                    <td>${n.seconds_since_heartbeat != null ? fmtAgo(n.seconds_since_heartbeat) : '—'}</td>
+                    <td>${n.last_heartbeat ? fmtIso(n.last_heartbeat) : '-'}</td>
+                    <td>${n.seconds_since_heartbeat != null ? fmtAgo(n.seconds_since_heartbeat) : '-'}</td>
                     <td><span class="badge ${esc(n.status)}">${esc(n.status)}</span></td>
                 </tr>
             `).join('');
+        }
+
+        // ── Render: dead-man's switch ─────────────────────────
+        function renderDeadman(dm) {
+            const statusEl = document.getElementById('deadman-status');
+            const remainingEl = document.getElementById('deadman-remaining');
+            const detailEl = document.getElementById('deadman-detail');
+            const barEl = document.getElementById('deadman-bar');
+            const hbEl = document.getElementById('deadman-heartbeat');
+            if (!dm || !dm.enabled) {
+                statusEl.textContent = '(disabled)';
+                remainingEl.textContent = '-';
+                remainingEl.style.color = 'var(--text-dim)';
+                detailEl.textContent = dm && dm.message ? dm.message : 'Not configured';
+                barEl.style.width = '0%';
+                hbEl.textContent = '';
+                return;
+            }
+            const remaining = Math.round(dm.time_remaining_seconds || 0);
+            const ttl = dm.ttl_seconds || 0;
+            const usedPct = dm.ttl_used_pct || 0;
+            const expired = dm.expired;
+            statusEl.textContent = expired ? '(EXPIRED)' : '(armed)';
+            statusEl.style.color = expired ? 'var(--red)' : 'var(--green)';
+            remainingEl.textContent = fmtDuration(remaining);
+            remainingEl.style.color = expired ? 'var(--red)' : usedPct > 80 ? 'var(--yellow)' : 'var(--green)';
+            detailEl.textContent = `TTL ${fmtDuration(ttl)} · ${usedPct}% elapsed`;
+            barEl.style.width = Math.min(100, usedPct) + '%';
+            barEl.className = 'progress-bar ' + (expired ? 'red' : usedPct > 80 ? 'yellow' : 'green');
+            hbEl.textContent = 'Last heartbeat ' + fmtIso(dm.last_heartbeat_iso);
+        }
+
+        function fmtDuration(sec) {
+            if (sec < 60) return sec + 's';
+            if (sec < 3600) return Math.floor(sec/60) + 'm ' + (sec%60) + 's';
+            const h = Math.floor(sec/3600), m = Math.floor((sec%3600)/60);
+            return h + 'h ' + m + 'm';
+        }
+
+        // ── Render: watchdog ──────────────────────────────────
+        function renderWatchdog(wd) {
+            const statusEl = document.getElementById('watchdog-status');
+            const tbody = document.getElementById('watchdog-table');
+            if (!wd || !wd.enabled) {
+                statusEl.textContent = '(disabled)';
+                tbody.innerHTML = '<tr><td colspan="3" style="color:var(--text-dim)">' + esc(wd && wd.message ? wd.message : 'Not configured') + '</td></tr>';
+                return;
+            }
+            statusEl.textContent = wd.running ? '(running · ' + (wd.auto_rotate ? 'auto-rotate' : 'alert only') + ')' : '(stopped)';
+            statusEl.style.color = wd.running ? 'var(--green)' : 'var(--yellow)';
+            const t = wd.thresholds || {};
+            const elevated = (wd.elevated_domains || []).length;
+            const rows = [
+                ['Burn score', t.burn_threshold != null ? '&gt;= ' + t.burn_threshold + ' for ' + (t.burn_window_seconds/60|0) + 'm' : 'n/a',
+                    elevated ? `<span class="badge critical">${elevated} elevated</span>` : '<span class="badge ok">below</span>'],
+                ['Cert age', t.cert_days_before != null ? t.cert_days_before + ' days before expiry' : 'n/a', '<span class="badge ok">monitored</span>'],
+                ['Cost cap', t.cost_cap_usd != null ? '$' + t.cost_cap_usd + '/mo' : '<span style="color:var(--text-dim)">disabled</span>', t.cost_cap_usd != null ? '<span class="badge ok">monitored</span>' : '<span class="badge unknown">off</span>'],
+                ['Poll interval', t.poll_interval != null ? t.poll_interval + 's' : 'n/a', ''],
+            ];
+            tbody.innerHTML = rows.map(r => `<tr><td>${r[0]}</td><td>${r[1]}</td><td>${r[2]}</td></tr>`).join('');
+        }
+
+        // ── Render: circuit breakers ──────────────────────────
+        function renderBreakers(cb) {
+            const summary = document.getElementById('breaker-summary');
+            const tbody = document.getElementById('breaker-table');
+            if (!cb || !cb.breakers || cb.breakers.length === 0) {
+                summary.textContent = '(none registered)';
+                tbody.innerHTML = '<tr><td colspan="6" style="color:var(--text-dim)">No upstreams configured</td></tr>';
+                return;
+            }
+            const bad = (cb.open || 0) + (cb.half_open || 0);
+            // Re-label breaker states for humans: CLOSED = HEALTHY,
+            // HALF_OPEN = PROBING, OPEN = TRIPPED. The raw state is
+            // still available in the badge's title attribute for
+            // anyone reading circuit-breaker docs.
+            const LABEL = { CLOSED: 'HEALTHY', HALF_OPEN: 'PROBING', OPEN: 'TRIPPED' };
+            summary.textContent = bad
+                ? `⚠ ${cb.open} tripped · ${cb.half_open} probing · ${cb.closed} healthy`
+                : `● ${cb.closed}/${cb.closed} healthy`;
+            summary.style.color = bad ? 'var(--red)' : 'var(--green)';
+            tbody.innerHTML = cb.breakers.map(b => {
+                const stateCls = b.state === 'CLOSED' ? 'ok' : b.state === 'HALF_OPEN' ? 'warning' : 'critical';
+                const stateLabel = LABEL[b.state] || b.state;
+                const opened = b.opened_at
+                    ? `${fmtIso(b.opened_at)} <span style="color:var(--text-dim)">(${fmtAgo(b.seconds_since_opened|0)})</span>`
+                    : '<span style="color:var(--text-dim)">-</span>';
+                return `<tr>
+                    <td style="font-family:'SF Mono',monospace;font-size:12px;">${esc(b.upstream)}</td>
+                    <td><span class="badge ${stateCls}" title="circuit-breaker state: ${esc(b.state)}">${esc(stateLabel)}</span></td>
+                    <td>${b.failures}</td>
+                    <td>${b.threshold != null ? b.threshold : '-'}</td>
+                    <td>${b.recovery_timeout != null ? b.recovery_timeout + 's' : '-'}</td>
+                    <td>${opened}</td>
+                </tr>`;
+            }).join('');
+        }
+
+        // ── Render: rotation history ──────────────────────────
+        function renderRotations(rot) {
+            const countEl = document.getElementById('rotation-count');
+            const tbody = document.getElementById('rotation-table');
+            const rotations = (rot && rot.rotations) || [];
+            countEl.textContent = rotations.length ? `(${rotations.length})` : '(none)';
+            if (!rotations.length) {
+                tbody.innerHTML = '<tr><td colspan="4" style="color:var(--text-dim)">No rotations recorded</td></tr>';
+                return;
+            }
+            tbody.innerHTML = rotations.map(r => `<tr>
+                <td>${fmtIso(r.timestamp)}</td>
+                <td><span class="badge ok">${esc(r.action)}</span></td>
+                <td>${esc(r.operator || '-')}</td>
+                <td style="color:var(--text-dim);font-size:12px;">${esc(r.details || '')}</td>
+            </tr>`).join('');
         }
 
         // ── Main refresh ──────────────────────────────────────
@@ -470,7 +646,7 @@
 
                 // Latency
                 document.getElementById('avg-latency').textContent =
-                    data.upstream_latency.avg_ms_1h != null ? data.upstream_latency.avg_ms_1h : '—';
+                    data.upstream_latency.avg_ms_1h != null ? data.upstream_latency.avg_ms_1h : '-';
 
                 // Sections
                 renderAlerts(data.alerts);
@@ -478,6 +654,18 @@
                 renderFeeds(data.feeds);
                 renderLatency(data.upstream_latency.by_domain);
                 renderNodes(data.nodes);
+
+                // v0.6 additions - parallel fetch, tolerant of any single failure
+                const [cb, wd, dm, rot] = await Promise.all([
+                    fetchJSON('/api/health/circuit-breakers').catch(() => null),
+                    fetchJSON('/api/health/watchdog').catch(() => null),
+                    fetchJSON('/api/health/deadman').catch(() => null),
+                    fetchJSON('/api/health/rotations?limit=20').catch(() => null),
+                ]);
+                renderBreakers(cb);
+                renderWatchdog(wd);
+                renderDeadman(dm);
+                renderRotations(rot);
 
                 // Timestamp
                 document.getElementById('last-refresh').textContent =

@@ -10,7 +10,6 @@ import asyncio
 import json
 import socket
 import ssl as _ssl
-from datetime import datetime, timezone
 
 import structlog
 

@@ -1,14 +1,27 @@
-"""Built-in CIDR ranges for known security vendors, cloud scanners, and bots.
+"""Built-in CIDR / UA / keyword lists.
 
-These ranges are commonly blocked during red team operations to prevent
-blue team tools and security vendors from reaching the C2 teamserver.
-Based on community-maintained lists (curi0usJack, etc.).
+These are the seed lists InfraGuard has always shipped with. As of v0.5
+they live in the ``rules/`` tree as plain text files so operators can
+update signatures without a code release; the Python constants below are
+kept as a fallback for environments where the ``rules/`` directory has
+been stripped (single-file installs, tests) and as the source-of-truth
+that seeds newly-generated ``rules/`` files.
+
+Consumers should import these names as before - they resolve at import
+time to whatever is on disk, with the Python fallback if the file is
+missing.
 """
 
 from __future__ import annotations
 
-# Security vendors, sandboxes, and threat intel platforms
-SECURITY_VENDOR_CIDRS: list[str] = [
+from infraguard.intel.rules_loader import load_grouped, load_list
+
+# ---------------------------------------------------------------------------
+# Compile-time fallbacks. Kept verbatim so removing the ``rules/`` tree
+# leaves the tool functionally identical to prior releases.
+# ---------------------------------------------------------------------------
+
+_FALLBACK_SECURITY_VENDOR_CIDRS: list[str] = [
     # Shodan
     "66.240.192.0/18",
     "71.6.128.0/17",
@@ -40,9 +53,7 @@ SECURITY_VENDOR_CIDRS: list[str] = [
     "54.208.0.0/15",
 ]
 
-# Major cloud providers (operators may want to block these if beacons
-# aren't expected from cloud infrastructure)
-CLOUD_PROVIDER_CIDRS: dict[str, list[str]] = {
+_FALLBACK_CLOUD_PROVIDER_CIDRS: dict[str, list[str]] = {
     "aws_common": [
         "3.0.0.0/8",
         "52.0.0.0/8",
@@ -76,95 +87,66 @@ CLOUD_PROVIDER_CIDRS: dict[str, list[str]] = {
     ],
 }
 
-# Known bot and crawler User-Agent substrings
-BOT_USER_AGENT_PATTERNS: list[str] = [
-    "bot",
-    "crawl",
-    "spider",
-    "scan",
-    "Shodan",
-    "Censys",
-    "Nmap",
-    "Nikto",
-    "Nessus",
-    "Qualys",
-    "Acunetix",
-    "Burp",
-    "ZAP",
-    "sqlmap",
-    "dirbuster",
-    "gobuster",
-    "ffuf",
-    "wfuzz",
-    "nuclei",
-    "httpx",
-    "curl",
-    "wget",
-    "python-requests",
-    "python-urllib",
-    "Go-http-client",
-    "Java/",
-    "libwww",
-    "Googlebot",
-    "bingbot",
-    "AhrefsBot",
-    "SemrushBot",
-    "DotBot",
-    "MJ12bot",
-    "BaiduSpider",
-    "YandexBot",
-    "PetalBot",
-    "facebookexternalhit",
-    "Twitterbot",
-    "LinkedInBot",
+_FALLBACK_BOT_USER_AGENT_PATTERNS: list[str] = [
+    "bot", "crawl", "spider", "scan", "Shodan", "Censys", "Nmap", "Nikto",
+    "Nessus", "Qualys", "Acunetix", "Burp", "ZAP", "sqlmap", "dirbuster",
+    "gobuster", "ffuf", "wfuzz", "nuclei", "httpx", "curl", "wget",
+    "python-requests", "python-urllib", "Go-http-client", "Java/", "libwww",
+    "Googlebot", "bingbot", "AhrefsBot", "SemrushBot", "DotBot", "MJ12bot",
+    "BaiduSpider", "YandexBot", "PetalBot", "facebookexternalhit",
+    "Twitterbot", "LinkedInBot",
 ]
 
-# Banned keywords in reverse DNS hostnames
-BANNED_RDNS_KEYWORDS: list[str] = [
-    "security",
-    "scan",
-    "crawl",
-    "bot",
-    "probe",
-    "research",
-    "censys",
-    "shodan",
-    "shadowserver",
-    "binaryedge",
-    "rapid7",
-    "qualys",
-    "nessus",
-    "paloalto",
-    "crowdstrike",
-    "fireeye",
-    "mandiant",
-    "symantec",
-    "mcafee",
-    "trendmicro",
-    "sophos",
-    "kaspersky",
-    "bitdefender",
-    "malwarebytes",
-    "fortinet",
-    "checkpoint",
-    "zscaler",
-    "cyberark",
-    "sentinelone",
-    "carbonblack",
-    "elastic",
+_FALLBACK_BANNED_RDNS_KEYWORDS: list[str] = [
+    "security", "scan", "crawl", "bot", "probe", "research", "censys",
+    "shodan", "shadowserver", "binaryedge", "rapid7", "qualys", "nessus",
+    "paloalto", "crowdstrike", "fireeye", "mandiant", "symantec", "mcafee",
+    "trendmicro", "sophos", "kaspersky", "bitdefender", "malwarebytes",
+    "fortinet", "checkpoint", "zscaler", "cyberark", "sentinelone",
+    "carbonblack", "elastic",
 ]
 
-# Banned keywords in HTTP header names and values
-BANNED_HEADER_KEYWORDS: list[str] = [
-    "burp",
-    "zap",
-    "nikto",
-    "nessus",
-    "qualys",
-    "acunetix",
-    "sqlmap",
-    "nmap",
-    "masscan",
-    "wpscan",
-    "dirbuster",
+_FALLBACK_BANNED_HEADER_KEYWORDS: list[str] = [
+    "burp", "zap", "nikto", "nessus", "qualys", "acunetix", "sqlmap",
+    "nmap", "masscan", "wpscan", "dirbuster",
 ]
+
+# ---------------------------------------------------------------------------
+# Public constants. These are resolved once at import; call ``reload()``
+# to re-read the ``rules/`` tree from disk.
+# ---------------------------------------------------------------------------
+
+SECURITY_VENDOR_CIDRS: list[str] = []
+CLOUD_PROVIDER_CIDRS: dict[str, list[str]] = {}
+BOT_USER_AGENT_PATTERNS: list[str] = []
+BANNED_RDNS_KEYWORDS: list[str] = []
+BANNED_HEADER_KEYWORDS: list[str] = []
+
+
+def reload() -> None:
+    """Refresh the module-level constants from ``rules/*.txt``.
+
+    Called at import; also safe to call from a SIGHUP or dashboard reload
+    endpoint. Mutates the exported lists in place so existing references
+    (e.g. filters that captured them at construction) also see the update
+    when they copy on next construction.
+    """
+    SECURITY_VENDOR_CIDRS[:] = load_list(
+        "scanner_cidrs.txt", fallback=_FALLBACK_SECURITY_VENDOR_CIDRS
+    )
+    CLOUD_PROVIDER_CIDRS.clear()
+    CLOUD_PROVIDER_CIDRS.update(
+        load_grouped("cloud_cidrs.txt", fallback=_FALLBACK_CLOUD_PROVIDER_CIDRS)
+    )
+    BOT_USER_AGENT_PATTERNS[:] = load_list(
+        "scanner_uas.txt", fallback=_FALLBACK_BOT_USER_AGENT_PATTERNS
+    )
+    BANNED_RDNS_KEYWORDS[:] = load_list(
+        "banned_rdns.txt", fallback=_FALLBACK_BANNED_RDNS_KEYWORDS
+    )
+    BANNED_HEADER_KEYWORDS[:] = load_list(
+        "banned_headers.txt", fallback=_FALLBACK_BANNED_HEADER_KEYWORDS
+    )
+
+
+reload()

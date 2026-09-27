@@ -9,7 +9,7 @@ infraguard_domain_email: operator@example.com
 # Teamserver upstream (only the one you use)
 infraguard_mythic_upstream: "https://10.0.0.6:443"
 
-# API token — encrypt with vault in production
+# API token - encrypt with vault in production
 # infraguard_api_token: !vault |
 #   $ANSIBLE_VAULT;1.1;AES256
 #   ...

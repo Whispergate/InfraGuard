@@ -22,7 +22,6 @@ from infraguard.tracking.stats import StatsQuery
 from infraguard.ui.api.app import create_api_app
 from infraguard.ui.api.auth import _rate_limit
 
-
 # ── Fixtures ──────────────────────────────────────────────────────────────
 
 @pytest_asyncio.fixture
@@ -149,7 +148,11 @@ class TestProtectedEndpoints:
         login_resp = client.post("/api/auth/login", json={"token": "test-secret-token"})
         session_cookie = login_resp.cookies.get("ig_session")
 
-        resp = client.get("/api/stats", cookies={"ig_session": session_cookie})
+        # Set the cookie on the client instance rather than per-request:
+        # per-request cookies were deprecated in httpx/starlette.testclient
+        # because the persistence semantics are ambiguous.
+        client.cookies.set("ig_session", session_cookie)
+        resp = client.get("/api/stats")
         assert resp.status_code == 200
 
     def test_stats_invalid_bearer_token(self, client):

@@ -1,0 +1,70 @@
+{{- if .Values.redis.enabled }}
+apiVersion: apps/v1
+kind: StatefulSet
+metadata:
+  name: {{ include "infraguard.fullname" . }}-redis
+  labels:
+    {{- include "infraguard.labels" . | nindent 4 }}
+    app.kubernetes.io/component: redis
+spec:
+  serviceName: {{ include "infraguard.fullname" . }}-redis
+  replicas: 1
+  selector:
+    matchLabels: {{- include "infraguard.redisSelectorLabels" . | nindent 6 }}
+  template:
+    metadata:
+      labels: {{- include "infraguard.redisSelectorLabels" . | nindent 8 }}
+    spec:
+      securityContext: {{- toYaml .Values.podSecurityContext | nindent 8 }}
+      containers:
+        - name: redis
+          image: "{{ .Values.redis.image.repository }}:{{ .Values.redis.image.tag }}"
+          imagePullPolicy: {{ .Values.redis.image.pullPolicy }}
+          args:
+            - redis-server
+            - --appendonly
+            - "yes"
+            - --maxmemory
+            - "256mb"
+            - --maxmemory-policy
+            - allkeys-lru
+          ports:
+            - name: redis
+              containerPort: 6379
+          volumeMounts:
+            - name: data
+              mountPath: /data
+          resources: {{- toYaml .Values.redis.resources | nindent 12 }}
+          securityContext:
+            allowPrivilegeEscalation: false
+            capabilities:
+              drop: ["ALL"]
+          livenessProbe:
+            tcpSocket: { port: redis }
+            initialDelaySeconds: 15
+            periodSeconds: 10
+  volumeClaimTemplates:
+    - metadata:
+        name: data
+      spec:
+        accessModes: ["ReadWriteOnce"]
+        {{- with .Values.redis.storage.storageClassName }}
+        storageClassName: {{ . }}
+        {{- end }}
+        resources:
+          requests:
+            storage: {{ .Values.redis.storage.size }}
+---
+apiVersion: v1
+kind: Service
+metadata:
+  name: {{ include "infraguard.fullname" . }}-redis
+  labels: {{- include "infraguard.labels" . | nindent 4 }}
+spec:
+  clusterIP: None
+  selector: {{- include "infraguard.redisSelectorLabels" . | nindent 4 }}
+  ports:
+    - name: redis
+      port: 6379
+      targetPort: redis
+{{- end }}

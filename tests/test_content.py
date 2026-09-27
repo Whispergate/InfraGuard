@@ -1,7 +1,7 @@
 """Tests for content delivery routes and backends."""
 
-import tempfile
 import os
+import tempfile
 from pathlib import Path
 from unittest.mock import MagicMock
 
@@ -17,7 +17,6 @@ from infraguard.core.content import (
 )
 from infraguard.core.content_router import ContentRouteResolver
 from infraguard.models.common import ContentBackendType
-
 
 # ── Content route resolver ────────────────────────────────────────────
 

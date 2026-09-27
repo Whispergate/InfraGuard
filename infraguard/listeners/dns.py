@@ -13,12 +13,10 @@ import asyncio
 import time
 from collections import defaultdict, deque
 from ipaddress import ip_address
-from typing import TYPE_CHECKING
 
 import structlog
 
 from infraguard.config.schema import IntelConfig, ListenerConfig
-from infraguard.intel.ip_lists import CIDRList
 from infraguard.intel.manager import IntelManager
 from infraguard.models.events import RequestEvent
 from infraguard.tracking.recorder import EventRecorder
@@ -173,7 +171,7 @@ class DNSListener:
             try:
                 response = await asyncio.wait_for(future, timeout=5.0)
                 return response
-            except asyncio.TimeoutError:
+            except TimeoutError:
                 return None
             finally:
                 transport.close()

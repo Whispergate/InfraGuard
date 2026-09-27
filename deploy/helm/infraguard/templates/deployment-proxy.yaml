@@ -1,0 +1,118 @@
+apiVersion: apps/v1
+kind: Deployment
+metadata:
+  name: {{ include "infraguard.fullname" . }}-proxy
+  labels:
+    {{- include "infraguard.labels" . | nindent 4 }}
+    app.kubernetes.io/component: proxy
+spec:
+  {{- if not .Values.autoscaling.enabled }}
+  replicas: {{ .Values.proxy.replicaCount }}
+  {{- end }}
+  selector:
+    matchLabels: {{- include "infraguard.proxySelectorLabels" . | nindent 6 }}
+  template:
+    metadata:
+      annotations:
+        checksum/config: {{ include (print $.Template.BasePath "/configmap.yaml") . | sha256sum }}
+      labels: {{- include "infraguard.proxySelectorLabels" . | nindent 8 }}
+    spec:
+      {{- with .Values.image.pullSecrets }}
+      imagePullSecrets: {{- toYaml . | nindent 8 }}
+      {{- end }}
+      securityContext: {{- toYaml .Values.podSecurityContext | nindent 8 }}
+      containers:
+        - name: proxy
+          image: "{{ .Values.image.repository }}:{{ .Values.image.tag }}"
+          imagePullPolicy: {{ .Values.image.pullPolicy }}
+          args: ["run", "-c", "/app/config/config.yaml"]
+          ports:
+            - name: https
+              containerPort: 443
+              protocol: TCP
+            - name: quic
+              containerPort: 443
+              protocol: UDP
+            - name: api
+              containerPort: 8080
+              protocol: TCP
+          env:
+            - name: INFRAGUARD_API_BIND
+              value: "0.0.0.0"
+            - name: INFRAGUARD_LOG_LEVEL
+              value: {{ .Values.proxy.logLevel | quote }}
+            {{- with .Values.extraEnv }}
+            {{- toYaml . | nindent 12 }}
+            {{- end }}
+          envFrom:
+            {{- if .Values.secrets.create }}
+            - secretRef:
+                name: {{ include "infraguard.fullname" . }}-secrets
+            {{- end }}
+            {{- range .Values.secrets.existingSecrets }}
+            - secretRef:
+                name: {{ . }}
+            {{- end }}
+          volumeMounts:
+            - name: config
+              mountPath: /app/config
+              readOnly: true
+            {{- if .Values.proxy.rulesConfigMap }}
+            - name: rules
+              mountPath: /app/rules
+              readOnly: true
+            {{- end }}
+            - name: data
+              mountPath: /app/data
+            - name: tmp
+              mountPath: /tmp
+            - name: infraguard-tmp
+              mountPath: /app/.infraguard
+          securityContext: {{- toYaml .Values.containerSecurityContext | nindent 12 }}
+          resources: {{- toYaml .Values.proxy.resources | nindent 12 }}
+          # Probes hit the proxy's OWN /health on 443. The api port
+          # (8080) mounts the dashboard, whose AuthMiddleware makes
+          # every path except /, /api/auth/login, /api/auth/check
+          # require a bearer token; probing there would 401.
+          livenessProbe:
+            httpGet:
+              path: /health
+              port: https
+              scheme: HTTPS
+            initialDelaySeconds: 20
+            periodSeconds: 30
+          readinessProbe:
+            httpGet:
+              path: /health
+              port: https
+              scheme: HTTPS
+            initialDelaySeconds: 5
+            periodSeconds: 10
+      volumes:
+        - name: config
+          configMap:
+            name: {{ include "infraguard.fullname" . }}-config
+        {{- if .Values.proxy.rulesConfigMap }}
+        - name: rules
+          configMap:
+            name: {{ .Values.proxy.rulesConfigMap }}
+        {{- end }}
+        - name: data
+          emptyDir: {}
+        - name: tmp
+          emptyDir:
+            medium: Memory
+            sizeLimit: 64Mi
+        - name: infraguard-tmp
+          emptyDir:
+            medium: Memory
+            sizeLimit: 16Mi
+      {{- with .Values.nodeSelector }}
+      nodeSelector: {{- toYaml . | nindent 8 }}
+      {{- end }}
+      {{- with .Values.tolerations }}
+      tolerations: {{- toYaml . | nindent 8 }}
+      {{- end }}
+      {{- with .Values.affinity }}
+      affinity: {{- toYaml . | nindent 8 }}
+      {{- end }}

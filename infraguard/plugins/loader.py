@@ -59,12 +59,18 @@ def load_plugins(
                 log.warning("plugin_invalid", module=path, reason="No plugin or Plugin found")
                 continue
 
-            # Check settings - skip if disabled
-            name = getattr(plugin_obj, "name", path.rsplit(".", 1)[-1])
-            ps = settings.get(name)
+            # Look up per-plugin settings by short name and by the full
+            # dotted path so operators can key either.
+            short_name = getattr(plugin_obj, "name", path.rsplit(".", 1)[-1])
+            ps = settings.get(short_name) or settings.get(path)
+
+            # Config-level ``enabled: false`` is loaded but held inactive
+            # so the dashboard can flip it back on without a restart.
             if ps and hasattr(ps, "enabled") and not ps.enabled:
-                log.info("plugin_skipped", name=name, reason="disabled in config")
-                continue
+                plugin_obj._runtime_enabled = False
+                log.info("plugin_loaded_disabled", name=short_name, reason="disabled in config")
+            else:
+                plugin_obj._runtime_enabled = True
 
             # Configure if the plugin supports it
             if ps and hasattr(plugin_obj, "configure"):
@@ -72,7 +78,7 @@ def load_plugins(
 
             plugins.append(plugin_obj)
             version = getattr(plugin_obj, "version", "?")
-            log.info("plugin_loaded", name=name, version=version, module=path)
+            log.info("plugin_loaded", name=short_name, version=version, module=path)
 
         except ImportError:
             log.exception("plugin_import_error", module=path)

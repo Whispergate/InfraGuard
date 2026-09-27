@@ -4,7 +4,7 @@ from __future__ import annotations
 
 import json
 import uuid
-from datetime import datetime, timezone
+from datetime import UTC, datetime
 
 from infraguard.tracking.database import Database
 
@@ -19,7 +19,7 @@ class NodeRegistry:
         self, name: str, address: str, domains: list[str]
     ) -> str:
         node_id = str(uuid.uuid4())
-        now = datetime.now(timezone.utc).isoformat()
+        now = datetime.now(UTC).isoformat()
         await self.db.execute(
             """INSERT OR REPLACE INTO nodes (id, name, address, domains, last_heartbeat, status)
                VALUES (?, ?, ?, ?, ?, 'active')""",
@@ -28,7 +28,7 @@ class NodeRegistry:
         return node_id
 
     async def heartbeat(self, node_id: str) -> None:
-        now = datetime.now(timezone.utc).isoformat()
+        now = datetime.now(UTC).isoformat()
         await self.db.execute(
             "UPDATE nodes SET last_heartbeat = ?, status = 'active' WHERE id = ?",
             (now, node_id),

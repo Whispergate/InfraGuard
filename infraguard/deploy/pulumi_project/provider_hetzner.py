@@ -1,8 +1,6 @@
 """Hetzner Cloud provider: server + firewall + SSH key."""
 
-import pulumi
 import pulumi_hcloud as hcloud
-
 from cloud_init import bootstrap_script
 
 

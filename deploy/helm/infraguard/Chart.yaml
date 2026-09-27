@@ -1,0 +1,22 @@
+apiVersion: v2
+name: infraguard
+description: |
+  InfraGuard: smart ASGI redirector for red-team C2, phishing, and
+  payload-delivery infrastructure. This chart deploys the proxy,
+  dashboard, and (optionally) Redis for cluster-wide shared state,
+  along with an HPA that scales the proxy on the
+  ``infraguard_active_beacons`` custom metric.
+type: application
+version: 0.1.0
+appVersion: "0.5.0"
+kubeVersion: ">=1.27.0"
+keywords:
+  - security
+  - red-team
+  - c2
+  - redirector
+  - reverse-proxy
+sources:
+  - https://github.com/Whispergate/InfraGuard
+maintainers:
+  - name: Whispergate

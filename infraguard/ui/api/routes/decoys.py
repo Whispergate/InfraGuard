@@ -11,16 +11,41 @@ from infraguard.config.schema import InfraGuardConfig
 
 
 async def list_decoys(request: Request) -> JSONResponse:
-    """GET /api/decoys - list decoy directories per domain."""
+    """GET /api/decoys - list decoy directories per domain.
+
+    Covers two mechanisms:
+    - Legacy per-domain ``decoy_dir`` (custom directory)
+    - Modern ``drop_action.type=decoy`` with ``target`` (a folder name
+      under ``decoy_pages_dir``). This is what the wizard emits today,
+      and what the dashboard's Canary Overview panel expects to see.
+    """
     config: InfraGuardConfig = request.app.state.config
+    pages_root = Path(config.decoy_pages_dir).resolve()
     decoys = {}
     for name, dc in config.domains.items():
+        decoy_path: Path | None = None
         if dc.decoy_dir:
             decoy_path = Path(dc.decoy_dir)
-            files = []
-            if decoy_path.exists():
-                files = [f.name for f in decoy_path.iterdir() if f.is_file()]
-            decoys[name] = {"dir": dc.decoy_dir, "files": files}
+        elif dc.drop_action.type.value == "decoy" and dc.drop_action.target:
+            candidate = (pages_root / dc.drop_action.target).resolve()
+            try:
+                candidate.relative_to(pages_root)  # traversal guard
+                if candidate.is_dir():
+                    decoy_path = candidate
+            except ValueError:
+                decoy_path = None
+        if decoy_path is None:
+            continue
+        files: list[str] = []
+        if decoy_path.exists() and decoy_path.is_dir():
+            # Recursive count so nested assets (css/, js/, images/) are
+            # reflected in the FILES column, not just top-level entries.
+            files = [
+                str(p.relative_to(decoy_path))
+                for p in decoy_path.rglob("*")
+                if p.is_file()
+            ]
+        decoys[name] = {"dir": str(decoy_path), "files": files}
     return JSONResponse({"decoys": decoys})
 
 

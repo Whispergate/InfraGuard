@@ -1,0 +1,37 @@
+apiVersion: v1
+kind: Service
+metadata:
+  name: {{ include "infraguard.fullname" . }}-proxy
+  labels: {{- include "infraguard.labels" . | nindent 4 }}
+spec:
+  type: {{ .Values.proxy.service.type }}
+  selector: {{- include "infraguard.proxySelectorLabels" . | nindent 4 }}
+  ports:
+    - name: https
+      port: {{ .Values.proxy.service.port }}
+      targetPort: https
+      protocol: TCP
+    - name: quic
+      port: {{ .Values.proxy.service.quicPort }}
+      targetPort: quic
+      protocol: UDP
+    - name: api
+      port: 8080
+      targetPort: api
+      protocol: TCP
+{{- if .Values.dashboard.enabled }}
+---
+apiVersion: v1
+kind: Service
+metadata:
+  name: {{ include "infraguard.fullname" . }}-dashboard
+  labels: {{- include "infraguard.labels" . | nindent 4 }}
+spec:
+  type: {{ .Values.dashboard.service.type }}
+  selector: {{- include "infraguard.dashboardSelectorLabels" . | nindent 4 }}
+  ports:
+    - name: api
+      port: {{ .Values.dashboard.service.port }}
+      targetPort: api
+      protocol: TCP
+{{- end }}

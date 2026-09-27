@@ -22,7 +22,7 @@ from infraguard.config.schema import TLSConfig
 
 log = structlog.get_logger()
 
-_SELF_SIGNED_DIR = Path(".infraguard/tls")
+_SELF_SIGNED_DIR = Path(os.environ.get("INFRAGUARD_SELF_SIGNED_DIR", ".infraguard/tls"))
 
 
 def generate_self_signed_cert(
@@ -42,7 +42,7 @@ def generate_self_signed_cert(
         from cryptography.x509 import load_pem_x509_certificate
 
         existing_cert = load_pem_x509_certificate(cert_path.read_bytes())
-        if existing_cert.not_valid_after_utc > datetime.datetime.now(datetime.timezone.utc):
+        if existing_cert.not_valid_after_utc > datetime.datetime.now(datetime.UTC):
             log.info("self_signed_reused", domain=domain, cert=str(cert_path))
             return cert_path, key_path
         log.warning("self_signed_expired", domain=domain, cert=str(cert_path))
@@ -54,7 +54,7 @@ def generate_self_signed_cert(
         x509.NameAttribute(NameOID.ORGANIZATION_NAME, "InfraGuard Self-Signed"),
     ])
 
-    now = datetime.datetime.now(datetime.timezone.utc)
+    now = datetime.datetime.now(datetime.UTC)
     cert = (
         x509.CertificateBuilder()
         .subject_name(subject)

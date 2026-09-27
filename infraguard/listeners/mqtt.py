@@ -110,7 +110,7 @@ class MQTTListener:
                             break
                         # For a full implementation, parse MQTT packets and filter by topic
                         # For now, record the connection event
-                    except asyncio.TimeoutError:
+                    except TimeoutError:
                         break
                     except Exception:
                         break

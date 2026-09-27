@@ -1,0 +1,23 @@
+.git
+.venv
+venv
+*.egg-info
+__pycache__
+.pytest_cache
+.ruff_cache
+.mypy_cache
+node_modules
+dist
+build
+htmlcov
+.coverage
+# Broken symlinks in venvs blow up the Windows docker build context
+pulumi_deploy/
+.terraform/
+*.tfstate
+*.tfstate.backup
+# Local dev artifacts
+.infraguard/
+.infraguard-*
+data/*.db
+data/*.db-*

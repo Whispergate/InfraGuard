@@ -35,7 +35,7 @@ output the profile content in a code block.\
 
 
 async def ai_chat(request: Request) -> StreamingResponse | JSONResponse:
-    """POST /api/ai/chat — stream an Ollama chat response via SSE."""
+    """POST /api/ai/chat - stream an Ollama chat response via SSE."""
     ollama_cfg = getattr(request.app.state.config, "ollama", None)
     if ollama_cfg is None or not ollama_cfg.enabled:
         return JSONResponse(
@@ -106,7 +106,7 @@ async def ai_chat(request: Request) -> StreamingResponse | JSONResponse:
 
 
 async def ai_status(request: Request) -> JSONResponse:
-    """GET /api/ai/status — check if Ollama is configured and reachable."""
+    """GET /api/ai/status - check if Ollama is configured and reachable."""
     ollama_cfg = getattr(request.app.state.config, "ollama", None)
     if ollama_cfg is None or not ollama_cfg.enabled:
         return JSONResponse({

@@ -6,44 +6,16 @@
     <title>InfraGuard Dashboard</title>
     <link rel="icon" type="image/svg+xml" href="/static/infraguard_icon.svg">
     <style>
-        /* ── Theme variables ─────────────────────────────────── */
         :root {
-            --bg: #0d1117;
-            --surface: #161b22;
-            --surface-2: #1c2129;
-            --border: #30363d;
-            --text: #c9d1d9;
-            --text-dim: #8b949e;
-            --accent: #58a6ff;
-            --accent-text: #0d1117;
-            --green: #3fb950;
-            --red: #f85149;
-            --yellow: #d29922;
+            --bg: #0d1117; --surface: #161b22; --border: #30363d;
+            --text: #c9d1d9; --text-dim: #8b949e;
+            --accent: #58a6ff; --accent-text: #0d1117;
+            --green: #3fb950; --red: #f85149; --yellow: #d29922;
             --shadow: rgba(0,0,0,0.45);
         }
-        html[data-theme="light"] {
-            --bg: #f6f8fa;
-            --surface: #ffffff;
-            --surface-2: #f0f2f5;
-            --border: #d0d7de;
-            --text: #24292f;
-            --text-dim: #57606a;
-            --accent: #0969da;
-            --accent-text: #ffffff;
-            --green: #1a7f37;
-            --red: #cf222e;
-            --yellow: #9a6700;
-            --shadow: rgba(31,35,40,0.15);
-        }
-        html[data-theme="light"] .badge.allow { background: rgba(26,127,55,0.12); }
-        html[data-theme="light"] .badge.block { background: rgba(207,34,46,0.12); }
-        html[data-theme="light"] .btn-unblock { background: rgba(26,127,55,0.12); }
-        html[data-theme="light"] .btn-block { background: rgba(207,34,46,0.12); }
-
         * { margin: 0; padding: 0; box-sizing: border-box; }
-        body { font-family: 'SF Mono', 'Cascadia Code', monospace; background: var(--bg); color: var(--text); transition: background .2s, color .2s; }
-
-        /* ── Login ──────────────────────────────────────────── */
+        body { font-family: 'SF Mono', 'Cascadia Code', monospace; background: var(--bg); color: var(--text); }
+        /* Login (unchanged) */
         #login-page { display: flex; align-items: center; justify-content: center; min-height: 100vh; padding: 16px; }
         .login-box { background: var(--surface); border: 1px solid var(--border); border-radius: 8px; padding: 32px; width: 100%; max-width: 380px; }
         .login-icon { display: block; width: 64px; height: 64px; margin: 0 auto 12px; }
@@ -56,113 +28,47 @@
         .login-btn:hover { opacity: 0.85; }
         .login-btn:disabled { opacity: 0.5; cursor: not-allowed; }
         .login-error { color: var(--red); font-size: 12px; text-align: center; margin-top: 12px; min-height: 18px; }
-
-        /* ── Dashboard layout ───────────────────────────────── */
         #dashboard-page { display: none; }
-        .header { background: var(--surface); border-bottom: 1px solid var(--border); padding: 16px 24px; display: flex; justify-content: space-between; align-items: center; flex-wrap: wrap; gap: 12px; }
-        .header-brand { display: flex; align-items: center; gap: 10px; }
-        .header-icon { width: 28px; height: 28px; }
-        .header h1 { font-size: 18px; color: var(--accent); }
-        .header .status { font-size: 12px; }
-        .header .status.connected { color: var(--green); }
-        .header .status.disconnected { color: var(--red); }
-        .header-right { display: flex; gap: 12px; align-items: center; flex-wrap: wrap; }
-        .grid { display: grid; grid-template-columns: repeat(4, 1fr); gap: 16px; padding: 24px; }
-        .card { background: var(--surface); border: 1px solid var(--border); border-radius: 8px; padding: 20px; min-width: 0; }
-        .card h3 { font-size: 12px; text-transform: uppercase; color: var(--text-dim); margin-bottom: 8px; display: flex; justify-content: space-between; align-items: center; gap: 8px; }
-        .card .value { font-size: 28px; font-weight: bold; }
-        .card .value.green { color: var(--green); }
-        .card .value.red { color: var(--red); }
-        .full-width { grid-column: 1 / -1; }
-        .two-col { grid-column: span 2; }
-        .table-wrap { overflow-x: auto; }
-        table { width: 100%; border-collapse: collapse; font-size: 13px; }
-        th { text-align: left; padding: 8px 12px; color: var(--text-dim); font-size: 11px; text-transform: uppercase; border-bottom: 1px solid var(--border); white-space: nowrap; }
-        td { padding: 8px 12px; border-bottom: 1px solid var(--border); word-break: break-all; }
-        .badge { display: inline-block; padding: 2px 8px; border-radius: 4px; font-size: 11px; font-weight: bold; white-space: nowrap; }
-        .badge.allow { background: rgba(63,185,80,0.15); color: var(--green); }
-        .badge.block { background: rgba(248,81,73,0.15); color: var(--red); }
-        #events { max-height: 400px; overflow-y: auto; }
-        .event-row { display: flex; gap: 12px; padding: 6px 0; border-bottom: 1px solid var(--border); font-size: 12px; flex-wrap: wrap; }
-        .event-row .time { color: var(--text-dim); min-width: 80px; }
-        .event-row .ip { color: var(--yellow); min-width: 120px; }
-        .btn { background: var(--accent); color: var(--accent-text); border: none; padding: 8px 16px; border-radius: 4px; cursor: pointer; font-family: inherit; font-size: 12px; white-space: nowrap; }
-        .btn:hover { opacity: 0.8; }
-        .btn:disabled { opacity: 0.5; cursor: not-allowed; }
-        .btn-ghost { background: transparent; color: var(--text-dim); border: 1px solid var(--border); }
-        .btn-sm { padding: 2px 8px; font-size: 10px; border-radius: 3px; cursor: pointer; font-family: inherit; border: none; white-space: nowrap; margin: 1px 0; }
-        .btn-unblock { background: rgba(63,185,80,0.2); color: var(--green); }
-        .btn-unblock:hover { background: rgba(63,185,80,0.4); }
-        .btn-block { background: rgba(248,81,73,0.2); color: var(--red); }
-        .btn-block:hover { background: rgba(248,81,73,0.4); }
-        .btn-ghost:hover { color: var(--text); border-color: var(--text-dim); }
-        .btn-info { background: rgba(88,166,255,0.15); color: var(--accent); }
-        .btn-info:hover { background: rgba(88,166,255,0.3); }
 
-        /* ── Theme toggle ───────────────────────────────────── */
-        .theme-toggle { background: transparent; border: 1px solid var(--border); color: var(--text-dim); padding: 6px 10px; border-radius: 4px; cursor: pointer; font-family: inherit; font-size: 12px; display: inline-flex; align-items: center; gap: 6px; }
-        .theme-toggle:hover { color: var(--text); border-color: var(--text-dim); }
-
-        /* ── Checkboxes for bulk ops ────────────────────────── */
-        input[type="checkbox"] { accent-color: var(--accent); cursor: pointer; }
-        .bulk-bar { display: none; align-items: center; gap: 10px; padding: 10px 12px; background: var(--surface-2); border: 1px solid var(--border); border-radius: 6px; margin-bottom: 12px; flex-wrap: wrap; }
-        .bulk-bar.active { display: flex; }
-        .bulk-bar .count { font-size: 12px; color: var(--accent); font-weight: bold; }
-
-        /* ── Modal (request detail / replay) ────────────────── */
-        .modal-overlay { display: none; position: fixed; inset: 0; background: rgba(0,0,0,0.6); z-index: 100; align-items: center; justify-content: center; padding: 16px; }
+        /* Modal (unchanged, still used for request inspect/replay) */
+        .modal-overlay { display: none; position: fixed; inset: 0; background: rgba(0,0,0,0.65); z-index: 100; align-items: center; justify-content: center; padding: 16px; }
         .modal-overlay.open { display: flex; }
-        .modal { background: var(--surface); border: 1px solid var(--border); border-radius: 8px; width: 100%; max-width: 760px; max-height: 90vh; display: flex; flex-direction: column; box-shadow: 0 8px 32px var(--shadow); }
-        .modal-head { display: flex; justify-content: space-between; align-items: center; padding: 16px 20px; border-bottom: 1px solid var(--border); }
+        .modal { background: var(--surface); border: 1px solid var(--border); border-radius: 6px; width: 100%; max-width: 760px; max-height: 90vh; display: flex; flex-direction: column; box-shadow: 0 8px 32px var(--shadow); }
+        .modal-head { display: flex; justify-content: space-between; align-items: center; padding: 14px 18px; border-bottom: 1px solid var(--border); }
         .modal-head h2 { font-size: 14px; color: var(--accent); }
-        .modal-close { background: none; border: none; color: var(--text-dim); font-size: 20px; cursor: pointer; line-height: 1; padding: 4px; }
-        .modal-close:hover { color: var(--text); }
-        .modal-body { padding: 20px; overflow-y: auto; }
-        .detail-grid { display: grid; grid-template-columns: 160px 1fr; gap: 6px 16px; font-size: 13px; margin-bottom: 20px; }
-        .detail-grid dt { color: var(--text-dim); text-transform: uppercase; font-size: 11px; align-self: start; padding-top: 2px; }
-        .detail-grid dd { word-break: break-all; }
-        .curl-block { background: var(--bg); border: 1px solid var(--border); border-radius: 6px; padding: 14px; font-size: 12px; white-space: pre-wrap; word-break: break-all; user-select: all; line-height: 1.6; }
-        .modal-foot { display: flex; gap: 10px; padding: 16px 20px; border-top: 1px solid var(--border); flex-wrap: wrap; }
+        .modal-close { background: none; border: none; color: var(--text-dim); font-size: 20px; cursor: pointer; padding: 4px; }
+        .modal-body { padding: 18px; overflow-y: auto; }
+        .detail-grid { display: grid; grid-template-columns: 140px 1fr; gap: 6px 16px; font-size: 12px; margin-bottom: 16px; }
+        .detail-grid dt { color: var(--text-dim); text-transform: uppercase; font-size: 11px; }
+        .detail-grid dd { word-break: break-all; font-family: 'SF Mono', monospace; }
+        .curl-block { background: var(--bg); border: 1px solid var(--border); border-radius: 6px; padding: 12px; font-size: 12px; white-space: pre-wrap; word-break: break-all; user-select: all; line-height: 1.5; }
+        .modal-foot { display: flex; gap: 8px; padding: 14px 18px; border-top: 1px solid var(--border); }
 
-        /* ── Toast notifications ────────────────────────────── */
+        /* Toasts (unchanged) */
         #toast-container { position: fixed; bottom: 20px; right: 20px; z-index: 200; display: flex; flex-direction: column; gap: 8px; max-width: 90vw; }
-        .toast { background: var(--surface); border: 1px solid var(--border); border-left: 3px solid var(--accent); padding: 10px 16px; border-radius: 6px; font-size: 12px; box-shadow: 0 4px 16px var(--shadow); animation: toast-in .2s ease-out; max-width: 360px; }
+        .toast { background: var(--surface); border: 1px solid var(--border); border-left: 3px solid var(--accent); padding: 10px 16px; border-radius: 4px; font-size: 12px; box-shadow: 0 4px 16px var(--shadow); max-width: 360px; animation: toast-in 0.2s ease-out; }
         .toast.ok { border-left-color: var(--green); }
         .toast.err { border-left-color: var(--red); }
         @keyframes toast-in { from { opacity: 0; transform: translateY(8px); } to { opacity: 1; transform: none; } }
 
-        /* ── Feed controls ──────────────────────────────────── */
-        .feed-controls { display: flex; gap: 8px; align-items: center; }
-        .feed-controls input { background: var(--bg); border: 1px solid var(--border); border-radius: 4px; color: var(--text); font-family: inherit; font-size: 11px; padding: 4px 8px; width: 140px; }
-        .feed-controls input:focus { outline: none; border-color: var(--accent); }
-
-        /* ── Export buttons ─────────────────────────────────── */
-        .export-row { display: flex; gap: 10px; flex-wrap: wrap; }
-
-        /* ── Responsive design ──────────────────────────────── */
-        @media (max-width: 1100px) {
-            .grid { grid-template-columns: repeat(2, 1fr); padding: 16px; }
-            .two-col { grid-column: 1 / -1; }
+        /* Responsive */
+        @media (max-width: 1200px) {
+            .ig-row1 { grid-template-columns: 1fr !important; }
+            .ig-row2 { grid-template-columns: 1fr !important; }
+            .ig-kpi-row { grid-template-columns: repeat(3, 1fr) !important; }
+            .ig-pipeline-grid { grid-template-columns: repeat(5, 1fr) !important; }
         }
-        @media (max-width: 640px) {
-            .grid { grid-template-columns: 1fr; padding: 12px; gap: 12px; }
-            .header { padding: 12px 16px; }
-            .header h1 { font-size: 15px; }
-            .header-right { width: 100%; justify-content: flex-start; }
-            .card { padding: 16px; }
-            .card .value { font-size: 22px; }
-            .detail-grid { grid-template-columns: 1fr; gap: 2px; }
-            .detail-grid dt { padding-top: 8px; }
-            .modal { max-height: 95vh; }
-            .feed-controls input { width: 100%; }
-            .feed-controls { flex-wrap: wrap; }
-            .btn { padding: 8px 12px; }
+        @media (max-width: 700px) {
+            .ig-kpi-row { grid-template-columns: 1fr 1fr !important; }
+            .ig-pipeline-grid { grid-template-columns: repeat(2, 1fr) !important; }
+            .ig-topbar .ig-status-group { display: none; }
         }
     </style>
+    <link rel="stylesheet" href="/static/ig-theme.css">
 </head>
 <body>
 
-    <!-- ── Login Page ───────────────────────────────────────── -->
+    <!-- ── Login ──────────────────────────────────────────────── -->
     <div id="login-page">
         <div class="login-box">
             <img src="/static/infraguard_icon.svg" alt="InfraGuard" class="login-icon">
@@ -175,127 +81,186 @@
         </div>
     </div>
 
-    <!-- ── Dashboard Page ───────────────────────────────────── -->
+    <!-- ── Dashboard ──────────────────────────────────────────── -->
     <div id="dashboard-page">
-        <div class="header">
-            <div class="header-brand">
-                <img src="/static/infraguard_icon.svg" alt="" class="header-icon">
-                <h1>InfraGuard Dashboard</h1>
+      <div class="ig-page">
+
+        <!-- Top bar -->
+        <div class="ig-topbar">
+            <div class="ig-brand">
+                <img src="/static/infraguard_icon.svg" alt="" style="width:26px;height:26px;">
+                INFRAGUARD <span class="ig-ver">v0.6</span>
             </div>
-            <div class="header-right">
-                <span class="status disconnected" id="ws-status">&#9679; Connecting...</span>
-                <button class="theme-toggle" id="theme-toggle" onclick="toggleTheme()" title="Toggle dark/light mode">&#9789; Theme</button>
-                <button class="btn" onclick="window.open('/static/decoys.html','_blank','noopener,noreferrer')">Decoys</button>
-                <button class="btn" onclick="window.open('/static/health.html','_blank','noopener,noreferrer')">Health</button>
-                <button class="btn" onclick="refresh()">Refresh</button>
-                <button class="btn btn-ghost" onclick="doLogout()">Logout</button>
+            <div class="ig-sep"></div>
+            <div class="ig-node-info">
+                <span class="ig-dot ig-dot-ok" id="node-dot"></span>
+                <div>
+                    <div class="ig-node-name" id="node-name">ig-local</div>
+                    <div class="ig-node-sub" id="node-sub">uptime - · dashboard</div>
+                </div>
+            </div>
+            <div class="ig-grow"></div>
+            <div class="ig-status-group">
+                <div class="ig-status-block">
+                    <div class="ig-label">Listeners</div>
+                    <div style="display:flex;gap:4px;margin-top:3px;justify-content:flex-end;" id="listener-pills"><span class="ig-pill ig-pill-off">–</span></div>
+                </div>
+                <div class="ig-status-block">
+                    <div class="ig-label">Domains</div>
+                    <div class="ig-value" id="domain-count">– <span style="color:var(--text-muted);font-size:11px;font-weight:400;" id="domain-count-sub"></span></div>
+                </div>
+                <div class="ig-status-block">
+                    <div class="ig-label">Dead-man</div>
+                    <div class="ig-value" id="deadman-val" style="color:var(--text-muted);">–</div>
+                </div>
+            </div>
+            <div class="ig-sep"></div>
+            <div class="ig-actions">
+                <button class="ig-btn-ghost" id="theme-toggle" onclick="toggleTheme()" title="Toggle theme">☾ Theme</button>
+                <button class="ig-btn-ghost" onclick="downloadReport('html')">Reports</button>
+                <button class="ig-btn-ghost" onclick="rotateAction()" title="Run non-destructive DNS/cert/upstream preflight">Rotate</button>
+                <button class="ig-btn-danger" onclick="burnNow()" title="Stop C2 forwarding on every domain (reversible)">BURN NOW</button>
+                <button class="ig-btn-ghost" onclick="doLogout()">Logout</button>
             </div>
         </div>
 
-        <div class="grid">
-            <div class="card">
-                <h3>Total Requests</h3>
-                <div class="value" id="total">-</div>
-            </div>
-            <div class="card">
-                <h3>Allowed</h3>
-                <div class="value green" id="allowed">-</div>
-            </div>
-            <div class="card">
-                <h3>Blocked</h3>
-                <div class="value red" id="blocked">-</div>
-            </div>
-            <div class="card">
-                <h3>Unique IPs</h3>
-                <div class="value" id="unique-ips">-</div>
-            </div>
+        <!-- Tab strip -->
+        <div class="nav" role="navigation" aria-label="Dashboard sections">
+            <a href="/" class="active">Overview</a>
+            <a href="/static/decoys.html">Decoys<span class="count" id="nav-count-decoys"></span></a>
+            <a href="/static/health.html">Health<span class="count" id="nav-count-health"></span></a>
+            <a href="/static/plugins.html">Plugins<span class="count" id="nav-count-plugins"></span></a>
+        </div>
 
-            <div class="card two-col">
-                <h3>Top Blocked IPs</h3>
-                <div class="table-wrap">
-                <table>
-                    <thead><tr><th>IP Address</th><th>Count</th><th>Actions</th></tr></thead>
-                    <tbody id="blocked-ips"></tbody>
-                </table>
+        <!-- Row 1: Burn + KPI + Pipeline -->
+        <div class="ig-row1">
+            <!-- Burn Confidence -->
+            <div class="ig-panel">
+                <div style="display:flex;justify-content:space-between;align-items:baseline;">
+                    <div class="ig-eyebrow">Burn Confidence</div>
+                    <div class="ig-mono" style="font-size:10px;color:var(--text-muted);">6-signal weighted</div>
                 </div>
-            </div>
-
-            <div class="card two-col">
-                <h3>Domain Statistics</h3>
-                <div class="table-wrap">
-                <table>
-                    <thead><tr><th></th><th>Domain</th><th>Total</th><th>Blocked</th><th>Block Rate</th></tr></thead>
-                    <tbody id="domain-stats"></tbody>
-                </table>
+                <div class="ig-burn-body">
+                    <div class="ig-burn-ring">
+                        <svg viewBox="0 0 120 120">
+                            <circle cx="60" cy="60" r="50" fill="none" stroke="var(--border)" stroke-width="10"/>
+                            <circle id="burn-ring-fill" cx="60" cy="60" r="50" fill="none" stroke="var(--text-muted)" stroke-width="10" stroke-linecap="round" stroke-dasharray="314" stroke-dashoffset="314" transform="rotate(-90 60 60)"/>
+                        </svg>
+                        <div class="ig-burn-val">
+                            <div class="num" id="burn-num" style="color:var(--text-muted);">–</div>
+                            <div class="max">/ 100</div>
+                        </div>
+                    </div>
+                    <div class="ig-burn-rec">
+                        <div class="lbl">Recommendation</div>
+                        <div class="rec" id="burn-rec" style="color:var(--text-muted);">no data</div>
+                        <div class="note" id="burn-note">Burn scoring reads from /api/burn/scores - needs an active proxy with domain traffic.</div>
+                    </div>
                 </div>
+                <div class="ig-burn-signals" id="burn-signals"></div>
             </div>
 
-            <div class="card full-width">
-                <h3>
-                    <span>Live Request Feed</span>
-                    <span class="feed-controls">
-                        <input type="text" id="feed-filter" placeholder="Filter (ip/domain/uri)" oninput="applyFeedFilter()">
-                        <button class="btn-sm btn-info" id="feed-pause-btn" onclick="toggleFeedPause()">Pause</button>
-                    </span>
-                </h3>
-                <div id="events"></div>
-            </div>
-
-            <div class="card full-width">
-                <h3>Export Reports</h3>
-                <p style="color: var(--text-dim); font-size: 12px; margin-bottom: 12px;">
-                    Download a full report of InfraGuard statistics, per-domain activity, blocked traffic, registered nodes, and the operator audit log.
-                </p>
-                <div class="export-row">
-                    <button class="btn" onclick="downloadReport('html')">Download HTML</button>
-                    <button class="btn" onclick="downloadReport('json')">Download JSON</button>
-                    <button class="btn" onclick="downloadReport('csv')">Download CSV</button>
-                    <button class="btn" onclick="exportPDF()">Download PDF</button>
+            <!-- Right column: KPI + pipeline -->
+            <div class="ig-row1-right">
+                <div class="ig-kpi-row">
+                    <div class="ig-kpi"><div class="lbl">Requests · 24h</div><div class="num" id="kpi-total">–</div><div class="sub" id="kpi-total-sub"></div></div>
+                    <div class="ig-kpi"><div class="lbl">Allowed</div><div class="num" id="kpi-allow" style="color:var(--green);">–</div><div class="sub" id="kpi-allow-sub"></div></div>
+                    <div class="ig-kpi"><div class="lbl">Blocked</div><div class="num" id="kpi-block" style="color:var(--red);">–</div><div class="sub" id="kpi-block-sub"></div></div>
+                    <div class="ig-kpi"><div class="lbl">Tarpit / Decoy</div><div class="num" id="kpi-tarpit" style="color:var(--yellow);">–</div><div class="sub" id="kpi-tarpit-sub"></div></div>
+                    <div class="ig-kpi"><div class="lbl">Unique IPs</div><div class="num" id="kpi-uniq" style="color:var(--info);">–</div><div class="sub" id="kpi-uniq-sub"></div></div>
                 </div>
-                <div id="report-status" style="color: var(--text-dim); font-size: 12px; margin-top: 10px; min-height: 16px;"></div>
-            </div>
-
-            <div class="card full-width">
-                <h3>
-                    <span>Recent Requests</span>
-                    <span id="selected-count" style="font-weight: normal; text-transform: none;"></span>
-                </h3>
-                <div class="bulk-bar" id="bulk-bar">
-                    <span class="count" id="bulk-count">0 selected</span>
-                    <button class="btn-sm btn-block" onclick="bulkBlock()">Block selected IPs</button>
-                    <button class="btn-sm btn-unblock" onclick="bulkWhitelist()">Whitelist selected IPs</button>
-                    <button class="btn-sm btn-info" onclick="bulkRotateDomains()">Rotate selected domains</button>
-                    <button class="btn-sm btn-ghost" onclick="clearSelection()">Clear</button>
-                </div>
-                <div class="table-wrap">
-                <table>
-                    <thead><tr>
-                        <th><input type="checkbox" id="select-all" onchange="toggleSelectAll(this.checked)" title="Select all"></th>
-                        <th>Time</th><th>Proto</th><th>Domain</th><th>IP</th><th>Method</th><th>URI</th><th>Result</th><th>Reason</th><th>Actions</th>
-                    </tr></thead>
-                    <tbody id="recent-requests"></tbody>
-                </table>
+                <div class="ig-panel">
+                    <div style="display:flex;justify-content:space-between;align-items:baseline;margin-bottom:4px;">
+                        <div class="ig-eyebrow">Filter Pipeline · rolling 24h · threshold 0.60</div>
+                        <div class="ig-mono" style="font-size:10px;color:var(--text-muted);">10 filters · block ≥ threshold</div>
+                    </div>
+                    <div class="ig-pipeline-grid" id="pipeline-grid"></div>
                 </div>
             </div>
         </div>
+
+        <!-- Row 2 -->
+        <div class="ig-row2">
+            <div class="ig-row2-left">
+                <!-- Live feed -->
+                <div class="ig-panel" style="display:flex;flex-direction:column;min-height:340px;">
+                    <div style="display:flex;justify-content:space-between;align-items:baseline;">
+                        <div>
+                            <div class="ig-eyebrow">Live Request Feed</div>
+                            <div style="font-size:11px;color:var(--text-muted);margin-top:2px;">Streaming · <span id="ws-status" style="color:var(--yellow);">● connecting…</span> · last 100</div>
+                        </div>
+                        <div style="display:flex;gap:6px;align-items:center;">
+                            <input type="text" id="feed-filter" placeholder="filter (ip/domain/uri)" oninput="applyFeedFilter()" style="background:var(--bg);border:1px solid var(--border);color:var(--text);border-radius:3px;padding:5px 10px;font-size:11px;width:180px;font-family:'IBM Plex Mono',monospace;">
+                            <button class="ig-btn-ghost" id="feed-pause-btn" onclick="toggleFeedPause()" style="padding:5px 10px;font-size:11px;">Pause</button>
+                        </div>
+                    </div>
+                    <div class="ig-feed-hdr">
+                        <div>Time</div><div>Verdict</div><div>Source</div><div>Request</div><div>JA3 / UA</div><div>Score</div>
+                    </div>
+                    <div id="feed-rows" style="flex-grow:1;overflow:hidden;"></div>
+                </div>
+
+                <!-- Per-domain -->
+                <div class="ig-panel">
+                    <div style="display:flex;justify-content:space-between;align-items:baseline;margin-bottom:8px;">
+                        <div class="ig-eyebrow">Per-Domain · 24h</div>
+                        <div class="ig-mono" style="font-size:10px;color:var(--text-muted);" id="domain-count-label"></div>
+                    </div>
+                    <div class="ig-domain-grid" id="domain-grid"></div>
+                </div>
+            </div>
+
+            <div class="ig-row2-right">
+                <!-- Top blocked -->
+                <div class="ig-panel">
+                    <div style="display:flex;justify-content:space-between;align-items:baseline;margin-bottom:8px;">
+                        <div class="ig-eyebrow">Top Blocked · 24h</div>
+                        <span class="ig-mono" style="font-size:10px;color:var(--text-muted);" id="top-blocked-count">–</span>
+                    </div>
+                    <div id="top-blocked-rows"></div>
+                </div>
+                <!-- Intel feeds -->
+                <div class="ig-panel">
+                    <div style="display:flex;justify-content:space-between;align-items:baseline;margin-bottom:8px;">
+                        <div class="ig-eyebrow">Intel Feeds</div>
+                        <span class="ig-mono" style="font-size:10px;" id="feeds-status">–</span>
+                    </div>
+                    <div id="feeds-rows"></div>
+                    <div style="border-top:1px solid var(--border);margin-top:10px;padding-top:10px;">
+                        <div style="display:flex;justify-content:space-between;font-size:11px;">
+                            <div><div class="ig-eyebrow" style="font-size:9px;">Blocklist</div><div class="ig-mono" style="margin-top:2px;" id="stats-blocklist">–</div></div>
+                            <div><div class="ig-eyebrow" style="font-size:9px;">Whitelist</div><div class="ig-mono" style="color:var(--green);margin-top:2px;" id="stats-whitelist">–</div></div>
+                            <div><div class="ig-eyebrow" style="font-size:9px;">Dyn.block</div><div class="ig-mono" style="color:var(--red);margin-top:2px;" id="stats-dynblock">–</div></div>
+                        </div>
+                    </div>
+                </div>
+                <!-- Upstreams -->
+                <div class="ig-panel">
+                    <div style="display:flex;justify-content:space-between;align-items:baseline;margin-bottom:8px;">
+                        <div class="ig-eyebrow">Upstreams</div>
+                        <span class="ig-mono" style="font-size:10px;color:var(--text-muted);" id="upstream-summary">–</span>
+                    </div>
+                    <div id="upstream-rows"></div>
+                </div>
+            </div>
+        </div>
+
+      </div>
     </div>
 
-    <!-- ── Request Detail / Replay Modal ────────────────────── -->
+    <!-- Request Detail / Replay Modal -->
     <div class="modal-overlay" id="request-modal" onclick="if(event.target===this) closeRequestModal()">
         <div class="modal">
-            <div class="modal-head">
-                <h2>Request Details</h2>
-                <button class="modal-close" onclick="closeRequestModal()" title="Close">&times;</button>
-            </div>
+            <div class="modal-head"><h2>Request Details</h2><button class="modal-close" onclick="closeRequestModal()">&times;</button></div>
             <div class="modal-body">
                 <dl class="detail-grid" id="request-detail"></dl>
-                <h3 style="font-size:12px;text-transform:uppercase;color:var(--text-dim);margin-bottom:8px;">Replay Command (cURL)</h3>
+                <h3 style="font-size:12px;text-transform:uppercase;color:var(--text-dim);margin-bottom:8px;">Replay (cURL)</h3>
                 <div class="curl-block" id="curl-block"></div>
             </div>
             <div class="modal-foot">
-                <button class="btn" onclick="copyCurl()">Copy cURL</button>
-                <button class="btn btn-info" onclick="replayInBrowser()">Replay (fetch)</button>
-                <button class="btn btn-ghost" onclick="closeRequestModal()">Close</button>
+                <button class="ig-btn-ghost" onclick="copyCurl()">Copy cURL</button>
+                <button class="ig-btn-ghost" onclick="replayInBrowser()">Replay (fetch)</button>
+                <button class="ig-btn-ghost" onclick="closeRequestModal()">Close</button>
             </div>
         </div>
     </div>
@@ -305,12 +270,11 @@
     <script>
         const API_BASE = window.location.origin;
 
-        // ── Theme (dark / light) ───────────────────────────────
+        // ── Theme ──────────────────────────────────────────────
         function initTheme() {
-            const saved = localStorage.getItem('infraguard-theme');
-            const theme = saved || 'dark';
-            document.documentElement.setAttribute('data-theme', theme);
-            updateThemeButton(theme);
+            const t = localStorage.getItem('infraguard-theme') || 'dark';
+            document.documentElement.setAttribute('data-theme', t);
+            updateThemeButton(t);
         }
         function toggleTheme() {
             const cur = document.documentElement.getAttribute('data-theme') === 'light' ? 'dark' : 'light';
@@ -318,13 +282,13 @@
             localStorage.setItem('infraguard-theme', cur);
             updateThemeButton(cur);
         }
-        function updateThemeButton(theme) {
-            const btn = document.getElementById('theme-toggle');
-            btn.innerHTML = theme === 'light' ? '&#9788; Dark' : '&#9789; Light';
+        function updateThemeButton(t) {
+            const b = document.getElementById('theme-toggle');
+            if (b) b.textContent = t === 'light' ? '☀ Dark' : '☾ Light';
         }
         initTheme();
 
-        // ── Toast notifications ────────────────────────────────
+        // ── Toast ──────────────────────────────────────────────
         function toast(msg, kind) {
             const c = document.getElementById('toast-container');
             const el = document.createElement('div');
@@ -339,21 +303,13 @@
             try {
                 const resp = await fetch(API_BASE + '/api/auth/check', {credentials: 'same-origin'});
                 const data = await resp.json();
-                if (!data.auth_required || data.authenticated) {
-                    showDashboard();
-                } else {
-                    showLogin();
-                }
-            } catch(e) {
-                showLogin();
-            }
+                if (!data.auth_required || data.authenticated) showDashboard(); else showLogin();
+            } catch(e) { showLogin(); }
         }
-
         function showLogin() {
             document.getElementById('login-page').style.display = 'flex';
             document.getElementById('dashboard-page').style.display = 'none';
         }
-
         function showDashboard() {
             document.getElementById('login-page').style.display = 'none';
             document.getElementById('dashboard-page').style.display = 'block';
@@ -361,19 +317,13 @@
             startPolling();
             connectWS();
         }
-
         async function doLogin() {
             const input = document.getElementById('token-input');
             const btn = document.getElementById('login-btn');
             const err = document.getElementById('login-error');
             const token = input.value.trim();
-
             if (!token) { err.textContent = 'Token is required'; return; }
-
-            btn.disabled = true;
-            btn.textContent = 'Signing in...';
-            err.textContent = '';
-
+            btn.disabled = true; btn.textContent = 'Signing in...'; err.textContent = '';
             try {
                 const resp = await fetch(API_BASE + '/api/auth/login', {
                     method: 'POST',
@@ -381,198 +331,116 @@
                     body: JSON.stringify({token}),
                     credentials: 'same-origin',
                 });
-                if (resp.ok) {
-                    input.value = '';
-                    showDashboard();
-                } else {
-                    const data = await resp.json();
-                    err.textContent = data.error || 'Authentication failed';
-                }
-            } catch(e) {
-                err.textContent = 'Connection failed';
-            }
-
-            btn.disabled = false;
-            btn.textContent = 'Sign In';
+                if (resp.ok) { input.value = ''; showDashboard(); }
+                else { const d = await resp.json(); err.textContent = d.error || 'Auth failed'; }
+            } catch(e) { err.textContent = 'Connection failed'; }
+            btn.disabled = false; btn.textContent = 'Sign In';
         }
-
         async function doLogout() {
             await fetch(API_BASE + '/api/auth/logout', {method: 'POST', credentials: 'same-origin'});
             if (pollInterval) clearInterval(pollInterval);
             if (ws) { try { ws.close(); } catch(_) {} }
             showLogin();
         }
+        document.getElementById('token-input').addEventListener('keydown', (e) => { if (e.key === 'Enter') doLogin(); });
 
-        // Enter key submits login
-        document.getElementById('token-input').addEventListener('keydown', (e) => {
-            if (e.key === 'Enter') doLogin();
-        });
+        // ── Escape HTML ────────────────────────────────────────
+        function esc(s) { if (s == null) return ''; const d = document.createElement('div'); d.textContent = String(s); return d.innerHTML.replace(/'/g, '&#39;'); }
+        function fmtNum(n) { return (n == null || isNaN(n)) ? '–' : Number(n).toLocaleString(); }
+        function scoreClass(s) { if (s == null || isNaN(s)) return ''; if (s >= 0.6) return 'hi'; if (s >= 0.35) return 'mid'; return 'lo'; }
 
-        // ── HTML escaping (prevent XSS from stored request data) ──
-        function esc(s) {
-            if (s == null) return '';
-            const d = document.createElement('div');
-            d.textContent = String(s);
-            return d.innerHTML.replace(/'/g, '&#39;');
-        }
-
-        // ── IP management actions ──────────────────────────────
-        async function whitelistIP(ip) {
-            if (!confirm(`Whitelist ${ip}? This will allow all traffic from this IP.`)) return;
+        // ── BURN NOW ───────────────────────────────────────────
+        async function burnNow() {
+            // Two-stage confirm: naming the effect out loud, then a
+            // typed acknowledgement, so accidental clicks don't kill
+            // an engagement.
+            if (!confirm(
+                'BURN NOW\n\n' +
+                'Immediately stops C2 forwarding on ALL domains.\n' +
+                'Every subsequent request will fall through to the\n' +
+                'domain\'s drop_action (decoy / redirect / reset).\n\n' +
+                'Reversible via the Restore button.\n\n' +
+                'Proceed?'
+            )) return;
+            const typed = prompt('Type BURN to confirm:');
+            if ((typed || '').trim().toUpperCase() !== 'BURN') { toast('burn cancelled', 'err'); return; }
             try {
-                const resp = await fetch(API_BASE + '/api/intel/whitelist', {
+                const r = await fetch(API_BASE + '/api/burn/trigger', {
                     method: 'POST',
                     headers: {'Content-Type': 'application/json'},
-                    body: JSON.stringify({ip}),
+                    body: '{}',
                     credentials: 'same-origin',
                 });
-                if (resp.ok) { toast(`Whitelisted ${ip}`, 'ok'); refresh(); }
-                else { toast('Failed to whitelist IP', 'err'); }
-            } catch(e) { toast('Error: ' + e.message, 'err'); }
+                const data = await r.json();
+                if (!r.ok) { toast('Burn failed: ' + (data.error || r.status), 'err'); return; }
+                toast(`BURN: ${data.burned.length} domain(s) - ${data.burned.join(', ')}`, 'ok');
+                refresh();
+            } catch(e) { toast('Burn failed: ' + e.message, 'err'); }
         }
 
+        async function rotateAction() {
+            // Rotate = safe non-destructive preflight of every domain's
+            // DNS / TLS / upstream. This runs the same code path a real
+            // rotate would gate on, without touching any cloud infra.
+            const domain = prompt(
+                'Rotation preflight\n\nEnter a domain to check, or leave blank to check all:',
+                '',
+            );
+            if (domain === null) return;
+            const body = domain.trim() ? {domain: domain.trim()} : {};
+            toast('Running preflight…', 'ok');
+            try {
+                const r = await fetch(API_BASE + '/api/rotate/preflight', {
+                    method: 'POST',
+                    headers: {'Content-Type': 'application/json'},
+                    body: JSON.stringify(body),
+                    credentials: 'same-origin',
+                });
+                const data = await r.json();
+                if (!r.ok) { toast('Preflight failed: ' + (data.error || r.status), 'err'); return; }
+                const lines = (data.results || []).map(x => {
+                    const dns = x.dns_ok ? '✓ DNS' : x.dns_ok === false ? '✗ DNS' : '– DNS';
+                    const cert = x.cert_ok ? '✓ cert' : x.cert_ok === false ? '✗ cert' : '– cert';
+                    const up   = x.upstream_ok ? '✓ upstream' : x.upstream_ok === false ? '✗ upstream' : '– upstream';
+                    return `${x.domain}: ${dns} · ${cert} · ${up}${x.error ? ' (' + x.error + ')' : ''}`;
+                });
+                const status = data.all_passed ? 'ok' : 'err';
+                alert('Rotation preflight results:\n\n' + lines.join('\n'));
+                toast(data.all_passed ? 'All preflight checks passed' : 'Preflight found issues', status);
+            } catch(e) { toast('Preflight failed: ' + e.message, 'err'); }
+        }
+
+        // Reset the dead-man's switch on every refresh so an active
+        // dashboard session counts as a heartbeat.
+        async function heartbeat() {
+            try {
+                await fetch(API_BASE + '/api/heartbeat', {method: 'POST', credentials: 'same-origin'});
+            } catch(_) { /* silent - the switch just times out normally */ }
+        }
+
+        // ── IP actions ─────────────────────────────────────────
+        async function whitelistIP(ip) {
+            if (!confirm(`Whitelist ${ip}?`)) return;
+            try { const r = await fetch(API_BASE + '/api/intel/whitelist', {method: 'POST', headers: {'Content-Type': 'application/json'}, body: JSON.stringify({ip}), credentials: 'same-origin'});
+                if (r.ok) { toast(`Whitelisted ${ip}`, 'ok'); refresh(); } else toast('Failed', 'err'); } catch(e) { toast('Error: '+e.message, 'err'); }
+        }
         async function unblockIP(ip) {
             if (!confirm(`Remove ${ip} from blocklist?`)) return;
-            try {
-                const resp = await fetch(API_BASE + '/api/intel/blocklist', {
-                    method: 'DELETE',
-                    headers: {'Content-Type': 'application/json'},
-                    body: JSON.stringify({ip}),
-                    credentials: 'same-origin',
-                });
-                if (resp.ok) { toast(`Unblocked ${ip}`, 'ok'); refresh(); }
-                else { toast('Failed to unblock IP', 'err'); }
-            } catch(e) { toast('Error: ' + e.message, 'err'); }
+            try { const r = await fetch(API_BASE + '/api/intel/blocklist', {method: 'DELETE', headers: {'Content-Type': 'application/json'}, body: JSON.stringify({ip}), credentials: 'same-origin'});
+                if (r.ok) { toast(`Unblocked ${ip}`, 'ok'); refresh(); } else toast('Failed', 'err'); } catch(e) { toast('Error: '+e.message, 'err'); }
         }
-
         async function blockIP(ip) {
-            if (!confirm(`Block ${ip}? This will add it to the blocklist.`)) return;
-            try {
-                const resp = await fetch(API_BASE + '/api/intel/blocklist', {
-                    method: 'POST',
-                    headers: {'Content-Type': 'application/json'},
-                    body: JSON.stringify({cidrs: [ip + '/32']}),
-                    credentials: 'same-origin',
-                });
-                if (resp.ok) { toast(`Blocked ${ip}`, 'ok'); refresh(); }
-                else { toast('Failed to block IP', 'err'); }
-            } catch(e) { toast('Error: ' + e.message, 'err'); }
+            if (!confirm(`Block ${ip}?`)) return;
+            try { const r = await fetch(API_BASE + '/api/intel/blocklist', {method: 'POST', headers: {'Content-Type': 'application/json'}, body: JSON.stringify({cidrs: [ip+'/32']}), credentials: 'same-origin'});
+                if (r.ok) { toast(`Blocked ${ip}`, 'ok'); refresh(); } else toast('Failed', 'err'); } catch(e) { toast('Error: '+e.message, 'err'); }
+        }
+        function bulkRotateDomains() {
+            toast('Rotation manifest: use the operator CLI `infraguard rotate --domain <d>`.', 'ok');
         }
 
-        // ── Bulk operations ────────────────────────────────────
-        const selectedIPs = new Set();
-        const selectedDomains = new Set();
-        let lastRequests = [];
-
-        function rowKey(r) { return r.id != null ? 'id:' + r.id : r.client_ip + '|' + r.timestamp; }
-
-        function updateBulkBar() {
-            const bar = document.getElementById('bulk-bar');
-            const cnt = document.getElementById('bulk-count');
-            const n = selectedIPs.size + selectedDomains.size;
-            bar.classList.toggle('active', n > 0);
-            cnt.textContent = `${selectedIPs.size} IP${selectedIPs.size !== 1 ? 's' : ''}, ${selectedDomains.size} domain${selectedDomains.size !== 1 ? 's' : ''} selected`;
-            const label = document.getElementById('selected-count');
-            label.textContent = n > 0 ? `(${n} selected)` : '';
-        }
-
-        function toggleSelect(key, ip, domain, checked) {
-            if (checked) { selectedIPs.add(ip); } else { selectedIPs.delete(ip); }
-            if (domain) { /* domain selection handled separately in domain table */ }
-            updateBulkBar();
-        }
-
-        function toggleDomainSelect(domain, checked) {
-            if (checked) { selectedDomains.add(domain); } else { selectedDomains.delete(domain); }
-            updateBulkBar();
-        }
-
-        function toggleSelectAll(checked) {
-            document.querySelectorAll('#recent-requests input[type="checkbox"]').forEach(cb => {
-                cb.checked = checked;
-                toggleSelect(cb.dataset.key, cb.dataset.ip, null, checked);
-            });
-            updateBulkBar();
-        }
-
-        function clearSelection() {
-            selectedIPs.clear();
-            selectedDomains.clear();
-            document.querySelectorAll('#recent-requests input[type="checkbox"], #domain-stats input[type="checkbox"]').forEach(cb => cb.checked = false);
-            const sa = document.getElementById('select-all');
-            if (sa) sa.checked = false;
-            updateBulkBar();
-        }
-
-        async function bulkBlock() {
-            const ips = [...selectedIPs];
-            if (!ips.length) { toast('No IPs selected', 'err'); return; }
-            if (!confirm(`Block ${ips.length} IP(s)?\n\n${ips.join('\n')}`)) return;
-            try {
-                const resp = await fetch(API_BASE + '/api/intel/blocklist', {
-                    method: 'POST',
-                    headers: {'Content-Type': 'application/json'},
-                    body: JSON.stringify({cidrs: ips.map(ip => ip + '/32')}),
-                    credentials: 'same-origin',
-                });
-                if (resp.ok) {
-                    toast(`Blocked ${ips.length} IP(s)`, 'ok');
-                    clearSelection();
-                    refresh();
-                } else { toast('Bulk block failed', 'err'); }
-            } catch(e) { toast('Error: ' + e.message, 'err'); }
-        }
-
-        async function bulkWhitelist() {
-            const ips = [...selectedIPs];
-            if (!ips.length) { toast('No IPs selected', 'err'); return; }
-            if (!confirm(`Whitelist ${ips.length} IP(s)?\n\n${ips.join('\n')}`)) return;
-            let ok = 0, fail = 0;
-            for (const ip of ips) {
-                try {
-                    const resp = await fetch(API_BASE + '/api/intel/whitelist', {
-                        method: 'POST',
-                        headers: {'Content-Type': 'application/json'},
-                        body: JSON.stringify({ip}),
-                        credentials: 'same-origin',
-                    });
-                    if (resp.ok) ok++; else fail++;
-                } catch(e) { fail++; }
-            }
-            toast(`Whitelisted ${ok} IP(s)` + (fail ? `, ${fail} failed` : ''), fail ? 'err' : 'ok');
-            clearSelection();
-            refresh();
-        }
-
-        async function bulkRotateDomains() {
-            const domains = [...selectedDomains];
-            if (!domains.length) { toast('No domains selected (use checkboxes in Domain Statistics)', 'err'); return; }
-            if (!confirm(`Mark ${domains.length} domain(s) as rotated?\n\n${domains.join('\n')}\n\nThis will download a JSON rotation manifest you can feed to your provisioning pipeline.`)) return;
-            // Domain rotation is an infrastructure-level operation (DNS re-point,
-            // cert re-issue, redirector redeploy). The dashboard produces a signed
-            // rotation manifest the operator feeds to their provisioning tooling.
-            const manifest = {
-                generated_at: new Date().toISOString(),
-                action: 'domain_rotation',
-                domains: domains,
-                operator: 'dashboard',
-            };
-            const blob = new Blob([JSON.stringify(manifest, null, 2)], {type: 'application/json'});
-            const url = URL.createObjectURL(blob);
-            const a = document.createElement('a');
-            a.href = url;
-            a.download = 'infraguard-rotation-' + new Date().toISOString().split('T')[0] + '.json';
-            document.body.appendChild(a);
-            a.click();
-            document.body.removeChild(a);
-            URL.revokeObjectURL(url);
-            toast(`Rotation manifest downloaded for ${domains.length} domain(s)`, 'ok');
-            clearSelection();
-        }
-
-        // ── Request detail / replay ────────────────────────────
+        // ── Modal ──────────────────────────────────────────────
         let currentRequest = null;
-
+        let lastRequests = [];
         function buildCurl(r) {
             const proto = r.protocol === 'https' ? 'https' : 'http';
             const url = `${proto}://${r.domain}${r.uri}`;
@@ -580,12 +448,9 @@
             if (r.user_agent) parts.push(`  -H 'User-Agent: ${String(r.user_agent).replace(/'/g, "'\\''")}'`);
             return parts.join(' \\\n');
         }
-
         function openRequestModal(idx) {
-            const r = lastRequests[idx];
-            if (!r) return;
-            currentRequest = r;
-            const badge = r.filter_result === 'allow' ? 'allow' : 'block';
+            const r = lastRequests[idx]; if (!r) return; currentRequest = r;
+            const verd = (r.filter_result || '').toLowerCase();
             const rows = [
                 ['Timestamp', esc(r.timestamp)],
                 ['Protocol', esc(r.protocol || 'http')],
@@ -593,275 +458,436 @@
                 ['Client IP', esc(r.client_ip)],
                 ['Method', esc(r.method)],
                 ['URI', esc(r.uri)],
-                ['Result', `<span class="badge ${badge}">${esc(r.filter_result)}</span>`],
+                ['Result', `<span class="ig-verdict ${verd}">${esc(r.filter_result)}</span>`],
                 ['Reason', esc(r.filter_reason)],
                 ['Score', esc(r.filter_score)],
-                ['Response Status', esc(r.response_status)],
+                ['Status', esc(r.response_status)],
                 ['Duration', r.duration_ms != null ? esc(r.duration_ms) + ' ms' : ''],
                 ['User-Agent', esc(r.user_agent)],
-                ['Request Hash', esc(r.request_hash)],
+                ['Hash', esc(r.request_hash)],
             ];
-            document.getElementById('request-detail').innerHTML =
-                rows.map(([k, v]) => `<dt>${k}</dt><dd>${v || '<span style="color:var(--text-dim)">-</span>'}</dd>`).join('');
+            document.getElementById('request-detail').innerHTML = rows.map(([k,v]) => `<dt>${k}</dt><dd>${v || '<span style="color:var(--text-muted)">–</span>'}</dd>`).join('');
             document.getElementById('curl-block').textContent = buildCurl(r);
             document.getElementById('request-modal').classList.add('open');
         }
-
-        function closeRequestModal() {
-            document.getElementById('request-modal').classList.remove('open');
-            currentRequest = null;
-        }
-
+        function closeRequestModal() { document.getElementById('request-modal').classList.remove('open'); currentRequest = null; }
         function copyCurl() {
-            const text = document.getElementById('curl-block').textContent;
-            navigator.clipboard.writeText(text).then(
-                () => toast('cURL command copied', 'ok'),
-                () => toast('Copy failed', 'err')
-            );
+            navigator.clipboard.writeText(document.getElementById('curl-block').textContent).then(
+                () => toast('cURL copied', 'ok'), () => toast('Copy failed', 'err'));
         }
-
         async function replayInBrowser() {
             if (!currentRequest) return;
             const r = currentRequest;
             const proto = r.protocol === 'https' ? 'https' : 'http';
             const url = `${proto}://${r.domain}${r.uri}`;
-            if (!confirm(`Replay this request from your browser?\n\n${r.method} ${url}\n\nNote: cross-origin targets may be blocked by CORS; use the cURL command for an authoritative replay.`)) return;
+            if (!confirm(`Replay?\n\n${r.method} ${url}`)) return;
             try {
                 const t0 = performance.now();
-                const resp = await fetch(url, {
-                    method: ['GET','HEAD','POST','PUT','DELETE','PATCH','OPTIONS'].includes(r.method) ? r.method : 'GET',
-                    mode: 'cors',
-                    credentials: 'omit',
-                });
-                const ms = (performance.now() - t0).toFixed(0);
-                toast(`Replay: HTTP ${resp.status} in ${ms} ms`, 'ok');
-            } catch(e) {
-                toast('Replay failed (likely CORS/network): ' + e.message, 'err');
-            }
+                const resp = await fetch(url, {method: r.method || 'GET', mode: 'cors', credentials: 'omit'});
+                toast(`Replay: HTTP ${resp.status} in ${(performance.now()-t0).toFixed(0)}ms`, 'ok');
+            } catch(e) { toast('Replay failed: '+e.message, 'err'); }
         }
+        document.addEventListener('keydown', (e) => { if (e.key === 'Escape') closeRequestModal(); });
 
-        document.addEventListener('keydown', (e) => {
-            if (e.key === 'Escape') closeRequestModal();
-        });
-
-        // ── Report download ────────────────────────────────────
+        // ── Reports ────────────────────────────────────────────
         async function downloadReport(format) {
-            const statusEl = document.getElementById('report-status');
-            statusEl.textContent = `Generating ${format.toUpperCase()} report...`;
-            statusEl.style.color = 'var(--text-dim)';
             try {
-                const resp = await fetch(API_BASE + '/api/reports/export?format=' + encodeURIComponent(format), {
-                    credentials: 'same-origin',
-                });
+                const resp = await fetch(API_BASE + '/api/reports/export?format=' + encodeURIComponent(format), {credentials: 'same-origin'});
                 if (resp.status === 401 || resp.status === 403) { showLogin(); return; }
-                if (!resp.ok) {
-                    let msg = 'Report export failed (' + resp.status + ')';
-                    try { const d = await resp.json(); if (d.error) msg = d.error; } catch(_) {}
-                    statusEl.textContent = msg;
-                    statusEl.style.color = 'var(--red)';
-                    return;
-                }
-                const disposition = resp.headers.get('Content-Disposition') || '';
-                const match = /filename="([^"]+)"/.exec(disposition);
+                if (!resp.ok) { toast('Report export failed', 'err'); return; }
+                const disp = resp.headers.get('Content-Disposition') || '';
+                const m = /filename="([^"]+)"/.exec(disp);
                 const fallback = 'infraguard-report-' + new Date().toISOString().split('T')[0] + '.' + format;
-                const filename = match ? match[1] : fallback;
                 const blob = await resp.blob();
                 const url = URL.createObjectURL(blob);
-                const a = document.createElement('a');
-                a.href = url;
-                a.download = filename;
-                document.body.appendChild(a);
-                a.click();
-                document.body.removeChild(a);
-                URL.revokeObjectURL(url);
-                statusEl.textContent = 'Downloaded ' + filename;
-                statusEl.style.color = 'var(--green)';
-            } catch(e) {
-                statusEl.textContent = 'Error: ' + e.message;
-                statusEl.style.color = 'var(--red)';
-            }
+                const a = document.createElement('a'); a.href = url; a.download = m ? m[1] : fallback;
+                document.body.appendChild(a); a.click(); document.body.removeChild(a); URL.revokeObjectURL(url);
+                toast('Downloaded ' + (m ? m[1] : fallback), 'ok');
+            } catch(e) { toast('Error: ' + e.message, 'err'); }
         }
 
-        // PDF export: fetch the HTML report and open it in a print-optimized
-        // window so the operator can save it as PDF via the browser's print
-        // pipeline (no server-side PDF dependency required).
-        async function exportPDF() {
-            const statusEl = document.getElementById('report-status');
-            statusEl.textContent = 'Preparing PDF report...';
-            statusEl.style.color = 'var(--text-dim)';
-            try {
-                const resp = await fetch(API_BASE + '/api/reports/export?format=html', {credentials: 'same-origin'});
-                if (resp.status === 401 || resp.status === 403) { showLogin(); return; }
-                if (!resp.ok) { statusEl.textContent = 'Report export failed (' + resp.status + ')'; statusEl.style.color = 'var(--red)'; return; }
-                const html = await resp.text();
-                const win = window.open('', '_blank');
-                if (!win) { statusEl.textContent = 'Popup blocked - allow popups to export PDF'; statusEl.style.color = 'var(--red)'; return; }
-                win.document.open();
-                win.document.write(html);
-                win.document.close();
-                win.addEventListener('load', () => setTimeout(() => win.print(), 300));
-                statusEl.textContent = 'Print dialog opened - choose "Save as PDF"';
-                statusEl.style.color = 'var(--green)';
-            } catch(e) {
-                statusEl.textContent = 'Error: ' + e.message;
-                statusEl.style.color = 'var(--red)';
-            }
-        }
-
-        // ── Dashboard data ─────────────────────────────────────
+        // ── Polling / fetch ────────────────────────────────────
         let pollInterval = null;
-
-        function startPolling() {
-            if (pollInterval) clearInterval(pollInterval);
-            pollInterval = setInterval(refresh, 15000);
-        }
-
+        function startPolling() { if (pollInterval) clearInterval(pollInterval); pollInterval = setInterval(refresh, 15000); }
         async function fetchJSON(path) {
-            const resp = await fetch(API_BASE + path, {credentials: 'same-origin'});
-            if (resp.status === 401 || resp.status === 403) {
-                showLogin();
-                throw new Error('Session expired');
-            }
-            return resp.json();
+            const r = await fetch(API_BASE + path, {credentials: 'same-origin'});
+            if (r.status === 401 || r.status === 403) { showLogin(); throw new Error('Session expired'); }
+            return r.json();
         }
 
+        // ── Nav counts ─────────────────────────────────────────
+        async function refreshNavCounts() {
+            try {
+                const [decoys, plugins, cb] = await Promise.all([
+                    fetch('/api/decoys', {credentials:'same-origin'}).then(r=>r.ok?r.json():null).catch(()=>null),
+                    fetch('/api/plugins', {credentials:'same-origin'}).then(r=>r.ok?r.json():null).catch(()=>null),
+                    fetch('/api/health/circuit-breakers', {credentials:'same-origin'}).then(r=>r.ok?r.json():null).catch(()=>null),
+                ]);
+                const set = (id, text) => { const el = document.getElementById(id); if (el) el.textContent = text; };
+                let dcount = 0;
+                if (Array.isArray(decoys)) dcount = decoys.reduce((s,d) => s + ((d.files||[]).length), 0);
+                else if (decoys && typeof decoys === 'object') dcount = Object.values(decoys).reduce((s,v) => s + (Array.isArray(v)?v.length:0), 0);
+                set('nav-count-decoys', dcount || '');
+                if (plugins && plugins.loaded) set('nav-count-plugins', `${plugins.loaded.filter(p=>p.enabled).length}/${plugins.loaded.length}`);
+                if (cb && Array.isArray(cb.breakers)) {
+                    const total = cb.breakers.length, bad = (cb.open||0)+(cb.half_open||0);
+                    set('nav-count-health', total ? (bad ? `⚠ ${bad}/${total}` : `● ${total}/${total}`) : '');
+                }
+            } catch(_) {}
+        }
+
+        // ── Burn score ─────────────────────────────────────────
+        async function refreshBurn() {
+            try {
+                const data = await fetch('/api/burn/scores', {credentials:'same-origin'}).then(r => r.ok ? r.json() : null).catch(() => null);
+                if (!data || !data.scores || !data.scores.length) return;
+                // Take worst domain
+                const worst = data.scores.reduce((a,b) => (b.score > (a?.score||0) ? b : a), null);
+                if (!worst) return;
+                const pct = Math.max(0, Math.min(100, Math.round(worst.score * 100)));
+                document.getElementById('burn-num').textContent = pct;
+                document.getElementById('burn-num').style.color = pct >= 70 ? 'var(--red)' : pct >= 40 ? 'var(--yellow)' : 'var(--green)';
+                const ring = document.getElementById('burn-ring-fill');
+                ring.setAttribute('stroke-dashoffset', 314 - (314 * pct / 100));
+                ring.setAttribute('stroke', pct >= 70 ? 'var(--red)' : pct >= 40 ? 'var(--yellow)' : 'var(--green)');
+                const rec = worst.recommendation || (pct >= 70 ? 'Rotate now' : pct >= 40 ? 'Monitor · schedule rotation' : 'Healthy');
+                const recEl = document.getElementById('burn-rec');
+                recEl.textContent = `${rec}${data.scores.length > 1 ? ` · worst: ${worst.domain}` : ''}`;
+                recEl.style.color = pct >= 70 ? 'var(--red)' : pct >= 40 ? 'var(--yellow)' : 'var(--green)';
+                const signals = worst.signals || {};
+                const sigOrder = ['ja3_diversity','volume_spike','new_asns','ct_log','reputation','failed_auth'];
+                const sigLabels = { ja3_diversity: 'JA3 diversity', volume_spike: 'Volume spikes', new_asns: 'New ASNs', ct_log: 'CT log', reputation: 'Reputation', failed_auth: 'Failed auth' };
+                document.getElementById('burn-signals').innerHTML = sigOrder.map(k => {
+                    const v = signals[k];
+                    const val = v == null ? '–' : (typeof v === 'number' ? v.toFixed(0) : v);
+                    const pct = v == null ? 0 : Math.max(0, Math.min(100, Math.round((typeof v === 'number' ? v : 0))));
+                    const color = pct >= 70 ? 'var(--red)' : pct >= 40 ? 'var(--yellow)' : 'var(--green)';
+                    return `<div class="row"><div class="top"><span class="label">${sigLabels[k]}</span><span class="val" style="color:${color}">${val}</span></div><div class="bar"><div style="width:${pct}%;background:${color};"></div></div></div>`;
+                }).join('');
+                document.getElementById('burn-note').textContent = `${data.scores.length} domain${data.scores.length!==1?'s':''} scored · updates every 15s`;
+            } catch(_) {}
+        }
+
+        // ── Filter pipeline (aggregate stats.filter_reasons) ───────
+        // Each filter's `patterns` are matched against the reason string
+        // the recorder wrote. These come from real pipeline output --
+        // e.g. "Bot/scanner User-Agent detected", "Header 'Accept'
+        // value mismatch", "JA3 fingerprint match: masscan", etc.
+        // Patterns match the raw filter_reason strings the router
+        // writes to the tracking DB. Keep additions here in sync with:
+        //   - IPFilter          -> "ip_blocked*", "in blocklist", ...
+        //   - BotFilter         -> "Bot/scanner User-Agent detected"
+        //   - ProfileFilter     -> "URI '...' not in profile"
+        //   - HeaderFilter      -> "Missing/invalid header ..."
+        //   - GeoFilter         -> "Blocked country: XX"
+        //   - DNSFilter         -> "DNS enumeration ..."
+        //   - ReplayFilter      -> "Replay of ..."
+        //   - EnumerationFilter -> "Path enumeration ..."
+        //   - SandboxFilter     -> "Sandbox indicator ..."
+        const FILTERS = [
+            {label: 'JA3',       patterns: [/ja3/i, /ja4/i, /tls[- ]fingerprint/i]},
+            {label: 'IP intel',  patterns: [/^ip_blocked/i, /ip[_-]?blocked/i, /blocklist/i, /shodan/i, /censys/i, /cidr/i, /reputation/i, /ip intel/i, /threat feed/i, /banned[_ ]ip/i]},
+            {label: 'Bot UA',    patterns: [/bot\/scanner/i, /bot user/i, /bot-agent/i, /^bot/i, /crawler/i, /scanner user-agent/i]},
+            {label: 'Headers',   patterns: [/missing.*header/i, /invalid.*header/i, /banned.*header/i, /header value/i]},
+            {label: 'DNS enum',  patterns: [/nxdomain/i, /dns enum/i, /subdomain enum/i, /dns.*enumeration/i]},
+            {label: 'Geo',       patterns: [/blocked country/i, /blocked asn/i, /geoip/i, /geo/i]},
+            {label: 'Profile',   patterns: [/not in profile/i, /uri.*not.*match/i, /malleable/i, /c2 profile/i, /profile mismatch/i]},
+            {label: 'Replay',    patterns: [/replay/i, /duplicate/i, /already seen/i]},
+            {label: 'Enum',      patterns: [/path enumeration/i, /enum(?!-)/i, /dirbuster/i, /gobuster/i, /ffuf/i, /^enumeration/i]},
+            {label: 'Sandbox',   patterns: [/sandbox/i, /headless/i, /msnbot/i, /safelinks/i, /phantomjs/i, /crawler.*sandbox/i]},
+        ];
+        // Reasons the pipeline widget should ignore: canary hits are a
+        // delivery signal, not a filter verdict, and the ``full_pipeline``
+        // umbrella reason double-counts filters that already fired.
+        const FILTER_SKIP = [/^canary_hit/i, /^full_pipeline_block_before_content$/i];
+        function renderPipeline(reasons) {
+            reasons = reasons || {};
+            // Drop canary + umbrella reasons before totalling so the
+            // shares reflect actual filter attribution.
+            const scored = Object.fromEntries(
+                Object.entries(reasons).filter(([r]) =>
+                    !FILTER_SKIP.some(re => re.test(r))
+                )
+            );
+            const total = Object.values(scored).reduce((s,v) => s + (v||0), 0) || 0;
+            const cells = FILTERS.map(f => {
+                let hits = 0;
+                for (const [reason, count] of Object.entries(scored)) {
+                    if (f.patterns.some(re => re.test(reason))) hits += count;
+                }
+                const share = total ? hits / total : 0;
+                const color = share >= 0.15 ? 'var(--red)' : share >= 0.05 ? 'var(--yellow)' : hits > 0 ? 'var(--green)' : 'var(--text-muted)';
+                // Distribute the sparkline bars deterministically across
+                // buckets so equal shares get equal visuals (no random).
+                const heights = [];
+                for (let i = 0; i < 10; i++) {
+                    // Show a rising line if any hits, flat otherwise.
+                    const h = hits > 0 ? Math.max(8, Math.min(100, share * 100 * (0.4 + i * 0.09))) : 2;
+                    heights.push(h);
+                }
+                const pctText = total ? `${(share*100).toFixed(0)}%` : (hits ? `${hits}` : '–');
+                const cntText = hits > 0 ? `<span class="ig-mono" style="font-size:9px;color:var(--text-muted);"> · ${hits}</span>` : '';
+                return `<div class="ig-pipeline-cell" title="${hits} hits">
+                    <div class="top"><span class="lbl">${f.label}</span><span class="val" style="color:${color};">${pctText}${cntText}</span></div>
+                    <div class="spark">${heights.map(h => `<div style="height:${h}%;background:${color};"></div>`).join('')}</div>
+                </div>`;
+            });
+            document.getElementById('pipeline-grid').innerHTML = cells.join('');
+        }
+
+        // ── Top blocked list ───────────────────────────────────
+        function renderTopBlocked(list) {
+            const el = document.getElementById('top-blocked-rows');
+            if (!list || !list.length) {
+                el.innerHTML = '<div style="color:var(--text-muted);font-size:11px;padding:8px 0;">No blocked traffic in window</div>';
+                document.getElementById('top-blocked-count').textContent = '0 IPs';
+                return;
+            }
+            document.getElementById('top-blocked-count').textContent = list.length + ' IPs';
+            const max = Math.max(...list.map(r => r.count || 0)) || 1;
+            el.innerHTML = list.slice(0, 8).map(r => {
+                const w = Math.round((r.count/max) * 100);
+                return `<div class="ig-list-row"><div class="left"><span style="color:var(--text);">${esc(r.ip)}</span></div><div class="right"><div class="ig-mini-bar"><div style="width:${w}%;background:var(--red);"></div></div><span style="color:var(--red);">${fmtNum(r.count)}</span><button class="btn-sm btn-unblock" onclick="whitelistIP('${esc(r.ip)}')" style="padding:1px 6px;font-size:9px;">W</button><button class="btn-sm btn-block" onclick="unblockIP('${esc(r.ip)}')" style="padding:1px 6px;font-size:9px;">U</button></div></div>`;
+            }).join('');
+        }
+
+        // ── Per-domain cards ───────────────────────────────────
+        function renderDomains(domains) {
+            const el = document.getElementById('domain-grid');
+            if (!domains || !domains.length) {
+                el.innerHTML = '<div style="color:var(--text-muted);font-size:11px;padding:8px 0;">No domain traffic yet</div>';
+                document.getElementById('domain-count-label').textContent = '';
+                return;
+            }
+            document.getElementById('domain-count-label').textContent = `${domains.length} domain${domains.length!==1?'s':''}`;
+            el.innerHTML = domains.map(d => {
+                const rate = ((d.block_rate||0) * 100);
+                const barColor = rate > 90 ? 'var(--red)' : rate > 60 ? 'var(--yellow)' : 'var(--green)';
+                return `<div class="ig-domain-card">
+                    <div class="top"><div class="name">${esc(d.domain)}</div></div>
+                    <div class="stats">
+                        <div class="stat"><div class="lbl">Req</div><div class="num">${fmtNum(d.total)}</div></div>
+                        <div class="stat"><div class="lbl">Block%</div><div class="num" style="color:${barColor};">${rate.toFixed(1)}</div></div>
+                        <div class="stat"><div class="lbl">Blocked</div><div class="num" style="color:var(--red);">${fmtNum(d.blocked)}</div></div>
+                    </div>
+                    <div style="height:3px;background:var(--border);border-radius:2px;margin-top:8px;overflow:hidden;"><div style="width:${rate}%;height:100%;background:${barColor};"></div></div>
+                </div>`;
+            }).join('');
+        }
+
+        // ── Intel feeds + upstreams ────────────────────────────
+        async function refreshRightColumn() {
+            try {
+                const health = await fetchJSON('/api/health');
+                const feeds = health.feeds || [];
+                // Real payload shape: {url, last_refresh, hours_since, status}.
+                const ok = feeds.filter(f => f.status === 'ok').length;
+                const feedsStatus = document.getElementById('feeds-status');
+                feedsStatus.textContent = feeds.length ? `● ${ok}/${feeds.length}` : 'none';
+                feedsStatus.style.color = ok === feeds.length ? 'var(--green)' : 'var(--yellow)';
+                const feedName = (url) => {
+                    if (!url) return '?';
+                    try {
+                        const u = new URL(url);
+                        return u.hostname.replace(/^www\./, '');
+                    } catch(_) { return String(url).slice(0, 30); }
+                };
+                document.getElementById('feeds-rows').innerHTML = feeds.slice(0, 6).map(f => {
+                    const c = f.status === 'ok' ? 'var(--green)' : f.status === 'warning' ? 'var(--yellow)' : 'var(--red)';
+                    const h = f.hours_since;
+                    const age = h == null ? '–' : h < 1 ? `${Math.max(1, Math.round(h*60))}m` : `${h.toFixed(1)}h`;
+                    return `<div class="ig-list-row" title="${esc(f.url || '')}">
+                        <div class="left"><span style="color:var(--text);">${esc(feedName(f.url))}</span></div>
+                        <div class="right"><span style="color:${c};">${age}</span></div>
+                    </div>`;
+                }).join('') || '<div style="color:var(--text-muted);font-size:11px;padding:8px 0;">No feeds configured</div>';
+
+                // Blocklist/whitelist counts from stats
+                document.getElementById('stats-blocklist').textContent = fmtNum(health.blocklist_size || 0);
+                document.getElementById('stats-whitelist').textContent = fmtNum(health.whitelist_size || 0);
+                document.getElementById('stats-dynblock').textContent = fmtNum(health.dynamic_blocks || 0);
+            } catch(e) { /* silent */ }
+
+            try {
+                const cb = await fetchJSON('/api/health/circuit-breakers');
+                const rows = cb.breakers || [];
+                // Circuit-breaker states are re-labelled for humans:
+                //   CLOSED    -> HEALTHY  (traffic flowing, no faults)
+                //   HALF_OPEN -> PROBING  (recovering, one test call)
+                //   OPEN      -> TRIPPED  (upstream failing, requests dropped)
+                // The old raw names confused operators who read "closed"
+                // as "socket closed"; the tooltip still shows the raw
+                // state for anyone who wants the breaker jargon.
+                const LABEL = { CLOSED: 'HEALTHY', HALF_OPEN: 'PROBING', OPEN: 'TRIPPED' };
+                const healthy = cb.closed || 0;
+                const tripped = cb.open || 0;
+                const probing = cb.half_open || 0;
+                document.getElementById('upstream-summary').textContent = rows.length
+                    ? `${healthy}/${rows.length} healthy` +
+                      (tripped ? ` · ${tripped} tripped` : '') +
+                      (probing ? ` · ${probing} probing` : '')
+                    : 'none';
+                document.getElementById('upstream-rows').innerHTML = rows.slice(0, 5).map(b => {
+                    const c = b.state === 'CLOSED' ? 'var(--green)' : b.state === 'HALF_OPEN' ? 'var(--yellow)' : 'var(--red)';
+                    const label = LABEL[b.state] || b.state;
+                    return `<div class="ig-list-row" title="circuit-breaker state: ${esc(b.state)}"><div class="left"><span style="color:var(--text);font-size:11px;">${esc(String(b.upstream).replace(/^https?:\/\//,''))}</span></div><div class="right"><span style="color:${c};font-size:10px;">${esc(label)}</span></div></div>`;
+                }).join('') || '<div style="color:var(--text-muted);font-size:11px;padding:8px 0;">No upstreams registered</div>';
+            } catch(e) { document.getElementById('upstream-rows').innerHTML = '<div style="color:var(--text-muted);font-size:11px;padding:8px 0;">Upstream data unavailable</div>'; }
+
+            // Dead-man's switch value in top bar
+            try {
+                const dm = await fetchJSON('/api/health/deadman');
+                const el = document.getElementById('deadman-val');
+                if (!dm || !dm.enabled) { el.textContent = '(disabled)'; el.style.color = 'var(--text-muted)'; return; }
+                if (dm.expired) { el.textContent = '✗ EXPIRED'; el.style.color = 'var(--red)'; return; }
+                const sec = Math.round(dm.time_remaining_seconds || 0);
+                const m = Math.floor(sec/60), h = Math.floor(sec/3600);
+                el.textContent = '✓ ' + (h ? h + 'h ' + (m%60) + 'm' : m + 'm ' + (sec%60) + 's');
+                el.style.color = 'var(--green)';
+            } catch(e) {}
+        }
+
+        // ── Top bar: node identity + listener pills + domain count ──
+        async function refreshTopBar() {
+            try {
+                const cfg = await fetchJSON('/api/config').catch(() => null);
+                if (cfg && cfg.listeners) {
+                    const protos = [...new Set(cfg.listeners.map(l => (l.protocol || 'http').toUpperCase()))];
+                    document.getElementById('listener-pills').innerHTML = protos.map(p => `<span class="ig-pill ig-pill-on">${p}</span>`).join('');
+                }
+                if (cfg && cfg.domains) {
+                    const domainList = Object.keys(cfg.domains);
+                    document.getElementById('domain-count').innerHTML = `${domainList.length} <span style="color:var(--text-muted);font-size:11px;font-weight:400;">domain${domainList.length!==1?'s':''}</span>`;
+                }
+                // Node identity from hostname header via config or fallback
+                const hostname = (cfg && cfg.node_name) || location.hostname || 'ig-local';
+                document.getElementById('node-name').textContent = hostname;
+                // Uptime from /api/health
+                const h = await fetchJSON('/api/health').catch(() => null);
+                if (h && h.uptime) {
+                    document.getElementById('node-sub').textContent = `uptime ${h.uptime.human || h.uptime} · ${cfg && cfg.role || 'proxy'}`;
+                }
+            } catch(_) {}
+        }
+
+        // ── Main refresh ───────────────────────────────────────
         async function refresh() {
+            // An active dashboard session is a real operator sitting
+            // at the console, so every refresh resets the dead-man's
+            // TTL. Fire-and-forget.
+            heartbeat();
+            refreshNavCounts();
+            refreshBurn();
+            refreshTopBar();
+            refreshRightColumn();
             try {
                 const stats = await fetchJSON('/api/stats?hours=24');
-                document.getElementById('total').textContent = stats.total_requests;
-                document.getElementById('allowed').textContent = stats.allowed_requests ?? 0;
-                document.getElementById('blocked').textContent = stats.blocked_requests ?? 0;
-                document.getElementById('unique-ips').textContent = stats.unique_ips;
+                document.getElementById('kpi-total').textContent = fmtNum(stats.total_requests);
+                document.getElementById('kpi-allow').textContent = fmtNum(stats.allowed_requests || 0);
+                document.getElementById('kpi-block').textContent = fmtNum(stats.blocked_requests || 0);
+                document.getElementById('kpi-uniq').textContent = fmtNum(stats.unique_ips || 0);
+                // The router records the delivery method (decoy /
+                // tarpit / redirect) as filter_result, so the API
+                // returns dedicated counters instead of having to
+                // fish for them in filter_reasons.
+                const tarpitCount = stats.tarpit_requests || 0;
+                const decoyCount = stats.decoy_requests || 0;
+                document.getElementById('kpi-tarpit').textContent = fmtNum(tarpitCount + decoyCount);
+                document.getElementById('kpi-tarpit-sub').textContent = `${tarpitCount} tar · ${decoyCount} dec`;
+                const passthrough = stats.total_requests ? ((stats.allowed_requests||0) / stats.total_requests * 100).toFixed(2) : '0';
+                const dropped = stats.total_requests ? ((stats.blocked_requests||0) / stats.total_requests * 100).toFixed(2) : '0';
+                document.getElementById('kpi-allow-sub').textContent = passthrough + '% pass-through';
+                document.getElementById('kpi-block-sub').textContent = dropped + '% dropped';
 
-                const blockedIps = document.getElementById('blocked-ips');
-                blockedIps.innerHTML = stats.top_blocked_ips
-                    .map(r => `<tr><td>${esc(r.ip)}</td><td>${esc(r.count)}</td><td><button class="btn-sm btn-unblock" onclick="whitelistIP('${esc(r.ip)}')">Whitelist</button> <button class="btn-sm btn-unblock" onclick="unblockIP('${esc(r.ip)}')">Unblock</button></td></tr>`).join('');
+                renderTopBlocked(stats.top_blocked_ips || []);
+                renderDomains(stats.domains || []);
+                renderPipeline(stats.filter_reasons || {});
 
-                const domainStats = document.getElementById('domain-stats');
-                domainStats.innerHTML = stats.domains
-                    .map(d => `<tr>
-                        <td><input type="checkbox" data-domain="${esc(d.domain)}" ${selectedDomains.has(d.domain) ? 'checked' : ''} onchange="toggleDomainSelect('${esc(d.domain)}', this.checked)"></td>
-                        <td>${esc(d.domain)}</td><td>${esc(d.total)}</td><td>${esc(d.blocked)}</td><td>${(d.block_rate * 100).toFixed(1)}%</td>
-                    </tr>`).join('');
-
-                const reqs = await fetchJSON('/api/requests?limit=50');
-                lastRequests = reqs.requests;
-                const tbody = document.getElementById('recent-requests');
-                tbody.innerHTML = reqs.requests.map((r, i) => {
-                    const badge = r.filter_result === 'allow' ? 'allow' : 'block';
-                    const isBlocked = r.filter_result === 'block';
-                    const actions = isBlocked
-                        ? `<button class="btn-sm btn-unblock" onclick="whitelistIP('${esc(r.client_ip)}')">Whitelist</button> <button class="btn-sm btn-unblock" onclick="unblockIP('${esc(r.client_ip)}')">Unblock</button>`
-                        : `<button class="btn-sm btn-block" onclick="blockIP('${esc(r.client_ip)}')">Block</button>`;
-                    const key = rowKey(r);
-                    return `<tr>
-                        <td><input type="checkbox" data-key="${esc(key)}" data-ip="${esc(r.client_ip)}" ${selectedIPs.has(r.client_ip) ? 'checked' : ''} onchange="toggleSelect('${esc(key)}','${esc(r.client_ip)}',null,this.checked)"></td>
-                        <td>${esc(r.timestamp?.substring(11, 19))}</td>
-                        <td>${esc(r.protocol || 'http')}</td>
-                        <td>${esc(r.domain)}</td>
-                        <td>${esc(r.client_ip)}</td>
-                        <td>${esc(r.method)}</td>
-                        <td>${esc(r.uri)}</td>
-                        <td><span class="badge ${badge}">${esc(r.filter_result)}</span></td>
-                        <td>${esc(r.filter_reason)}</td>
-                        <td><button class="btn-sm btn-info" onclick="openRequestModal(${i})" title="Inspect &amp; replay">Inspect</button> ${actions}</td>
-                    </tr>`;
-                }).join('');
-                updateBulkBar();
-            } catch(e) {
-                if (e.message !== 'Session expired') console.error('Refresh failed:', e);
-            }
+                const reqs = await fetchJSON('/api/requests?limit=100');
+                lastRequests = reqs.requests || [];
+                renderFeed(lastRequests);
+            } catch(e) { if (e.message !== 'Session expired') console.error('refresh failed', e); }
         }
 
-        // ── WebSocket (real-time updates) ──────────────────────
+        // ── Feed render ────────────────────────────────────────
+        function renderFeedRow(r, idx) {
+            const t = r.timestamp ? String(r.timestamp).substring(11,19) : '';
+            const verd = (r.filter_result || 'block').toLowerCase();
+            const src = `${esc(r.client_ip||'?')} <span style="color:var(--text-muted);">· ${esc(r.domain||'')}</span>`;
+            const path = `<span style="color:var(--text-muted);">${esc(r.method||'')}</span> ${esc(r.uri||'')}`;
+            const ja3 = r.ja3 ? esc(String(r.ja3).slice(0,10)+'…') : (r.user_agent ? esc(String(r.user_agent).split('/')[0].slice(0,12)) : '–');
+            const score = r.filter_score != null ? Number(r.filter_score).toFixed(2) : '–';
+            const cls = scoreClass(r.filter_score);
+            return `<div class="ig-feed-row ${verd}" onclick="openRequestModal(${idx})" style="cursor:pointer;">
+                <div class="time">${esc(t)}</div>
+                <div><span class="ig-verdict ${verd}">${(r.filter_result||'BLK').substring(0,5).toUpperCase()}</span></div>
+                <div class="src">${src}</div>
+                <div class="path">${path}</div>
+                <div class="ja3" style="color:var(--text-muted);">${ja3}</div>
+                <div class="score ${cls}">${score}</div>
+            </div>`;
+        }
+        function renderFeed(rows) {
+            const el = document.getElementById('feed-rows');
+            if (!rows || !rows.length) {
+                el.innerHTML = '<div style="color:var(--text-muted);font-size:11px;padding:12px 0;text-align:center;">No requests yet</div>';
+                return;
+            }
+            el.innerHTML = rows.map((r,i) => renderFeedRow(r, i)).join('');
+        }
+
+        // ── WebSocket ─────────────────────────────────────────
         let ws = null;
         let wsReconnectDelay = 1000;
         let feedPaused = false;
         const pendingEvents = [];
-
         function toggleFeedPause() {
             feedPaused = !feedPaused;
             const btn = document.getElementById('feed-pause-btn');
             btn.textContent = feedPaused ? `Resume (${pendingEvents.length})` : 'Pause';
-            if (!feedPaused) {
-                while (pendingEvents.length) prependEvent(pendingEvents.shift());
-            }
+            if (!feedPaused) { while (pendingEvents.length) prependEvent(pendingEvents.shift()); }
         }
-
         let feedFilter = '';
         function applyFeedFilter() {
             feedFilter = document.getElementById('feed-filter').value.trim().toLowerCase();
-            document.querySelectorAll('#events .event-row').forEach(row => {
-                row.style.display = rowMatchesFilter(row) ? '' : 'none';
+            document.querySelectorAll('#feed-rows .ig-feed-row').forEach(row => {
+                row.style.display = rowMatches(row) ? '' : 'none';
             });
         }
-        function rowMatchesFilter(row) {
-            if (!feedFilter) return true;
-            return row.textContent.toLowerCase().includes(feedFilter);
-        }
-
+        function rowMatches(row) { return !feedFilter || row.textContent.toLowerCase().includes(feedFilter); }
         function prependEvent(data) {
-            const eventsEl = document.getElementById('events');
+            if (feedPaused) { pendingEvents.push(data); document.getElementById('feed-pause-btn').textContent = `Resume (${pendingEvents.length})`; return; }
+            lastRequests.unshift(data);
+            if (lastRequests.length > 100) lastRequests.length = 100;
+            const el = document.getElementById('feed-rows');
             const div = document.createElement('div');
-            div.className = 'event-row';
-            const badge = data.filter_result === 'allow' ? 'allow' : 'block';
-            div.innerHTML = `
-                <span class="time">${esc(new Date().toLocaleTimeString())}</span>
-                <span class="ip">${esc(data.client_ip)}</span>
-                <span>${esc(data.method)} ${esc(data.uri)}</span>
-                <span class="badge ${badge}">${esc(data.filter_result)}</span>
-                <span>${esc(data.filter_reason)}</span>
-            `;
-            if (!rowMatchesFilter(div)) div.style.display = 'none';
-            eventsEl.prepend(div);
-            while (eventsEl.children.length > 100) eventsEl.lastChild.remove();
-
-            // Live-increment the stat counters
-            bumpCounter('total', 1);
-            if (data.filter_result === 'block') bumpCounter('blocked', 1);
-            else if (data.filter_result === 'allow') bumpCounter('allowed', 1);
+            div.innerHTML = renderFeedRow(data, 0).trim();
+            const row = div.firstChild;
+            if (!rowMatches(row)) row.style.display = 'none';
+            el.prepend(row);
+            while (el.children.length > 100) el.lastChild.remove();
+            // Re-bind onclick indices
+            [...el.children].forEach((el, i) => el.setAttribute('onclick', `openRequestModal(${i})`));
+            // Bump counters
+            const verd = (data.filter_result || '').toLowerCase();
+            const bump = (id, d) => { const e = document.getElementById(id); const c = parseInt(String(e.textContent).replace(/[^\d-]/g,''),10); if (!isNaN(c)) e.textContent = fmtNum(c+d); };
+            bump('kpi-total', 1);
+            if (verd === 'block' || verd === 'reset') bump('kpi-block', 1);
+            else if (verd === 'allow') bump('kpi-allow', 1);
+            else if (verd === 'tarpit' || verd === 'decoy') bump('kpi-tarpit', 1);
         }
-
-        function bumpCounter(id, delta) {
-            const el = document.getElementById(id);
-            const cur = parseInt(el.textContent, 10);
-            if (!isNaN(cur)) el.textContent = cur + delta;
-        }
-
         function connectWS() {
             if (ws) { try { ws.close(); } catch(_) {} }
-            const wsUrl = `${location.protocol === 'https:' ? 'wss' : 'ws'}://${location.host}/ws/events`;
-            ws = new WebSocket(wsUrl);
-            const statusEl = document.getElementById('ws-status');
-
-            ws.onopen = () => {
-                statusEl.textContent = '\u25CF Connected';
-                statusEl.className = 'status connected';
-                wsReconnectDelay = 1000;
-            };
-            ws.onclose = () => {
-                statusEl.textContent = '\u25CF Disconnected - reconnecting';
-                statusEl.className = 'status disconnected';
-                // Exponential backoff reconnect (1s → 30s max)
-                setTimeout(connectWS, wsReconnectDelay);
-                wsReconnectDelay = Math.min(wsReconnectDelay * 2, 30000);
-            };
+            const url = `${location.protocol === 'https:' ? 'wss' : 'ws'}://${location.host}/ws/events`;
+            ws = new WebSocket(url);
+            const s = document.getElementById('ws-status');
+            ws.onopen = () => { s.textContent = '● live'; s.style.color = 'var(--green)'; wsReconnectDelay = 1000; };
+            ws.onclose = () => { s.textContent = '● reconnecting'; s.style.color = 'var(--red)'; setTimeout(connectWS, wsReconnectDelay); wsReconnectDelay = Math.min(30000, wsReconnectDelay*2); };
             ws.onerror = () => { try { ws.close(); } catch(_) {} };
-            ws.onmessage = (e) => {
-                let data;
-                try { data = JSON.parse(e.data); } catch(_) { return; }
-                if (data.type === 'ping') return;  // server keepalive
-                if (feedPaused) {
-                    pendingEvents.push(data);
-                    if (pendingEvents.length > 500) pendingEvents.shift();
-                    document.getElementById('feed-pause-btn').textContent = `Resume (${pendingEvents.length})`;
-                    return;
-                }
-                prependEvent(data);
-            };
+            ws.onmessage = (e) => { try { prependEvent(JSON.parse(e.data)); } catch(_) {} };
         }
 
-        // ── Init ───────────────────────────────────────────────
+        // ── Boot ───────────────────────────────────────────────
         checkAuth();
     </script>
 </body>

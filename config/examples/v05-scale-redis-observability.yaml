@@ -1,0 +1,104 @@
+# ═══════════════════════════════════════════════════════════════════════
+# InfraGuard v0.5 - Horizontally Scaled with Redis + Observability
+# ═══════════════════════════════════════════════════════════════════════
+#
+# Runs N proxy replicas behind an L4 load balancer with a shared Redis
+# backend, and exports metrics/traces to an OTLP collector (Prometheus
+# and Grafana scrape from there).
+#
+# Without ``state.backend: redis`` every replica has its own replay
+# cache, dynamic whitelist, beacon session bag, and drop rate-limit,
+# and an attacker can bypass replay checks by hitting a different node.
+#
+# Stack:
+#   Internet → LB → InfraGuard × N → Mythic (upstream)
+#                        │
+#                        ├─ Redis (shared state)
+#                        └─ OTEL collector → Prometheus + Grafana
+#
+# Bring it up with the observability + scale + command-post compose
+# profiles:
+#   docker compose --profile observability --profile scale --profile \
+#     command-post up -d
+#
+# Required env vars:
+#   INFRAGUARD_TLS_CERT / INFRAGUARD_TLS_KEY
+#   MYTHIC_UPSTREAM
+#   INFRAGUARD_DB_PATH
+#   INFRAGUARD_REDIS_URL       - e.g. redis://redis:6379/0
+#   OTEL_EXPORTER_OTLP_ENDPOINT - e.g. http://otel:4318
+
+listeners:
+  - protocol: "https"
+    bind: "0.0.0.0"
+    port: 443
+    tls:
+      cert: "${INFRAGUARD_TLS_CERT}"
+      key: "${INFRAGUARD_TLS_KEY}"
+    domains:
+      - "cdn.example.com"
+
+domains:
+  cdn.example.com:
+    upstream: "${MYTHIC_UPSTREAM}"
+    profile_path: "/app/examples/mythic-httpx.json"
+    profile_type: "mythic"
+    drop_action:
+      type: "redirect"
+      target: "https://example.com"
+
+# ── Shared state (v0.5) ─────────────────────────────────────────────
+# All replay/whitelist/beacon/rate-limit state hits Redis, so every
+# replica sees the same view.
+state:
+  backend: "redis"
+  redis_url: "${INFRAGUARD_REDIS_URL}"
+  key_prefix: "infraguard:prod:"
+
+# ── Observability (v0.5) ────────────────────────────────────────────
+# Emit OTLP traces + metrics. Prometheus scrapes /metrics on the proxy
+# and pulls the ``infraguard_active_beacons`` gauge that the HPA uses.
+observability:
+  otel:
+    enabled: true
+    service_name: "infraguard-proxy"
+    endpoint: "${OTEL_EXPORTER_OTLP_ENDPOINT}"
+    resource_attrs:
+      env: "prod"
+      cluster: "us-east-1a"
+
+# ── API rate-limit also on Redis so limits apply cluster-wide ──────
+api:
+  bind: "0.0.0.0"
+  port: 8080
+  auth_token: "${INFRAGUARD_API_TOKEN}"
+  rate_limit:
+    backend: "redis"
+
+tracking:
+  db_path: "${INFRAGUARD_DB_PATH}"
+
+pipeline:
+  filter_mode: "scoring"
+  block_score_threshold: 0.7
+  enable_ip_filter: true
+  enable_bot_filter: true
+  enable_header_filter: true
+  enable_geo_filter: true
+  enable_replay_filter: true
+  enable_profile_filter: true
+  replay_persist: true
+
+logging:
+  level: "INFO"
+  format: "json"
+
+plugins:
+  - "prom_custom"
+plugin_settings:
+  prom_custom:
+    enabled: true
+    options:
+      # ``prom_custom`` exposes counters/gauges that the packaged
+      # Grafana dashboard reads; nothing to configure.
+      namespace: "infraguard"

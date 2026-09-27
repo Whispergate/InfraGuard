@@ -1,0 +1,81 @@
+# Auto-extracted from pages/HospitalBlog/index.html.
+# Regenerate the HTML with:
+#   infraguard decoy generate --industry hospital -o pages/HospitalBlog/ --force
+
+brand: Crestview Medical
+site_title: Crestview Regional Medical Center - Patient & Community Blog
+hero_title: Your Health, Our Mission
+hero_subtitle: Trusted health information, hospital news, and wellness resources from the care team at
+  Crestview Regional Medical Center.
+nav_links:
+- label: Health Blog
+  href: /
+- label: Services
+  href: /services
+- label: Find a Doctor
+  href: /physicians
+- label: Patient Portal
+  href: /patient-portal
+posts:
+- date: March 28, 2026
+  read_time: 4 min read
+  title: Crestview Opens State-of-the-Art Cardiac Catheterization Lab
+  snippet: Our new interventional cardiology suite features biplane imaging and advanced hemodynamic monitoring,
+    enabling complex PCI and structural heart procedures without transferring patients to larger tertiary
+    centers. The $12M facility expansion brings world-class cardiac care closer to home.
+  tags:
+  - Cardiology
+  - Hospital News
+  - Expansion
+- date: March 20, 2026
+  read_time: 6 min read
+  title: 'Understanding Stroke Symptoms: Every Minute Counts'
+  snippet: As a certified Primary Stroke Center, Crestview treats over 400 stroke patients annually. Our
+    neurology team explains the BE-FAST warning signs, why door-to-needle time matters, and how our mobile
+    stroke unit is reducing treatment delays in rural communities by an average of 28 minutes.
+  tags:
+  - Neurology
+  - Stroke Awareness
+  - Emergency Care
+- date: March 13, 2026
+  read_time: 5 min read
+  title: 'Spring Allergy Season: When to See Your Doctor'
+  snippet: Pollen counts are expected to be 20% higher than average this spring. While over-the-counter
+    antihistamines work for most people, persistent symptoms like facial pressure, colored nasal discharge,
+    or wheezing may indicate something more serious. Our allergists explain when to seek professional
+    care.
+  tags:
+  - Allergies
+  - Primary Care
+  - Wellness
+- date: March 6, 2026
+  read_time: 7 min read
+  title: 'Robotic Surgery at Crestview: 1,000 Procedures and Counting'
+  snippet: Our surgical team has completed its 1,000th robotic-assisted procedure using the da Vinci Xi
+    system. Patients undergoing robotic surgery experience 60% less blood loss, shorter hospital stays,
+    and faster return to daily activities. Dr. Sarah Chen shares outcomes data from our general surgery
+    and urology programs.
+  tags:
+  - Robotic Surgery
+  - Innovation
+  - Surgical Services
+- date: February 27, 2026
+  read_time: 5 min read
+  title: 'Mental Health Resources: You Don''t Have to Navigate This Alone'
+  snippet: Crestview's Behavioral Health Department has expanded with three new psychiatrists and a dedicated
+    crisis stabilization unit. We now offer same-week appointments for new patients, telehealth therapy
+    sessions, and a 24/7 crisis line. Learn about our full range of mental health services and how to
+    access them.
+  tags:
+  - Mental Health
+  - Behavioral Health
+  - Community Resources
+footer_brand: Crestview Regional Medical Center
+footer_note: A nonprofit community hospital serving the greater Crestview area since 1958.</p>
+footer_links:
+- label: Privacy Practices
+  href: /privacy
+- label: Nondiscrimination Notice
+  href: /nondiscrimination
+- label: Billing & Financial Assistance
+  href: /billing

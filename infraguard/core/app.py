@@ -51,9 +51,31 @@ def create_app(config: InfraGuardConfig) -> Starlette:
     # Load plugins
     plugins = load_plugins(config.plugins, config.plugin_settings)
 
+    # Optional shared-state backend for horizontally-scaled deploys.
+    # Reads ``state:`` block from config; falls back to InMemoryBackend
+    # so single-node behavior is unchanged.
+    state_backend = None
+    state_cfg = getattr(config, "state", None)
+    if state_cfg is not None:
+        from infraguard.state import StateConfig, build_state_backend
+
+        try:
+            state_backend = build_state_backend(
+                StateConfig(
+                    backend=getattr(state_cfg, "backend", "memory"),
+                    redis_url=getattr(state_cfg, "redis_url", "redis://redis:6379/0"),
+                    key_prefix=getattr(state_cfg, "key_prefix", "infraguard:"),
+                )
+            )
+            log.info("state_backend_ready",
+                     backend=getattr(state_cfg, "backend", "memory"))
+        except Exception as exc:
+            log.warning("state_backend_init_failed",
+                        error=str(exc), fallback="none (per-process state)")
+
     db = Database(config.tracking.db_path)
     recorder = EventRecorder(db, plugins=plugins)
-    router = DomainRouter(config, recorder=recorder, db=db)
+    router = DomainRouter(config, recorder=recorder, db=db, state_backend=state_backend)
 
     # Health endpoint path is configurable to avoid fingerprinting
     health_path = config.api.health_path.strip("/")
@@ -64,6 +86,67 @@ def create_app(config: InfraGuardConfig) -> Starlette:
 
     async def health_check(request: Request) -> Response:
         return Response(content=b'{"status":"ok"}', media_type="application/json")
+
+    # Canary callback endpoints. Injected into decoy HTML by
+    # ``infraguard.intel.canary.inject_all_canaries``. A hit is a strong
+    # "scanner/sandbox pulled our decoy" signal because a human user
+    # would never fetch the tracking pixel then a 1px hidden-off-screen
+    # link then a hidden form field in the same session. Return the
+    # smallest plausible reply so the scanner does not learn anything
+    # from the response body.
+    _PIXEL_GIF = (
+        b"GIF89a\x01\x00\x01\x00\x80\x00\x00\xff\xff\xff\x00\x00\x00"
+        b"!\xf9\x04\x01\x00\x00\x00\x00,\x00\x00\x00\x00\x01\x00\x01"
+        b"\x00\x00\x02\x02D\x01\x00;"
+    )
+
+    async def canary_hit_handler(request: Request) -> Response:
+        canary_id = request.query_params.get("c", "")
+        kind = request.url.path.rsplit("/", 1)[-1]  # px | hp | hf
+        client_ip = request.client.host if request.client else "unknown"
+        ua = request.headers.get("user-agent", "")
+        host = request.headers.get("host", "")
+        log.warning(
+            "canary_hit",
+            kind=kind,
+            canary_id=canary_id,
+            client_ip=client_ip,
+            user_agent=ua,
+            path=request.url.path,
+            host=host,
+        )
+        # Also record to the tracking DB so the dashboard's live feed
+        # and /api/requests surface the hit; the router.handle path is
+        # bypassed here so we call the recorder directly.
+        try:
+            from infraguard.models.events import RequestEvent
+            recorder.record(RequestEvent.now(
+                domain=host.split(":")[0] if host else "",
+                client_ip=client_ip,
+                method=request.method,
+                uri=str(request.url.path) + (
+                    "?" + str(request.url.query) if request.url.query else ""
+                ),
+                user_agent=ua,
+                filter_result="canary_hit",
+                filter_reason=f"canary_hit:{kind}:{canary_id[:16]}",
+                filter_score=1.0,
+                response_status=200,
+                duration_ms=0.0,
+            ))
+        except Exception:
+            log.exception("canary_hit_record_failed")
+        if kind == "px":
+            return Response(content=_PIXEL_GIF, media_type="image/gif")
+        if kind == "hf":
+            # Form POST -> a bland 200 so the scanner thinks it worked.
+            return Response(status_code=200, content=b"", media_type="text/plain")
+        # Hidden link -> an empty page.
+        return Response(
+            status_code=200,
+            content=b"<!doctype html><title></title>",
+            media_type="text/html",
+        )
 
     # Phishing.club webhook receiver
     pc_cfg = config.phishingclub
@@ -85,14 +168,89 @@ def create_app(config: InfraGuardConfig) -> Starlette:
 
     @asynccontextmanager
     async def lifespan(app: Starlette):
+        # OpenTelemetry setup (opt-in via config.observability.otel).
+        otel_cfg = getattr(getattr(config, "observability", None), "otel", None)
+        if otel_cfg is not None and getattr(otel_cfg, "enabled", False):
+            from infraguard.observability import setup_otel
+
+            setup_otel(
+                service_name=getattr(otel_cfg, "service_name", "infraguard-proxy"),
+                endpoint=getattr(otel_cfg, "endpoint", None),
+                resource_attrs=getattr(otel_cfg, "resource_attrs", None) or {},
+            )
+
         await db.connect()
         # Expose db and config on app state for auth and other handlers
         app.state.db = db
         app.state.config = config
+        app.state.router = router
+        app.state.state_backend = state_backend
+        app.state.plugins = plugins
+        # Wrap each plugin's hooks with an invocation counter so the
+        # dashboard's Plugins tab can show which plugins are actually
+        # doing work. The wrap is idempotent.
+        try:
+            from infraguard.ui.api.routes.dashboard import PluginInvocationCounter
+
+            counter = PluginInvocationCounter()
+            for _p in plugins:
+                counter.wrap_plugin(_p)
+            app.state.plugin_invocations = counter
+        except Exception:
+            log.exception("plugin_counter_init_failed")
         # Hydrate persistent caches (replay filter) from the now-connected database
         await router.startup()
-        # Start plugins (isolated - one failure doesn't stop others)
+
+        # Auto-rotation watchdog (burn score + cert expiry). Wired via
+        # ``config.watchdog`` if present. When ``auto_rotate: false`` the
+        # watchdog only emits events, so alert plugins still page but no
+        # cloud API is called.
+        watchdog = None
+        wd_cfg = getattr(config, "watchdog", None)
+        if wd_cfg is not None and getattr(wd_cfg, "enabled", False):
+            from infraguard.deploy.watchdog import RotationWatchdog, WatchdogConfig
+
+            wc = WatchdogConfig(
+                enabled=True,
+                poll_interval=getattr(wd_cfg, "poll_interval", 300),
+                burn_threshold=getattr(wd_cfg, "burn_threshold", 0.8),
+                burn_window=getattr(wd_cfg, "burn_window", 900),
+                cert_days_before=getattr(wd_cfg, "cert_days_before", 14),
+                cost_cap_usd=getattr(wd_cfg, "cost_cap_usd", None),
+                auto_rotate=getattr(wd_cfg, "auto_rotate", True),
+            )
+            watchdog = RotationWatchdog(wc, router, config)
+            await watchdog.start()
+            app.state.watchdog = watchdog
+
+        # Purple-team mirror (opt-in duplicate of allowed events to a
+        # blue-team collector). Never touches the C2 path.
+        purple = None
+        pt_cfg = getattr(config, "purple_team", None)
+        if pt_cfg is not None and getattr(pt_cfg, "enabled", False):
+            from infraguard.core.purple_team_mirror import (
+                PurpleMirror,
+                PurpleMirrorConfig,
+            )
+
+            purple = PurpleMirror(PurpleMirrorConfig(
+                enabled=True,
+                mirror_url=getattr(pt_cfg, "mirror_url", ""),
+                auth_header=getattr(pt_cfg, "auth_header", ""),
+                only_allowed=getattr(pt_cfg, "only_allowed", True),
+                max_queue_depth=getattr(pt_cfg, "max_queue_depth", 5000),
+                drop_body_over_kib=getattr(pt_cfg, "drop_body_over_kib", 128),
+            ))
+            await purple.start()
+            app.state.purple_mirror = purple
+            router._purple_mirror = purple
+        # Start plugins (isolated - one failure doesn't stop others).
+        # Disabled plugins skip startup so they don't open sockets or
+        # HTTP clients until re-enabled; ``enable_plugin`` calls
+        # ``on_startup`` when flipping one back on.
         for p in plugins:
+            if not getattr(p, "_runtime_enabled", True):
+                continue
             try:
                 await p.on_startup()
             except Exception:
@@ -131,8 +289,8 @@ def create_app(config: InfraGuardConfig) -> Starlette:
         _ct_monitor = None
         _burn_detector = None
         if config.intel.ct_monitor.enabled:
+            from infraguard.intel.burn_detect import BurnDetector
             from infraguard.intel.ct_monitor import CTMonitor
-            from infraguard.intel.burn_detect import BurnDetector, BurnConfig
             _burn_detector = BurnDetector(db=db, recorder=recorder)
             ct_domains = config.intel.ct_monitor.monitored_domains or list(config.domains.keys())
             _ct_monitor = CTMonitor(
@@ -207,21 +365,33 @@ def create_app(config: InfraGuardConfig) -> Starlette:
             _background_tasks.append(_rotation_task)
             app.state.rotation_scheduler = _rotation_scheduler
 
-        # Background task: initial feed load and periodic refresh
+        # Background task: initial feed load and periodic refresh.
+        # The initial refresh only blocks startup when ``require_feeds`` is
+        # set; otherwise it runs in the background so a single dead feed
+        # cannot deadlock the listener bind.
         if config.intel.feeds.enabled:
             from infraguard.intel.feeds import feed_refresh_loop, update_feeds
             feed_urls = config.intel.feeds.urls or None
-            # Initial feed load (respect require_feeds)
-            try:
-                await update_feeds(
-                    router.intel.blocklist,
-                    feed_urls,
-                    config.intel.feeds.cache_dir,
-                    require=config.intel.feeds.require_feeds,
-                )
-            except RuntimeError as e:
-                log.error("startup_feed_requirement_failed", error=str(e))
-                raise
+            if config.intel.feeds.require_feeds:
+                try:
+                    await update_feeds(
+                        router.intel.blocklist,
+                        feed_urls,
+                        config.intel.feeds.cache_dir,
+                        require=True,
+                    )
+                except RuntimeError as e:
+                    log.error("startup_feed_requirement_failed", error=str(e))
+                    raise
+            else:
+                _background_tasks.append(asyncio.create_task(
+                    update_feeds(
+                        router.intel.blocklist,
+                        feed_urls,
+                        config.intel.feeds.cache_dir,
+                        require=False,
+                    )
+                ))
             feed_task = asyncio.create_task(
                 feed_refresh_loop(
                     router.intel.blocklist,
@@ -236,6 +406,27 @@ def create_app(config: InfraGuardConfig) -> Starlette:
         _cleanup_task = asyncio.create_task(_session_cleanup_loop(db))
         _background_tasks.append(_cleanup_task)
 
+        # Background task: refresh the active-beacons + burn-score gauges
+        # every 15s so HPAs and Grafana panels stay honest.
+        async def _metrics_refresh_loop() -> None:
+            from infraguard.ui.api.metrics import (
+                prune_active_beacons,
+                set_burn_score,
+            )
+            while True:
+                await asyncio.sleep(15)
+                try:
+                    prune_active_beacons()
+                    scorer = getattr(router.intel, "burn_scorer", None)
+                    if scorer is not None and hasattr(scorer, "all_scores"):
+                        for domain, score in scorer.all_scores().items():
+                            set_burn_score(domain, float(score))
+                except Exception:
+                    log.debug("metrics_refresh_error")
+
+        _metrics_task = asyncio.create_task(_metrics_refresh_loop())
+        _background_tasks.append(_metrics_task)
+
         # ── Non-HTTP listeners (DNS, MQTT, WebSocket, TCP tunnel) ────
         # All non-HTTP listeners are started here so they ride alongside
         # the uvicorn HTTP listener in the same event loop.
@@ -248,6 +439,7 @@ def create_app(config: InfraGuardConfig) -> Starlette:
             "dns": ("infraguard.listeners.dns", "DNSListener"),
             "mqtt": ("infraguard.listeners.mqtt", "MQTTListener"),
             "websocket": ("infraguard.listeners.websocket", "WebSocketListener"),
+            "grpc": ("infraguard.listeners.grpc", "GRPCListener"),
         }
 
         for lis in config.listeners:
@@ -278,10 +470,13 @@ def create_app(config: InfraGuardConfig) -> Starlette:
                 continue
 
             # Build constructor kwargs - all listeners take (config, intel, recorder).
-            # DNSListener additionally accepts intel_config.
+            # DNSListener additionally accepts intel_config; GRPCListener
+            # needs the router so its handler can adapt frames.
             kwargs: dict = dict(config=lis, intel=router.intel, recorder=recorder)
             if lis.protocol == "dns":
                 kwargs["intel_config"] = config.intel
+            if lis.protocol == "grpc":
+                kwargs["router"] = router
 
             try:
                 listener_inst = cls(**kwargs)
@@ -314,6 +509,7 @@ def create_app(config: InfraGuardConfig) -> Starlette:
         _dashboard_server = None
         try:
             import uvicorn as _uvicorn
+
             from infraguard.ui.api.app import create_api_app
 
             _dashboard_db = Database(config.tracking.db_path)
@@ -321,6 +517,13 @@ def create_app(config: InfraGuardConfig) -> Starlette:
                 config, _dashboard_db, intel=router.intel, router=router,
             )
             _dashboard_app.state.burn_scorer = _burn_scorer
+            _dashboard_app.state.plugins = plugins
+            # Share the invocation counter with the embedded dashboard app.
+            # Without this, /api/plugins on the dashboard port lazily creates
+            # its own empty counter and never sees the real wrapped hooks.
+            _dashboard_app.state.plugin_invocations = getattr(
+                app.state, "plugin_invocations", None,
+            )
             if _pdns_monitor is not None:
                 _dashboard_app.state.pdns_monitor = _pdns_monitor
             _api_bind = os.environ.get("INFRAGUARD_API_BIND", config.api.bind)
@@ -382,6 +585,26 @@ def create_app(config: InfraGuardConfig) -> Starlette:
         if _rotation_scheduler is not None:
             _rotation_scheduler.stop()
 
+        # Stop the auto-rotation watchdog.
+        if watchdog is not None:
+            await watchdog.stop()
+
+        # Stop the purple-team mirror + shared state backend.
+        if purple is not None:
+            await purple.stop()
+        if state_backend is not None:
+            try:
+                await state_backend.close()
+            except Exception:
+                log.debug("state_backend_close_failed")
+
+        # Flush OpenTelemetry spans before we exit.
+        try:
+            from infraguard.observability import shutdown_otel
+            shutdown_otel()
+        except Exception:
+            pass
+
         # 2. Stop recorder (cancels tracked tasks and does final flush)
         await recorder.stop()
 
@@ -398,6 +621,12 @@ def create_app(config: InfraGuardConfig) -> Starlette:
 
     routes = [
         Route(health_route, health_check, methods=["GET"]),
+        # Canary callbacks: must sit above the catch-all so hits are
+        # recognized instead of falling through to the C2 pipeline
+        # and getting logged as a generic 404.
+        Route("/_ig/px", canary_hit_handler, methods=["GET"]),
+        Route("/_ig/hp", canary_hit_handler, methods=["GET"]),
+        Route("/_ig/hf", canary_hit_handler, methods=["POST", "GET"]),
     ]
     if _phishingclub_handler is not None:
         pc_path = "/" + pc_cfg.webhook_path.strip("/")

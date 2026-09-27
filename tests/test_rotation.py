@@ -18,7 +18,6 @@ from infraguard.deploy.rotation import (
     RotationResult,
 )
 
-
 # ── Fixtures ──────────────────────────────────────────────────────────────
 
 @pytest.fixture

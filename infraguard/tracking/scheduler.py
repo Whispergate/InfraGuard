@@ -26,7 +26,7 @@ import io
 import json
 import smtplib
 import ssl
-from datetime import datetime, timezone
+from datetime import UTC, datetime
 from email.message import EmailMessage
 from pathlib import Path
 from typing import TYPE_CHECKING, Any
@@ -70,7 +70,7 @@ class ReportScheduler:
         self,
         config: ReportScheduleConfig,
         db: Database,
-        node_registry: "NodeRegistry | None" = None,
+        node_registry: NodeRegistry | None = None,
     ):
         self.config = config
         self.db = db
@@ -121,7 +121,7 @@ class ReportScheduler:
                     timeout=self.config.check_interval_seconds,
                 )
                 break  # stop event set
-            except asyncio.TimeoutError:
+            except TimeoutError:
                 pass
 
             now = asyncio.get_event_loop().time()
@@ -142,7 +142,7 @@ class ReportScheduler:
         that don't produce files, though all current formats do).
         """
         data = await self._collect()
-        stamp = datetime.now(timezone.utc).strftime("%Y%m%d-%H%M%S")
+        stamp = datetime.now(UTC).strftime("%Y%m%d-%H%M%S")
         out_dir = Path(self.config.output_dir)
         out_dir.mkdir(parents=True, exist_ok=True)
 

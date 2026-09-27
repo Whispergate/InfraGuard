@@ -1,0 +1,35 @@
+# Major cloud provider ranges. Operators may want to block these if
+# beacons are not expected from cloud infrastructure. Group with a header
+# line ``[group_name]`` - the loader emits a dict keyed by group.
+# Groups with no matching header are dropped into the ``default`` bucket.
+
+[aws_common]
+3.0.0.0/8
+52.0.0.0/8
+54.0.0.0/8
+
+[azure_common]
+13.64.0.0/11
+20.0.0.0/8
+40.64.0.0/10
+
+[gcp_common]
+34.0.0.0/8
+35.184.0.0/13
+
+[digitalocean]
+104.131.0.0/16
+137.184.0.0/16
+143.198.0.0/16
+157.245.0.0/16
+159.65.0.0/16
+159.89.0.0/16
+161.35.0.0/16
+164.90.0.0/16
+167.71.0.0/16
+167.172.0.0/16
+174.138.0.0/16
+178.128.0.0/16
+178.62.0.0/16
+188.166.0.0/16
+206.189.0.0/16

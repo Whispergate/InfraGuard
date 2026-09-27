@@ -1,7 +1,8 @@
 """Shared C2 profile type auto-detection.
 
-Extracted from ``infraguard.main._load_profile_file`` so that both the
-CLI command and the config generator share the same detection logic.
+Extracted from the historical ``infraguard.main._load_profile_file``
+(now :func:`infraguard.cli._helpers.load_profile_file`) so that both
+the CLI command and the config generator share the same detection.
 """
 
 from __future__ import annotations
@@ -56,8 +57,22 @@ def detect_profile_type(profile_path: Path) -> ProfileType:
         if profile_path.exists():
             try:
                 data = json.loads(profile_path.read_text(encoding="utf-8"))
-                if "listeners" in data and "c2_handler" in data:
-                    return ProfileType.BRUTE_RATEL
+                # Brute Ratel: real profiles have ``listeners`` as a
+                # dict of listener-N -> {c2_authkeys, c2_uri, ...} even
+                # without a top-level ``c2_handler`` block. Match on any
+                # of the BRC4-specific listener keys.
+                if "c2_handler" in data:
+                    if "listeners" in data:
+                        return ProfileType.BRUTE_RATEL
+                listeners = data.get("listeners")
+                if isinstance(listeners, dict) and listeners:
+                    first = next(iter(listeners.values()), {})
+                    if isinstance(first, dict) and (
+                        "c2_authkeys" in first
+                        or "c2_uri" in first
+                        or "die_offline" in first
+                    ):
+                        return ProfileType.BRUTE_RATEL
                 if "implant_config" in data and "server_config" in data:
                     return ProfileType.SLIVER
                 # Nighthawk: listener.http.routes + implant
@@ -69,6 +84,22 @@ def detect_profile_type(profile_path: Path) -> ProfileType:
                     return ProfileType.MYTHIC_HTTP
             except Exception:
                 pass
+        # Filename-based hints so operators who name files sensibly
+        # get the right label even when the JSON shape doesn't match
+        # any known signature.
+        stem = profile_path.stem.lower()
+        if "brc4" in stem or "brute" in stem or "ratel" in stem:
+            return ProfileType.BRUTE_RATEL
+        if "sliver" in stem:
+            return ProfileType.SLIVER
+        if "havoc" in stem:
+            return ProfileType.HAVOC
+        if "nighthawk" in stem:
+            return ProfileType.NIGHTHAWK
+        if "poshc2" in stem or "posh" in stem:
+            return ProfileType.POSHC2
+        if "cobalt" in stem or "cobaltstrike" in stem:
+            return ProfileType.COBALT_STRIKE
         # Default for JSON when file is absent or unrecognised shape
         return ProfileType.MYTHIC
 

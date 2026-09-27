@@ -8,7 +8,6 @@ content delivery routes.
 from __future__ import annotations
 
 import asyncio
-import re
 import random
 import time
 from ipaddress import IPv4Address, IPv6Address, ip_address
@@ -19,7 +18,11 @@ import structlog
 from starlette.requests import Request
 from starlette.responses import Response
 
-from infraguard.config.schema import ContentRouteGuardConfig, DomainConfig, InfraGuardConfig, PipelineConfig
+from infraguard.config.schema import (
+    ContentRouteGuardConfig,
+    DomainConfig,
+    InfraGuardConfig,
+)
 from infraguard.core.circuit_breaker import CircuitBreaker, CircuitOpenError
 from infraguard.core.content import ContentBackend, RouteMatch, create_backend
 from infraguard.core.content_router import ContentRouteResolver
@@ -27,25 +30,29 @@ from infraguard.core.drop import handle_drop
 from infraguard.core.fronting import DomainFronting
 from infraguard.core.proxy import ProxyHandler
 from infraguard.core.rate_limiter import ContentRateLimiter
+from infraguard.core.routing import (
+    DomainRoute,
+    check_content_guard,
+    load_c2_profile_from_config,
+    record_content_event,
+)
 from infraguard.intel.ip_lists import CIDRList
 from infraguard.intel.manager import IntelManager
-from infraguard.models.common import DropActionType, TUNNEL_PROFILE_TYPES
+from infraguard.models.common import TUNNEL_PROFILE_TYPES
 from infraguard.models.events import RequestEvent, compute_request_hash
 from infraguard.pipeline.base import FilterPipeline, RequestContext
 from infraguard.pipeline.bot_filter import BotFilter
 from infraguard.pipeline.dns_filter import DNSFilter
 from infraguard.pipeline.enumeration_filter import EnumerationFilter
-from infraguard.pipeline.header_filter import HeaderFilter
-from infraguard.pipeline.sandbox_filter import SandboxFilter
-from infraguard.pipeline.ip_filter import IPFilter
-from infraguard.pipeline.profile_filter import ProfileFilter
 from infraguard.pipeline.fingerprint_filter import FingerprintFilter
 from infraguard.pipeline.geo_filter import GeoFilter
+from infraguard.pipeline.header_filter import HeaderFilter
+from infraguard.pipeline.ip_filter import IPFilter
+from infraguard.pipeline.profile_filter import ProfileFilter
 from infraguard.pipeline.replay_filter import ReplayFilter
+from infraguard.pipeline.sandbox_filter import SandboxFilter
 from infraguard.pipeline.tls_filter import TLSFilter
-from infraguard.profiles.cobalt_strike import parse_cobalt_strike_file
 from infraguard.profiles.models import C2Profile
-from infraguard.profiles.mythic import parse_mythic_file
 from infraguard.tracking.database import Database
 from infraguard.tracking.recorder import EventRecorder
 from infraguard.tracking.tokens import PayloadTokenStore
@@ -53,24 +60,9 @@ from infraguard.tracking.tokens import PayloadTokenStore
 log = structlog.get_logger()
 
 
-class DomainRoute:
-    """A single domain's configuration, profile, and pipeline."""
-
-    def __init__(
-        self,
-        domain: str,
-        config: DomainConfig,
-        profile: C2Profile,
-        pipeline: FilterPipeline,
-        content_resolver: ContentRouteResolver | None = None,
-        fingerprint_pipeline: FilterPipeline | None = None,
-    ):
-        self.domain = domain
-        self.config = config
-        self.profile = profile
-        self.pipeline = pipeline
-        self.content_resolver = content_resolver
-        self.fingerprint_pipeline = fingerprint_pipeline
+# DomainRoute now lives in infraguard.core.routing.route - re-exported via
+# ``from infraguard.core.routing import DomainRoute`` above so downstream
+# imports (`from infraguard.core.router import DomainRoute`) keep working.
 
 
 class DomainRouter:
@@ -82,6 +74,7 @@ class DomainRouter:
         extra_filters: list | None = None,
         recorder: EventRecorder | None = None,
         db: Database | None = None,
+        state_backend=None,
     ):
         self.config = config
         self.proxy = ProxyHandler()
@@ -92,9 +85,27 @@ class DomainRouter:
         self._db = db
         self._content_backends: list[ContentBackend] = []
         self._breakers: dict[str, CircuitBreaker] = {}
+        self._state_backend = state_backend
 
-        # Initialize shared intel manager
-        self.intel = IntelManager(config.intel)
+        # Wire the state-backed overlays (SharedWhitelist, DropRateLimiter,
+        # beacon session bag) only when a backend was actually provided.
+        # Behavior on a single-node deploy is unchanged: every overlay
+        # falls back to per-process defaults when the backend is None.
+        from infraguard.state.beacons import compute_beacon_id, record_beacon_request
+        from infraguard.state.drop_rate_limit import DropRateLimiter
+        from infraguard.state.whitelist import SharedWhitelist
+
+        self._shared_whitelist = SharedWhitelist(state_backend) if state_backend else None
+        self._drop_rate_limiter = (
+            DropRateLimiter(state_backend) if state_backend else None
+        )
+        # Cache the callables so hot paths do not re-import.
+        self._compute_beacon_id = compute_beacon_id
+        self._record_beacon_request = record_beacon_request
+
+        # Initialize shared intel manager (pass the shared whitelist so
+        # is_blocked / record_valid_request can consult it).
+        self.intel = IntelManager(config.intel, shared_whitelist=self._shared_whitelist)
 
         # Domain fronting (SNI/Host header rewriting through CDN edges)
         self._fronting: DomainFronting | None = (
@@ -276,23 +287,51 @@ class DomainRouter:
             # Build content route resolver
             content_routes = list(domain_config.content_routes)
 
-            # If the drop action is "decoy", auto-register a catch-all content
-            # route so the decoy site's assets (CSS, JS, images) are served
-            # directly without going through the C2 filter pipeline.
+            # If the drop action is "decoy", auto-register a catch-all
+            # content route so the decoy site's assets (CSS, JS, images)
+            # are served directly without going through the C2 filter
+            # pipeline. Two guards keep this from becoming a filter
+            # bypass: the target must be a bare site name (URLs make
+            # ``type: redirect`` the right choice, not ``decoy``), and
+            # the resolved directory must exist. Otherwise the catch-all
+            # would swallow every request with a plain 404 and hide
+            # scanner behavior from the pipeline.
             if domain_config.drop_action.type.value == "decoy" and domain_config.drop_action.target:
-                from infraguard.config.schema import ContentBackendConfig, ContentRouteConfig
-                from infraguard.models.common import ContentBackendType
                 decoy_site = domain_config.drop_action.target
-                decoy_path = str(Path(self.config.decoy_pages_dir) / decoy_site)
-                # Add as lowest-priority catch-all (appended last)
-                content_routes.append(ContentRouteConfig(
-                    path="/*",
-                    backend=ContentBackendConfig(
-                        type=ContentBackendType.FILESYSTEM,
-                        target=decoy_path,
-                    ),
-                    track=False,
-                ))
+                if decoy_site.startswith(("http://", "https://")) or "/" in decoy_site:
+                    log.warning(
+                        "decoy_target_not_a_site_name",
+                        domain=domain_name,
+                        target=decoy_site,
+                        hint="Set drop_action.type to 'redirect' for a URL, "
+                             "or pick a folder name from decoy_pages_dir.",
+                    )
+                else:
+                    from infraguard.config.schema import (
+                        ContentBackendConfig,
+                        ContentRouteConfig,
+                    )
+                    from infraguard.models.common import ContentBackendType
+                    decoy_path = Path(self.config.decoy_pages_dir) / decoy_site
+                    if not decoy_path.is_dir():
+                        log.warning(
+                            "decoy_site_dir_missing",
+                            domain=domain_name,
+                            target=decoy_site,
+                            resolved=str(decoy_path),
+                            hint="No such folder under decoy_pages_dir; "
+                                 "skipping the '/*' catch-all so requests "
+                                 "flow through the C2 pipeline instead.",
+                        )
+                    else:
+                        content_routes.append(ContentRouteConfig(
+                            path="/*",
+                            backend=ContentBackendConfig(
+                                type=ContentBackendType.FILESYSTEM,
+                                target=str(decoy_path),
+                            ),
+                            track=False,
+                        ))
 
             content_resolver = None
             fp_pipeline = None
@@ -329,36 +368,11 @@ class DomainRouter:
 
     @staticmethod
     def _load_profile(config: DomainConfig) -> C2Profile:
-        from infraguard.profiles.brute_ratel import parse_brute_ratel_file
-        from infraguard.profiles.havoc import parse_havoc_file
-        from infraguard.profiles.nighthawk import parse_nighthawk_file
-        from infraguard.profiles.poshc2 import parse_poshc2_file
-        from infraguard.profiles.sliver import parse_sliver_file
-
-        path = Path(config.profile_path)
-        if config.profile_type.value == "cobalt_strike":
-            return parse_cobalt_strike_file(path)
-        elif config.profile_type.value == "brute_ratel":
-            return parse_brute_ratel_file(path)
-        elif config.profile_type.value == "sliver":
-            return parse_sliver_file(path)
-        elif config.profile_type.value == "havoc":
-            return parse_havoc_file(path)
-        elif config.profile_type.value == "nighthawk":
-            return parse_nighthawk_file(path)
-        elif config.profile_type.value == "poshc2":
-            return parse_poshc2_file(path)
-        elif config.profile_type.value == "mythic_http":
-            from infraguard.profiles.mythic_http import parse_mythic_http_file
-            return parse_mythic_http_file(path)
-        elif config.profile_type.value == "mythic":
-            return parse_mythic_file(path)
-        else:
-            raise ValueError(
-                f"Unknown profile type {config.profile_type!r} for domain "
-                f"{config.domain!r}. Supported types: cobalt_strike, brute_ratel, "
-                f"sliver, havoc, nighthawk, poshc2, mythic_http, mythic."
-            )
+        # Kept as a thin shim so any external caller doing
+        # ``DomainRouter._load_profile(cfg)`` still works. New code should
+        # import :func:`load_c2_profile_from_config` from
+        # :mod:`infraguard.core.routing`.
+        return load_c2_profile_from_config(config)
 
     async def reload(self, new_config: InfraGuardConfig) -> None:
         """Hot-reload domains, profiles, and blocklists atomically.
@@ -468,19 +482,43 @@ class DomainRouter:
                 pipeline = FilterPipeline(filters, new_config.pipeline)
 
                 content_routes = list(domain_config.content_routes)
+                # Same guards as the initial-load path in ``_load_routes``:
+                # a URL target means the operator wanted a redirect, and
+                # a missing directory would otherwise turn ``/*`` into a
+                # filter-bypassing 404 machine. See _load_routes for the
+                # long-form rationale.
                 if domain_config.drop_action.type.value == "decoy" and domain_config.drop_action.target:
-                    from infraguard.config.schema import ContentBackendConfig, ContentRouteConfig
-                    from infraguard.models.common import ContentBackendType
                     decoy_site = domain_config.drop_action.target
-                    decoy_path = str(Path(new_config.decoy_pages_dir) / decoy_site)
-                    content_routes.append(ContentRouteConfig(
-                        path="/*",
-                        backend=ContentBackendConfig(
-                            type=ContentBackendType.FILESYSTEM,
-                            target=decoy_path,
-                        ),
-                        track=False,
-                    ))
+                    if decoy_site.startswith(("http://", "https://")) or "/" in decoy_site:
+                        log.warning(
+                            "decoy_target_not_a_site_name",
+                            domain=domain_name,
+                            target=decoy_site,
+                            hint="Set drop_action.type to 'redirect' for a URL.",
+                        )
+                    else:
+                        from infraguard.config.schema import (
+                            ContentBackendConfig,
+                            ContentRouteConfig,
+                        )
+                        from infraguard.models.common import ContentBackendType
+                        decoy_path = Path(new_config.decoy_pages_dir) / decoy_site
+                        if not decoy_path.is_dir():
+                            log.warning(
+                                "decoy_site_dir_missing",
+                                domain=domain_name,
+                                target=decoy_site,
+                                resolved=str(decoy_path),
+                            )
+                        else:
+                            content_routes.append(ContentRouteConfig(
+                                path="/*",
+                                backend=ContentBackendConfig(
+                                    type=ContentBackendType.FILESYSTEM,
+                                    target=str(decoy_path),
+                                ),
+                                track=False,
+                            ))
 
                 content_resolver = None
                 fp_pipeline = None
@@ -550,112 +588,46 @@ class DomainRouter:
         return None
 
     async def handle(self, request: Request) -> Response:
-        """Main request handler: route, filter, proxy or drop."""
-        start = time.perf_counter()
-        route = self.resolve(request)
+        """Main request handler: route, filter, proxy or drop.
 
-        if route is None:
-            log.warning(
-                "no_route",
-                host=request.headers.get("host", ""),
-                path=request.url.path,
-            )
-            # Use the first domain's drop action so unmatched hosts see
-            # the decoy site instead of a suspicious bare 404
-            if self.routes:
-                first_route = next(iter(self.routes.values()))
-                return await handle_drop(
-                    request, first_route.config.drop_action,
-                    reason="no matching domain",
-                    pages_dir=self.config.decoy_pages_dir,
-                )
-            return Response(status_code=404, content=b"Not Found")
-
-        # ── Domain fronting interception ───────────────────────────────
-        # If the Host header matches a fronting rule's real domain, this
-        # request arrived via CDN domain fronting.  Forward it through the
-        # CDN edge instead of the normal proxy path.  The fronting layer
-        # handles SNI/Host rewriting, CDN header sanitization, and health
-        # monitoring for the fronted path.
-        if self._fronting is not None:
-            host = request.headers.get("host", "")
-            fronting_rule = self._fronting.resolve_by_host(host)
-            if fronting_rule is not None:
-                log.info(
-                    "fronting_request",
-                    domain=fronting_rule.domain,
-                    front_domain=fronting_rule.front_domain,
-                    cdn=fronting_rule.cdn.value,
-                    path=request.url.path,
-                )
-                return await self._fronting.forward(request, fronting_rule)
-
-        # Parse client IP
-        client_ip: IPv4Address | IPv6Address
-        if request.client:
-            try:
-                client_ip = ip_address(request.client.host)
-            except ValueError:
-                client_ip = ip_address("0.0.0.0")
-        else:
-            client_ip = ip_address("0.0.0.0")
-
-        # ── Beacon URI passthrough ─────────────────────────────────
-        # If the URI matches a C2 profile URI, skip content_routes and
-        # let the C2 pipeline (ProfileFilter validates headers / cookie /
-        # transforms) decide. On match the request is forwarded upstream;
-        # on mismatch handle_drop serves the decoy. Lets one domain serve
-        # a decoy to scanners AND forward shaped beacons to the teamserver.
+        Composed out of small private methods (``_route_or_drop``,
+        ``_try_fronting``, ``_parse_client_ip``, ``_pre_content_gate``,
+        ``_run_plugin_on_request``, ``_forward_with_failover``,
+        ``_run_plugin_on_response``, ``_record_request_event``) so each
+        step is testable and the hot-path top-level stays linear.
+        Behavior is byte-identical to the pre-split monolithic version.
+        """
         from infraguard.models.common import PHISHING_PROFILE_TYPES
+
+        start = time.perf_counter()
+
+        # 1. Resolve route (or drop with the first domain's decoy).
+        route, early = await self._route_or_drop(request)
+        if early is not None:
+            return early
+        assert route is not None  # for the type checker
+
+        # 2. Domain-fronting interception.
+        fronted = await self._try_fronting(request)
+        if fronted is not None:
+            return fronted
+
+        # 3. Parse client IP.
+        client_ip = self._parse_client_ip(request)
+
+        # 4. If a beacon URI, skip content_routes and let the C2 pipeline
+        #    decide (ProfileFilter validates headers/cookie/transforms).
+        #    Otherwise, if content routes exist, run the pre-content gate
+        #    and dispatch to a content route on match.
         is_beacon_uri = (
             route.config.profile_type not in PHISHING_PROFILE_TYPES
             and route.profile is not None
             and request.url.path in route.profile.all_uris()
         )
-
-        # ── IP check before content routes ────────────
         if route.content_resolver and not is_beacon_uri:
-            if route.config.content_route_filter == "full_pipeline":
-                # Full pipeline evaluation before content routes
-                body = await request.body()
-                ctx = RequestContext(
-                    request=request,
-                    client_ip=client_ip,
-                    domain_config=route.config,
-                    profile=route.profile,
-                    metadata={"body": body, "ja3": getattr(request.state, "ja3", None)},
-                    domain=route.domain,
-                )
-                pre_result = await route.pipeline.evaluate(ctx)
-                if not pre_result.allowed:
-                    log.warning(
-                        "request_dropped_before_content",
-                        domain=route.domain,
-                        client=str(client_ip),
-                        path=request.url.path,
-                        reasons=pre_result.blocking_reasons,
-                    )
-                    return await handle_drop(
-                        request, route.config.drop_action,
-                        reason="full_pipeline_block_before_content",
-                        pages_dir=self.config.decoy_pages_dir,
-                    )
-            else:
-                # Default "ip_only": fast blocklist check only
-                if self.intel and self.intel.is_blocked(client_ip):
-                    log.warning(
-                        "ip_blocked_before_content_route",
-                        domain=route.domain,
-                        client=str(client_ip),
-                        path=request.url.path,
-                    )
-                    return await handle_drop(
-                        request, route.config.drop_action,
-                        reason="ip_blocked_before_content_route",
-                        pages_dir=self.config.decoy_pages_dir,
-                    )
-
-            # Now safe to check content routes
+            gate = await self._pre_content_gate(route, request, client_ip)
+            if gate is not None:
+                return gate
             content_match = route.content_resolver.match(request)
             if content_match is not None:
                 content_match.domain = route.domain
@@ -663,7 +635,7 @@ class DomainRouter:
                     request, route, content_match, client_ip, start,
                 )
 
-        # ── C2 filter pipeline ────────────────────────────────────
+        # 5. Build the C2-pipeline request context.
         body = await request.body()
         request_hash = compute_request_hash(
             method=request.method,
@@ -685,31 +657,13 @@ class DomainRouter:
             domain=route.domain,
         )
 
-        # ── Plugin on_request hooks ────────────────────────────────
-        if self._recorder:
-            for plugin in self._recorder._plugins:
-                try:
-                    plugin_result = await plugin.on_request(ctx)
-                    if plugin_result is not None and not plugin_result.allowed:
-                        log.info(
-                            "plugin_blocked_request",
-                            plugin=getattr(plugin, "name", "unknown"),
-                            domain=route.domain,
-                            path=request.url.path,
-                        )
-                        return await handle_drop(
-                            request, route.config.drop_action,
-                            reason=f"plugin:{getattr(plugin, 'name', 'unknown')}",
-                            pages_dir=self.config.decoy_pages_dir,
-                        )
-                except Exception:
-                    log.exception(
-                        "plugin_on_request_error",
-                        plugin=getattr(plugin, "name", "unknown"),
-                    )
+        # 6. Plugin on_request hooks.
+        plugin_drop = await self._run_plugin_on_request(ctx, request, route)
+        if plugin_drop is not None:
+            return plugin_drop
 
+        # 7. Pipeline evaluate + allowed/blocked branches.
         result = await route.pipeline.evaluate(ctx)
-
         if result.allowed:
             log.info(
                 "request_allowed",
@@ -718,96 +672,11 @@ class DomainRouter:
                 path=request.url.path,
                 score=round(result.total_score, 2),
             )
-            # Record valid request for dynamic whitelisting - C2 domains only.
-            # Phishing/passthrough domains are open by design; letting them
-            # feed the dynamic whitelist would let any target click-through
-            # bypass CIDR-restricted domains (e.g. operator admin panels).
-            newly_whitelisted = False
-            if route.config.profile_type not in PHISHING_PROFILE_TYPES:
-                newly_whitelisted = self.intel.record_valid_request(str(client_ip))
-            if newly_whitelisted and self._token_store is not None:
-                pt_cfg = self.config.payload_tokens
-                # Issue tokens for all token-gated content routes on this domain
-                for cr in route.config.content_routes:
-                    if cr.require_token:
-                        token = await self._token_store.issue(
-                            beacon_ip=str(client_ip),
-                            route_path=cr.path,
-                            ttl_seconds=pt_cfg.default_ttl_seconds,
-                            max_uses=pt_cfg.default_max_uses,
-                        )
-                        # Token delivered via response header after proxying
-                        ctx.metadata.setdefault("issued_tokens", {})[cr.path] = token
-
-            # Build ordered upstream list: primary + backups
-            upstreams = [route.config.upstream] + list(route.config.backup_upstreams)
-            response = None
-            filter_result_str = "allow"
-            filter_reason = None
-
-            for i, upstream in enumerate(upstreams):
-                try:
-                    breaker = self._breakers.get(upstream)
-                    if breaker:
-                        response = await breaker.call(
-                            self.proxy.forward,
-                            request,
-                            upstream,
-                            domain_config=route.config,
-                            reraise_transport_errors=True,
-                        )
-                    else:
-                        response = await self.proxy.forward(
-                            request, upstream, domain_config=route.config,
-                        )
-                    break  # Success - stop trying upstreams
-                except CircuitOpenError:
-                    log.warning(
-                        "upstream_circuit_open",
-                        domain=route.domain,
-                        upstream=upstream,
-                        backup_index=i,
-                    )
-                    continue  # Try next upstream
-                except (httpx.TimeoutException, httpx.ConnectError):
-                    log.warning(
-                        "upstream_failover",
-                        domain=route.domain,
-                        upstream=upstream,
-                        backup_index=i,
-                    )
-                    continue  # Try next upstream
-
-            if response is None:
-                # All upstreams exhausted
-                log.error(
-                    "all_upstreams_failed",
-                    domain=route.domain,
-                    upstreams=upstreams,
-                )
-                response = await handle_drop(
-                    request,
-                    route.config.drop_action,
-                    reason="all_upstreams_failed",
-                    pages_dir=self.config.decoy_pages_dir,
-                )
-                filter_result_str = "block"
-                filter_reason = "all_upstreams_failed"
-
-            # Attach any issued payload tokens to the response headers
-            issued_tokens: dict[str, str] = ctx.metadata.get("issued_tokens", {})
-            if issued_tokens:
-                pt_cfg = self.config.payload_tokens
-                # Encode as JSON if multiple tokens; plain string if single
-                import json as _json
-                token_value = (
-                    next(iter(issued_tokens.values()))
-                    if len(issued_tokens) == 1
-                    else _json.dumps(issued_tokens)
-                )
-                response.headers[pt_cfg.issuance_header] = token_value
-
-            status_code = response.status_code
+            await self._maybe_record_whitelist_and_issue_tokens(route, ctx, client_ip)
+            response, filter_result_str, filter_reason = (
+                await self._forward_with_failover(request, route)
+            )
+            self._attach_issued_tokens(ctx, response)
         else:
             log.warning(
                 "request_dropped",
@@ -821,54 +690,440 @@ class DomainRouter:
                 request,
                 route.config.drop_action,
                 reason=result.summary,
-                pages_dir=self.config.decoy_pages_dir,
+                pages_dir=self.config.decoy_pages_dir, drop_rate_limiter=self._drop_rate_limiter,
             )
-            filter_result_str = "block"
+            # Reflect the delivery method (decoy/tarpit/redirect/reset)
+            # instead of a flat "block" so the dashboard's Overview KPI
+            # tiles can bucket by what the client actually received.
+            filter_result_str = _delivery_verdict(route.config.drop_action)
             filter_reason = "; ".join(result.blocking_reasons) or result.summary
-            status_code = response.status_code
 
-        # ── Plugin on_response hooks ───────────────────────────────
-        if self._recorder:
-            for plugin in self._recorder._plugins:
-                try:
-                    modified = await plugin.on_response(ctx, response)
-                    if modified is not None:
-                        response = modified
-                except Exception:
-                    log.exception(
-                        "plugin_on_response_error",
-                        plugin=getattr(plugin, "name", "unknown"),
-                    )
+        # 8. Plugin on_response hooks.
+        response = await self._run_plugin_on_response(ctx, response)
 
-        # Timing normalization: add random jitter to prevent side-channel
-        # analysis that could distinguish proxied vs locally-generated responses.
-        if self.config.timing.enabled:
-            jitter_ms = random.randint(
-                self.config.timing.min_delay_ms,
-                self.config.timing.max_delay_ms,
-            )
-            await asyncio.sleep(jitter_ms / 1000.0)
+        # 9. Timing normalization (side-channel resistance).
+        await self._apply_timing_jitter()
 
-        # Record the request to the tracking database
-        duration_ms = (time.perf_counter() - start) * 1000
-        if self._recorder:
-            self._recorder.record(
-                RequestEvent.now(
-                    domain=route.domain,
-                    client_ip=str(client_ip),
-                    method=request.method,
-                    uri=request.url.path,
-                    user_agent=request.headers.get("user-agent", ""),
-                    filter_result=filter_result_str,
-                    filter_reason=filter_reason,
-                    filter_score=result.total_score,
-                    response_status=status_code,
-                    duration_ms=round(duration_ms, 1),
-                    request_hash=ctx.metadata.get("request_hash", ""),
-                )
-            )
-
+        # 10. Record the request.
+        self._record_request_event(
+            route=route,
+            request=request,
+            client_ip=client_ip,
+            ctx=ctx,
+            response=response,
+            filter_result_str=filter_result_str,
+            filter_reason=filter_reason,
+            filter_score=result.total_score,
+            start=start,
+        )
         return response
+
+    # ── handle() sub-steps ─────────────────────────────────────────────
+    # Each of these is called from exactly one place (``handle`` itself);
+    # they exist so ``handle`` reads top-to-bottom and each step is small
+    # enough to review or test in isolation.
+
+    async def _route_or_drop(
+        self, request: Request
+    ) -> tuple[DomainRoute | None, Response | None]:
+        """Resolve the Host to a route, or synthesize an early drop.
+
+        Returns ``(route, None)`` on match, ``(None, response)`` when
+        no domain matches - using the first configured domain's drop
+        action so unmatched hosts see the decoy rather than a bare 404.
+        """
+        route = self.resolve(request)
+        if route is not None:
+            return route, None
+        log.warning(
+            "no_route",
+            host=request.headers.get("host", ""),
+            path=request.url.path,
+        )
+        if self.routes:
+            first_route = next(iter(self.routes.values()))
+            resp = await handle_drop(
+                request, first_route.config.drop_action,
+                reason="no matching domain",
+                pages_dir=self.config.decoy_pages_dir, drop_rate_limiter=self._drop_rate_limiter,
+            )
+            return None, resp
+        return None, Response(status_code=404, content=b"Not Found")
+
+    async def _try_fronting(self, request: Request) -> Response | None:
+        """Return a fronted response if the Host maps to a CDN rule."""
+        if self._fronting is None:
+            return None
+        host = request.headers.get("host", "")
+        rule = self._fronting.resolve_by_host(host)
+        if rule is None:
+            return None
+        log.info(
+            "fronting_request",
+            domain=rule.domain,
+            front_domain=rule.front_domain,
+            cdn=rule.cdn.value,
+            path=request.url.path,
+        )
+        return await self._fronting.forward(request, rule)
+
+    @staticmethod
+    def _parse_client_ip(request: Request) -> IPv4Address | IPv6Address:
+        """Best-effort IP parse; falls back to 0.0.0.0 on absence/error."""
+        if request.client:
+            try:
+                return ip_address(request.client.host)
+            except ValueError:
+                pass
+        return ip_address("0.0.0.0")
+
+    async def _pre_content_gate(
+        self,
+        route: DomainRoute,
+        request: Request,
+        client_ip: IPv4Address | IPv6Address,
+    ) -> Response | None:
+        """Run the pre-content-route safety gate.
+
+        Two modes selected by ``route.config.content_route_filter``:
+        * ``"full_pipeline"`` - evaluate the entire C2 filter pipeline
+          up-front and drop on any blocker.
+        * ``"ip_only"`` (default) - fast blocklist-only check.
+        Returns a drop ``Response`` on block, ``None`` on pass.
+        """
+        if route.config.content_route_filter == "full_pipeline":
+            body = await request.body()
+            ctx = RequestContext(
+                request=request,
+                client_ip=client_ip,
+                domain_config=route.config,
+                profile=route.profile,
+                metadata={
+                    "body": body,
+                    "ja3": getattr(request.state, "ja3", None),
+                },
+                domain=route.domain,
+            )
+            pre_result = await route.pipeline.evaluate(ctx)
+            if not pre_result.allowed:
+                log.warning(
+                    "request_dropped_before_content",
+                    domain=route.domain,
+                    client=str(client_ip),
+                    path=request.url.path,
+                    reasons=pre_result.blocking_reasons,
+                )
+                start_full = time.perf_counter()
+                drop_resp = await handle_drop(
+                    request, route.config.drop_action,
+                    reason="full_pipeline_block_before_content",
+                    pages_dir=self.config.decoy_pages_dir, drop_rate_limiter=self._drop_rate_limiter,
+                )
+                # Emit a tracking event so the dashboard's live feed and
+                # /api/requests actually show the block. Without this,
+                # blocks that fired at the pre-content gate never left
+                # a database row.
+                self._record_request_event(
+                    route=route, request=request, client_ip=client_ip,
+                    ctx=ctx, response=drop_resp,
+                    filter_result_str=_delivery_verdict(route.config.drop_action),
+                    filter_reason="full_pipeline_block_before_content",
+                    filter_score=1.0,
+                    start=start_full,
+                )
+                return drop_resp
+            return None
+
+        # Default "ip_only": fast blocklist check only.
+        if self.intel and self.intel.is_blocked(client_ip):
+            log.warning(
+                "ip_blocked_before_content_route",
+                domain=route.domain,
+                client=str(client_ip),
+                path=request.url.path,
+            )
+            start_ip = time.perf_counter()
+            drop_resp = await handle_drop(
+                request, route.config.drop_action,
+                reason="ip_blocked_before_content_route",
+                pages_dir=self.config.decoy_pages_dir, drop_rate_limiter=self._drop_rate_limiter,
+            )
+            # See note above: record the block so the live feed sees it.
+            # This branch skipped context construction for speed, so
+            # synthesize a minimal ctx just for the tracking event.
+            minimal_ctx = RequestContext(
+                request=request,
+                client_ip=client_ip,
+                domain_config=route.config,
+                profile=route.profile,
+                metadata={"ja3": getattr(request.state, "ja3", None)},
+                domain=route.domain,
+            )
+            self._record_request_event(
+                route=route, request=request, client_ip=client_ip,
+                ctx=minimal_ctx, response=drop_resp,
+                filter_result_str=_delivery_verdict(route.config.drop_action),
+                filter_reason="ip_blocked_before_content_route",
+                filter_score=1.0,
+                start=start_ip,
+            )
+            return drop_resp
+        return None
+
+    async def _run_plugin_on_request(
+        self,
+        ctx: RequestContext,
+        request: Request,
+        route: DomainRoute,
+    ) -> Response | None:
+        """Invoke each plugin's ``on_request``; return a drop on first block."""
+        if not self._recorder:
+            return None
+        for plugin in self._recorder._plugins:
+            if not getattr(plugin, "_runtime_enabled", True):
+                continue
+            try:
+                plugin_result = await plugin.on_request(ctx)
+                if plugin_result is not None and not plugin_result.allowed:
+                    log.info(
+                        "plugin_blocked_request",
+                        plugin=getattr(plugin, "name", "unknown"),
+                        domain=route.domain,
+                        path=request.url.path,
+                    )
+                    return await handle_drop(
+                        request, route.config.drop_action,
+                        reason=f"plugin:{getattr(plugin, 'name', 'unknown')}",
+                        pages_dir=self.config.decoy_pages_dir, drop_rate_limiter=self._drop_rate_limiter,
+            )
+            except Exception:
+                log.exception(
+                    "plugin_on_request_error",
+                    plugin=getattr(plugin, "name", "unknown"),
+                )
+        return None
+
+    async def _maybe_record_whitelist_and_issue_tokens(
+        self,
+        route: DomainRoute,
+        ctx: RequestContext,
+        client_ip: IPv4Address | IPv6Address,
+    ) -> None:
+        """Update the dynamic whitelist and mint payload tokens on first-ever
+        allowed request from this client.
+
+        Phishing/passthrough domains are open by design; letting them feed
+        the dynamic whitelist would let any target click-through bypass
+        CIDR-restricted domains (e.g. operator admin panels).
+        """
+        from infraguard.models.common import PHISHING_PROFILE_TYPES
+
+        newly_whitelisted = False
+        if route.config.profile_type not in PHISHING_PROFILE_TYPES:
+            newly_whitelisted = self.intel.record_valid_request(str(client_ip))
+        if newly_whitelisted and self._token_store is not None:
+            pt_cfg = self.config.payload_tokens
+            for cr in route.config.content_routes:
+                if cr.require_token:
+                    token = await self._token_store.issue(
+                        beacon_ip=str(client_ip),
+                        route_path=cr.path,
+                        ttl_seconds=pt_cfg.default_ttl_seconds,
+                        max_uses=pt_cfg.default_max_uses,
+                    )
+                    ctx.metadata.setdefault("issued_tokens", {})[cr.path] = token
+
+        # Track the beacon in the cluster-wide session bag. Non-fatal:
+        # a state-backend hiccup logs at DEBUG and does not affect the
+        # response. Skipped for phishing / passthrough where the notion
+        # of a "beacon session" does not apply.
+        if route.config.profile_type not in PHISHING_PROFILE_TYPES:
+            ua = ctx.request.headers.get("user-agent", "")
+            ja3 = ctx.metadata.get("ja3")
+            beacon_id = self._compute_beacon_id(str(client_ip), ja3, ua)
+            session = await self._record_beacon_request(
+                self._state_backend,
+                beacon_id=beacon_id,
+                client_ip=str(client_ip),
+                ja3=ja3,
+                user_agent=ua,
+                domain=route.domain,
+            )
+            ctx.metadata["beacon_id"] = beacon_id
+            ctx.metadata["beacon_session"] = session
+            # HPA gates on the active-beacons gauge. See
+            # infraguard/ui/api/metrics.py for the prune loop.
+            try:
+                from infraguard.ui.api.metrics import record_beacon_activity
+
+                record_beacon_activity()
+            except Exception:
+                pass
+
+    async def _forward_with_failover(
+        self, request: Request, route: DomainRoute
+    ) -> tuple[Response, str, str | None]:
+        """Try each upstream (primary + backups) in order.
+
+        Returns ``(response, filter_result_str, filter_reason)``. On the
+        happy path ``filter_result_str = "allow"``. When every upstream
+        fails or the circuit is open on all of them, returns a drop
+        response with ``filter_result_str = "block"`` and
+        ``filter_reason = "all_upstreams_failed"``.
+        """
+        upstreams = [route.config.upstream] + list(route.config.backup_upstreams)
+        response: Response | None = None
+        for i, upstream in enumerate(upstreams):
+            try:
+                breaker = self._breakers.get(upstream)
+                if breaker:
+                    response = await breaker.call(
+                        self.proxy.forward,
+                        request,
+                        upstream,
+                        domain_config=route.config,
+                        reraise_transport_errors=True,
+                    )
+                else:
+                    response = await self.proxy.forward(
+                        request, upstream, domain_config=route.config,
+                    )
+                break  # Success - stop trying upstreams.
+            except CircuitOpenError:
+                log.warning(
+                    "upstream_circuit_open",
+                    domain=route.domain,
+                    upstream=upstream,
+                    backup_index=i,
+                )
+                continue
+            except (httpx.TimeoutException, httpx.ConnectError):
+                log.warning(
+                    "upstream_failover",
+                    domain=route.domain,
+                    upstream=upstream,
+                    backup_index=i,
+                )
+                continue
+
+        if response is None:
+            log.error(
+                "all_upstreams_failed",
+                domain=route.domain,
+                upstreams=upstreams,
+            )
+            response = await handle_drop(
+                request,
+                route.config.drop_action,
+                reason="all_upstreams_failed",
+                pages_dir=self.config.decoy_pages_dir, drop_rate_limiter=self._drop_rate_limiter,
+            )
+            return response, "block", "all_upstreams_failed"
+        return response, "allow", None
+
+    def _attach_issued_tokens(
+        self, ctx: RequestContext, response: Response
+    ) -> None:
+        """Attach payload tokens minted in this request to the response."""
+        issued: dict[str, str] = ctx.metadata.get("issued_tokens", {}) or {}
+        if not issued:
+            return
+        import json as _json
+        pt_cfg = self.config.payload_tokens
+        # Single token → plain string header. Multiple → JSON blob.
+        # Preserved from the historical code so consumers do not break.
+        token_value = (
+            next(iter(issued.values()))
+            if len(issued) == 1
+            else _json.dumps(issued)
+        )
+        response.headers[pt_cfg.issuance_header] = token_value
+
+    async def _run_plugin_on_response(
+        self, ctx: RequestContext, response: Response
+    ) -> Response:
+        """Invoke each plugin's ``on_response``; a returned value replaces the response."""
+        if not self._recorder:
+            return response
+        for plugin in self._recorder._plugins:
+            if not getattr(plugin, "_runtime_enabled", True):
+                continue
+            try:
+                modified = await plugin.on_response(ctx, response)
+                if modified is not None:
+                    response = modified
+            except Exception:
+                log.exception(
+                    "plugin_on_response_error",
+                    plugin=getattr(plugin, "name", "unknown"),
+                )
+        return response
+
+    async def _apply_timing_jitter(self) -> None:
+        """Sleep for a random interval in the configured range."""
+        if not self.config.timing.enabled:
+            return
+        jitter_ms = random.randint(
+            self.config.timing.min_delay_ms,
+            self.config.timing.max_delay_ms,
+        )
+        await asyncio.sleep(jitter_ms / 1000.0)
+
+    def _record_request_event(
+        self,
+        *,
+        route: DomainRoute,
+        request: Request,
+        client_ip: IPv4Address | IPv6Address,
+        ctx: RequestContext,
+        response: Response,
+        filter_result_str: str,
+        filter_reason: str | None,
+        filter_score: float,
+        start: float,
+    ) -> None:
+        """Emit the tracking-DB event that captures one handled request.
+
+        Also mirrors to the purple-team collector if configured. The
+        mirror is fire-and-forget: a slow collector never blocks the
+        hot path.
+        """
+        duration_ms = (time.perf_counter() - start) * 1000
+        mirror = getattr(self, "_purple_mirror", None)
+        if mirror is not None and (
+            not mirror._cfg.only_allowed or filter_result_str == "allow"
+        ):
+            mirror.submit({
+                "domain": route.domain,
+                "client_ip": str(client_ip),
+                "method": request.method,
+                "uri": request.url.path,
+                "user_agent": request.headers.get("user-agent", ""),
+                "filter_result": filter_result_str,
+                "filter_reason": filter_reason,
+                "filter_score": filter_score,
+                "response_status": response.status_code,
+                "duration_ms": round(duration_ms, 1),
+                "beacon_id": ctx.metadata.get("beacon_id"),
+                "request_hash": ctx.metadata.get("request_hash", ""),
+            })
+        if not self._recorder:
+            return
+        self._recorder.record(
+            RequestEvent.now(
+                domain=route.domain,
+                client_ip=str(client_ip),
+                method=request.method,
+                uri=request.url.path,
+                user_agent=request.headers.get("user-agent", ""),
+                filter_result=filter_result_str,
+                filter_reason=filter_reason,
+                filter_score=filter_score,
+                response_status=response.status_code,
+                duration_ms=round(duration_ms, 1),
+                request_hash=ctx.metadata.get("request_hash", ""),
+            )
+        )
 
     async def _handle_content_route(
         self,
@@ -953,7 +1208,7 @@ class DomainRouter:
                     "guard_blocked", filter_score, start, content_config.track,
                     request_hash=request_hash,
                 )
-                return await handle_drop(request, route.config.drop_action)
+                return await handle_drop(request, route.config.drop_action, drop_rate_limiter=self._drop_rate_limiter)
 
         # One-time payload token validation
         if content_config.require_token and self._token_store is not None:
@@ -1012,6 +1267,23 @@ class DomainRouter:
         self._content_backends.append(backend)
         response = await backend.serve(request, match)
 
+        # Inject canary tokens into HTML served by the auto-injected
+        # decoy catch-all. Otherwise scanners downloading the decoy
+        # site never load a canary pixel/link/form, defeating the
+        # whole "was our decoy pulled to a sandbox" signal. The auto-
+        # inject route is the only one whose ``track`` is False AND
+        # whose backend is filesystem, so we key on that pair.
+        da = route.config.drop_action
+        if (
+            da is not None
+            and da.type.value == "decoy"
+            and da.canary is not None
+            and da.canary.enabled
+            and content_config.backend.type.value == "filesystem"
+            and content_config.track is False
+        ):
+            response = await _inject_canary_into_html(response, da.canary)
+
         log.info(
             "content_served",
             domain=route.domain,
@@ -1033,26 +1305,12 @@ class DomainRouter:
         guard: ContentRouteGuardConfig,
         client_ip: IPv4Address | IPv6Address,
     ) -> str | None:
-        """Return None if all guard checks pass, or a reason string if blocked."""
-        if guard.require_beacon_ip:
-            if not self.intel.dynamic_whitelist.is_whitelisted(str(client_ip)):
-                return "not a whitelisted beacon IP"
+        """Thin wrapper around :func:`check_content_guard`.
 
-        if guard.allowed_user_agents:
-            ua = request.headers.get("user-agent", "")
-            if not any(re.search(pat, ua, re.IGNORECASE) for pat in guard.allowed_user_agents):
-                return f"UA not in allowlist ({ua[:80]!r})"
-
-        for header_name, expected_value in guard.required_headers.items():
-            actual = request.headers.get(header_name, "")
-            if actual != expected_value:
-                return f"required header mismatch: {header_name}"
-
-        for header_name in guard.forbidden_headers:
-            if header_name.lower() in request.headers:
-                return f"forbidden header present: {header_name}"
-
-        return None
+        Kept as an instance method so ``self._check_content_guard(...)``
+        call sites inside ``handle()`` do not have to be rewritten.
+        """
+        return check_content_guard(self.intel, request, guard, client_ip)
 
     def _record_content_event(
         self,
@@ -1066,24 +1324,18 @@ class DomainRouter:
         track: bool,
         request_hash: str = "",
     ) -> None:
-        """Record a content delivery event to the tracking database."""
-        if not track or not self._recorder:
-            return
-        duration_ms = (time.perf_counter() - start) * 1000
-        self._recorder.record(
-            RequestEvent.now(
-                domain=domain,
-                client_ip=str(client_ip),
-                method=request.method,
-                uri=request.url.path,
-                user_agent=request.headers.get("user-agent", ""),
-                filter_result=filter_result,
-                filter_reason=None,
-                filter_score=filter_score,
-                response_status=response.status_code,
-                duration_ms=round(duration_ms, 1),
-                request_hash=request_hash,
-            )
+        """Thin wrapper around :func:`record_content_event`."""
+        record_content_event(
+            self._recorder,
+            domain,
+            client_ip,
+            request,
+            response,
+            filter_result,
+            filter_score,
+            start,
+            track,
+            request_hash,
         )
 
     async def close(self) -> None:
@@ -1095,3 +1347,67 @@ class DomainRouter:
                 await backend.close()
             except Exception:
                 pass
+
+
+def _delivery_verdict(drop_action) -> str:
+    """Map ``drop_action.type`` (decoy/tarpit/redirect/reset) to the
+    ``filter_result`` label the tracking DB stores. All values remain
+    "blocked" in aggregate but the delivery method is preserved so the
+    dashboard can bucket them separately.
+    """
+    try:
+        t = drop_action.type.value
+    except AttributeError:
+        return "block"
+    return t if t in ("decoy", "tarpit", "redirect", "reset") else "block"
+
+
+async def _inject_canary_into_html(response, canary):
+    """Rewrite an HTML response body to include canary tokens.
+
+    Supports both ``FileResponse`` (which streams from disk and has to
+    be materialised into an in-memory ``Response``) and plain
+    ``Response``. Non-HTML responses pass through untouched.
+    """
+    from starlette.responses import FileResponse
+    from starlette.responses import Response as _Response
+
+    from infraguard.intel.canary import inject_all_canaries
+
+    media_type = getattr(response, "media_type", None) or ""
+    ct = str(response.headers.get("content-type", media_type)).lower()
+    if "html" not in ct:
+        return response
+
+    # Extract the raw HTML body.
+    if isinstance(response, FileResponse):
+        try:
+            html = Path(response.path).read_text(encoding="utf-8", errors="replace")
+        except Exception:
+            return response
+    else:
+        body = getattr(response, "body", b"") or b""
+        try:
+            html = body.decode("utf-8", errors="replace")
+        except Exception:
+            return response
+
+    html = inject_all_canaries(
+        html,
+        enable_pixel=canary.tracking_pixel,
+        enable_honeypot_link=canary.honeypot_link,
+        enable_honeypot_form=canary.honeypot_form,
+    )
+
+    # Preserve headers other than content-length (the length changed
+    # after we injected markup).
+    passthru = {
+        k: v for k, v in response.headers.items()
+        if k.lower() != "content-length"
+    }
+    return _Response(
+        content=html,
+        status_code=response.status_code,
+        media_type=media_type or "text/html",
+        headers=passthru,
+    )

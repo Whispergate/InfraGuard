@@ -101,8 +101,11 @@ class EventRecorder:
         if len(self._buffer) >= self.batch_size:
             self._create_tracked_task(self._flush(), name="batch_flush")
 
-        # Dispatch to plugins with per-task timeout
+        # Dispatch to plugins with per-task timeout. Skip plugins the
+        # dashboard has toggled off at runtime.
         for plugin in self._plugins:
+            if not getattr(plugin, "_runtime_enabled", True):
+                continue
             self._create_tracked_task(
                 self._safe_on_event(plugin, event),
                 name=f"plugin_{getattr(plugin, 'name', 'unknown')}",
@@ -117,7 +120,7 @@ class EventRecorder:
     async def _safe_on_event(plugin: Any, event: RequestEvent) -> None:
         try:
             await plugin.on_event(event)
-        except asyncio.TimeoutError:
+        except TimeoutError:
             name = getattr(plugin, "name", "unknown")
             log.warning("plugin_on_event_timeout", plugin=name)
         except Exception as e:

@@ -79,8 +79,8 @@ class BurnScorer:
 
     def __init__(
         self,
-        db: "Database | None" = None,
-        burn_detector: "BurnDetector | None" = None,
+        db: Database | None = None,
+        burn_detector: BurnDetector | None = None,
         # Time windows (seconds)
         ja3_window: int = 3600,
         volume_window: int = 300,

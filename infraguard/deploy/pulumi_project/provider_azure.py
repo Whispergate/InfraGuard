@@ -1,11 +1,9 @@
 """Azure provider: Linux VM + NSG + VNet + public IP."""
 
-import pulumi
-import pulumi_azure_native as azure
-from pulumi_azure_native import compute, network, resources
+import base64
 
 from cloud_init import bootstrap_script
-import base64
+from pulumi_azure_native import compute, network, resources
 
 
 def provision(cfg: dict) -> dict:

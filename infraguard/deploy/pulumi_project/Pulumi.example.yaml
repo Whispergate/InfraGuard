@@ -14,7 +14,7 @@ config:
   infraguard:name_prefix: infraguard
   infraguard:dashboard_cidrs: '["203.0.113.10/32"]'
 
-  # Provider credentials — set via environment or encrypted config:
+  # Provider credentials - set via environment or encrypted config:
   #   pulumi config set --secret digitalocean:token dop_v1_xxx
   #   pulumi config set --secret aws:accessKey AKIA...
   #   pulumi config set --secret aws:secretKey ...
