@@ -2,7 +2,7 @@
 
 from __future__ import annotations
 
-from dataclasses import dataclass
+from dataclasses import dataclass, field
 
 from infraguard.tracking.database import Database
 
@@ -30,6 +30,9 @@ class OverviewStats:
     decoy_requests: int = 0
     tarpit_requests: int = 0
     redirect_requests: int = 0
+    # Beacon-side geo, mirror of top_blocked_ips. Feeds the Command
+    # Post Fleet Map's green "allowed" dots.
+    top_allowed_ips: list[tuple[str, int]] = field(default_factory=list)
 
 
 class StatsQuery:
@@ -83,6 +86,16 @@ class StatsQuery:
             (time_param,),
         )
 
+        top_allowed = await self.db.fetchall(
+            """SELECT client_ip, COUNT(*) as cnt
+            FROM requests
+            WHERE filter_result = 'allow' AND timestamp > datetime('now', ?)
+            GROUP BY client_ip
+            ORDER BY cnt DESC
+            LIMIT 10""",
+            (time_param,),
+        )
+
         domains = [
             DomainStats(
                 domain=r["domain"],
@@ -105,6 +118,7 @@ class StatsQuery:
             decoy_requests=(totals["decoy"] or 0) if totals else 0,
             tarpit_requests=(totals["tarpit"] or 0) if totals else 0,
             redirect_requests=(totals["redirect"] or 0) if totals else 0,
+            top_allowed_ips=[(r["client_ip"], r["cnt"]) for r in top_allowed],
         )
 
     async def content_stats(self, hours: int = 24) -> list[dict]:

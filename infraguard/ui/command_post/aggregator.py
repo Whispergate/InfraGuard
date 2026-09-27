@@ -189,10 +189,12 @@ class MultiInstanceAggregator:
         unique_ips_sum = 0
         domain_map: dict[str, dict] = {}
         blocked_ip_counts: dict[str, int] = defaultdict(int)
+        allowed_ip_counts: dict[str, int] = defaultdict(int)
         # Remember the first geo signal we see for each IP so the Fleet
-        # Map's blocked-source dots have real coordinates. Instances
-        # without a GeoIP DB drop the fields silently.
+        # Map's dots have real coordinates. Instances without a GeoIP
+        # DB drop the fields silently.
         blocked_ip_geo: dict[str, dict] = {}
+        allowed_ip_geo: dict[str, dict] = {}
 
         for client, stats in zip(self.clients, raw_results):
             if stats is None:
@@ -224,6 +226,15 @@ class MultiInstanceAggregator:
                     if geo:
                         blocked_ip_geo[ip] = geo
 
+            for entry in stats.get("top_allowed_ips", []):
+                ip = entry["ip"]
+                allowed_ip_counts[ip] += entry["count"]
+                if ip not in allowed_ip_geo:
+                    geo = {k: entry[k] for k in ("lat", "lon", "country", "city", "asn")
+                           if k in entry and entry[k] is not None}
+                    if geo:
+                        allowed_ip_geo[ip] = geo
+
         # Recalculate block rates
         domains = list(domain_map.values())
         for d in domains:
@@ -239,6 +250,13 @@ class MultiInstanceAggregator:
             reverse=True,
         )[:10]
 
+        top_allowed = sorted(
+            [{"ip": ip, "count": cnt, **allowed_ip_geo.get(ip, {})}
+             for ip, cnt in allowed_ip_counts.items()],
+            key=lambda x: x["count"],
+            reverse=True,
+        )[:10]
+
         return {
             "total_requests": total,
             "allowed_requests": allowed,
@@ -246,6 +264,7 @@ class MultiInstanceAggregator:
             "unique_ips": unique_ips_sum,
             "domains": domains,
             "top_blocked_ips": top_blocked,
+            "top_allowed_ips": top_allowed,
         }
 
     async def get_merged_requests(self, limit: int = 50) -> list[dict]:

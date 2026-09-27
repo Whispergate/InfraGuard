@@ -11,25 +11,20 @@ from infraguard.intel.feeds import get_feed_status
 from infraguard.tracking.stats import StatsQuery
 
 
-def _enrich_top_blocked_ips(top_blocked, app_state) -> list[dict]:
-    """Attach country / lat / lon / asn to each top-blocked-IP row via
-    the proxy's ``IntelManager`` GeoIP databases. The Command Post's
-    Fleet Map uses these coordinates to plot blocked sources.
+def _enrich_ips(rows, app_state) -> list[dict]:
+    """Attach country / lat / lon / asn / city to each ``(ip, count)``
+    row via the proxy's ``IntelManager`` GeoIP databases. Used for both
+    the blocked-source and allowed-source layers on the Fleet Map.
     """
-    # Prefer the router's IntelManager (proxy in-process), fall back to
-    # the standalone dashboard's own IntelManager which
-    # ``dashboard_cmd`` attaches as ``intel_manager``.
     intel = getattr(getattr(app_state, "router", None), "intel", None)
     if intel is None:
         intel = getattr(app_state, "intel_manager", None)
     geoip = getattr(intel, "geoip", None) if intel is not None else None
     out: list[dict] = []
-    for ip, count in top_blocked:
+    for ip, count in rows:
         row: dict = {"ip": ip, "count": count}
         if geoip is not None:
             try:
-                # Validate the IP is well-formed before hitting the
-                # MaxMind reader; the lookup itself takes a string.
                 ip_address(ip)
                 info = geoip.lookup(ip)
                 if info is not None:
@@ -46,6 +41,10 @@ def _enrich_top_blocked_ips(top_blocked, app_state) -> list[dict]:
                 pass
         out.append(row)
     return out
+
+
+# Back-compat alias so older imports don't break during rollout.
+_enrich_top_blocked_ips = _enrich_ips
 
 
 async def get_content_stats(request: Request) -> JSONResponse:
@@ -114,9 +113,8 @@ async def get_stats(request: Request) -> JSONResponse:
             }
             for d in stats.domains
         ],
-        "top_blocked_ips": _enrich_top_blocked_ips(
-            stats.top_blocked_ips, request.app.state,
-        ),
+        "top_blocked_ips": _enrich_ips(stats.top_blocked_ips, request.app.state),
+        "top_allowed_ips": _enrich_ips(stats.top_allowed_ips, request.app.state),
         "filter_reasons": filter_reasons,
         "feed_status": get_feed_status(),
     })

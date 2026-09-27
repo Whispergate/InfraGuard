@@ -372,6 +372,36 @@
                         'circle-stroke-width': 1,
                     },
                 });
+                // Allowed sources: green dot per beacon IP (mirror of
+                // blocked-src). Data comes from top_allowed_ips on the
+                // merged /api/stats response, one entry per real beacon
+                // that made it through the pipeline.
+                mapInstance.addSource('allowed-src', {
+                    type: 'geojson',
+                    data: { type: 'FeatureCollection', features: [] },
+                });
+                mapInstance.addLayer({
+                    id: 'allowed-src-glow',
+                    type: 'circle',
+                    source: 'allowed-src',
+                    paint: {
+                        'circle-color': '#4ADE8A',
+                        'circle-radius': ['interpolate', ['linear'], ['get', 'count'], 1, 10, 100, 22],
+                        'circle-opacity': 0.20,
+                        'circle-stroke-width': 0,
+                    },
+                });
+                mapInstance.addLayer({
+                    id: 'allowed-src-point',
+                    type: 'circle',
+                    source: 'allowed-src',
+                    paint: {
+                        'circle-color': '#4ADE8A',
+                        'circle-radius': ['interpolate', ['linear'], ['get', 'count'], 1, 3, 100, 8],
+                        'circle-stroke-color': '#0B1220',
+                        'circle-stroke-width': 1,
+                    },
+                });
                 mapInstance.addLayer({
                     id: 'node-glow',
                     type: 'circle',
@@ -452,24 +482,35 @@
             });
         }
 
+        function _ipsToFeatures(rows) {
+            return (rows || [])
+                .filter(r => typeof r.lat === 'number' && typeof r.lon === 'number')
+                .map(r => ({
+                    type: 'Feature',
+                    geometry: { type: 'Point', coordinates: [r.lon, r.lat] },
+                    properties: {
+                        ip: r.ip,
+                        count: r.count,
+                        country: r.country || '',
+                        city: r.city || '',
+                        asn: r.asn || '',
+                    },
+                }));
+        }
+
         function updateMapBlockedSources(topBlocked) {
             whenMapReady(() => {
                 const src = mapInstance.getSource('blocked-src');
                 if (!src) return;
-                const features = (topBlocked || [])
-                    .filter(r => typeof r.lat === 'number' && typeof r.lon === 'number')
-                    .map(r => ({
-                        type: 'Feature',
-                        geometry: { type: 'Point', coordinates: [r.lon, r.lat] },
-                        properties: {
-                            ip: r.ip,
-                            count: r.count,
-                            country: r.country || '',
-                            city: r.city || '',
-                            asn: r.asn || '',
-                        },
-                    }));
-                src.setData({ type: 'FeatureCollection', features });
+                src.setData({ type: 'FeatureCollection', features: _ipsToFeatures(topBlocked) });
+            });
+        }
+
+        function updateMapAllowedSources(topAllowed) {
+            whenMapReady(() => {
+                const src = mapInstance.getSource('allowed-src');
+                if (!src) return;
+                src.setData({ type: 'FeatureCollection', features: _ipsToFeatures(topAllowed) });
             });
         }
 
@@ -639,6 +680,7 @@
                 document.getElementById('agg-blockrate').textContent = rate + '%';
                 renderTopBlocked(stats.top_blocked_ips || []);
                 updateMapBlockedSources(stats.top_blocked_ips || []);
+                updateMapAllowedSources(stats.top_allowed_ips || []);
             } catch(e) { console.error('stats failed', e); }
 
             try {
