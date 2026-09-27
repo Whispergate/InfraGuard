@@ -100,6 +100,24 @@ async def handle_drop(
         return await _tarpit_response(resolved_persona)
 
     elif config.type == DropActionType.DECOY:
+        # Operators occasionally set ``target`` to a URL through the
+        # dashboard, expecting decoy to also do redirects. Detect that
+        # and act as if the type were ``redirect`` rather than trying
+        # to open a bogus ``<pages_dir>/<url>`` directory and 404-ing.
+        if isinstance(target, str) and target.startswith(("http://", "https://")):
+            log.warning(
+                "decoy_target_is_url_coerced_to_redirect",
+                target=target,
+                hint="Change drop_action.type to 'redirect' for URL targets.",
+            )
+            return Response(
+                status_code=302,
+                headers={
+                    "Location": target,
+                    "Server": resolved_persona.server_header,
+                    **resolved_persona.extra_headers,
+                },
+            )
         return _serve_decoy_spa(
             target, request, pages_dir, resolved_persona,
             canary=config.canary,

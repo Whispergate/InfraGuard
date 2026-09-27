@@ -124,6 +124,9 @@ class TestPluginLoader:
         assert plugins[0].name == "example"
 
     def test_skip_disabled_plugin(self):
+        # A plugin marked ``enabled: false`` in config is now loaded but
+        # held inactive (``_runtime_enabled=False``) so the dashboard can
+        # flip it on without a restart. See plugins/loader.py:69-73.
         settings = {
             "example": PluginSettings(enabled=False),
         }
@@ -131,7 +134,8 @@ class TestPluginLoader:
             ["infraguard.plugins.builtin.example"],
             plugin_settings=settings,
         )
-        assert len(plugins) == 0
+        assert len(plugins) == 1
+        assert plugins[0]._runtime_enabled is False
 
     def test_configure_called(self):
         settings = {

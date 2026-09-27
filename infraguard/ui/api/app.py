@@ -49,6 +49,16 @@ from infraguard.ui.api.routes.config import (
     update_drop_action,
     upload_profile,
 )
+from infraguard.ui.api.routes.dashboard import (
+    get_circuit_breakers,
+    get_deadman,
+    get_rotations,
+    get_watchdog,
+    post_burn,
+    post_burn_clear,
+    post_heartbeat,
+    post_rotate_preflight,
+)
 from infraguard.ui.api.routes.decoys import (
     get_decoy_file,
     list_decoy_pages,
@@ -64,16 +74,16 @@ from infraguard.ui.api.routes.intel import (
     remove_blocklist,
 )
 from infraguard.ui.api.routes.nodes import heartbeat_node, list_nodes, register_node
-from infraguard.ui.api.routes.plugins import (
-    disable_plugin,
-    enable_plugin,
-    list_plugins,
-)
 from infraguard.ui.api.routes.pdns import (
     clear_pdns_history,
     get_pdns_events,
     get_pdns_history,
     get_pdns_status,
+)
+from infraguard.ui.api.routes.plugins import (
+    disable_plugin,
+    enable_plugin,
+    list_plugins,
 )
 from infraguard.ui.api.routes.reports import export_report
 from infraguard.ui.api.routes.requests import get_requests
@@ -125,8 +135,10 @@ def _get_rate_key(request: Request) -> str | None:
         token = auth[7:]
         return f"bearer:{token[:16]}"
 
-    # Check session cookie
-    session_id = request.cookies.get("ig_session")
+    # Check session cookie (per-app name; dashboard uses ``ig_session``,
+    # Command Post uses ``ig_cp_session``).
+    cookie_name = getattr(request.app.state, "session_cookie_name", "ig_session")
+    session_id = request.cookies.get(cookie_name)
     if session_id:
         return f"session:{session_id[:16]}"
 
@@ -363,6 +375,15 @@ def create_api_app(
         # Infrastructure health
         Route("/api/health", get_health, methods=["GET"]),
         Route("/api/health/summary", get_health_summary, methods=["GET"]),
+        Route("/api/health/circuit-breakers", get_circuit_breakers, methods=["GET"]),
+        Route("/api/health/watchdog", get_watchdog, methods=["GET"]),
+        Route("/api/health/deadman", get_deadman, methods=["GET"]),
+        Route("/api/health/rotations", get_rotations, methods=["GET"]),
+        # Operator actions the dashboard's buttons hit
+        Route("/api/rotate/preflight", post_rotate_preflight, methods=["POST"]),
+        Route("/api/burn/trigger", post_burn, methods=["POST"]),
+        Route("/api/burn/clear", post_burn_clear, methods=["POST"]),
+        Route("/api/heartbeat", post_heartbeat, methods=["POST"]),
         # WebSocket
         WebSocketRoute("/ws/events", broadcaster.handler),
     ]

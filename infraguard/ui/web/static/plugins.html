@@ -74,6 +74,22 @@
         .badge.off { background: rgba(248,81,73,0.15); color: var(--red); }
         .badge.ver { background: rgba(88,166,255,0.15); color: var(--accent); }
         .badge.mod { background: rgba(139,148,158,0.10); color: var(--text-dim); }
+        .badge.cat { background: rgba(88,166,255,0.10); color: var(--accent); font-size: 9px; text-transform: uppercase; letter-spacing: 0.05em; }
+        .badge.hook { background: rgba(139,148,158,0.08); color: var(--text-dim); font-size: 9px; font-family: 'SF Mono', 'Cascadia Code', monospace; margin-right: 3px; }
+        .hooks-cell { display: flex; flex-wrap: wrap; gap: 3px; }
+        .invocations { font-family: 'SF Mono', 'Cascadia Code', monospace; font-size: 12px; color: var(--text); }
+        .invocations.zero { color: var(--text-dim); }
+
+        /* Category chip filter */
+        .chip-bar { display: flex; gap: 6px; flex-wrap: wrap; margin-bottom: 12px; }
+        .chip {
+            padding: 4px 10px; border-radius: 3px; font-size: 11px; font-weight: 500;
+            background: transparent; border: 1px solid var(--border); color: var(--text-dim);
+            cursor: pointer; font-family: inherit;
+        }
+        .chip:hover { color: var(--text); }
+        .chip.active { background: rgba(88,166,255,0.15); border-color: var(--accent); color: var(--accent); }
+        .chip .count { color: var(--text-dim); margin-left: 4px; font-size: 10px; }
 
         .btn {
             background: transparent; color: var(--accent);
@@ -136,6 +152,7 @@
         details summary { cursor: pointer; font-size: 10px; color: var(--text-dim); }
         details pre { font-size: 10px; color: var(--text-dim); background: var(--bg); padding: 6px; border-radius: 4px; margin-top: 4px; overflow-x: auto; }
     </style>
+    <link rel="stylesheet" href="/static/ig-theme.css">
 </head>
 <body>
 
@@ -151,11 +168,11 @@
         </div>
     </div>
 
-    <div class="nav">
+    <div class="nav" role="navigation" aria-label="Dashboard sections">
         <a href="/">Overview</a>
         <a href="/static/decoys.html">Decoys</a>
-        <a href="/static/plugins.html" class="active">Plugins</a>
         <a href="/static/health.html">Health</a>
+        <a href="/static/plugins.html" class="active">Plugins</a>
     </div>
 
     <div class="grid">
@@ -168,13 +185,14 @@
                 the YAML config so it survives a restart. Each toggle also creates
                 a commit in the config history repo.
             </p>
+            <div class="chip-bar" id="category-chips"></div>
             <div class="table-wrap">
                 <table>
                     <thead><tr>
-                        <th>Name</th><th>Version</th><th>Status</th>
-                        <th>Module</th><th>Options</th><th style="text-align:right;">Action</th>
+                        <th>Name</th><th>Category</th><th>Version</th><th>Status</th>
+                        <th>Hooks</th><th>Invocations</th><th>Options</th><th style="text-align:right;">Action</th>
                     </tr></thead>
-                    <tbody id="loaded-rows"><tr><td colspan="6" class="empty">Loading...</td></tr></tbody>
+                    <tbody id="loaded-rows"><tr><td colspan="8" class="empty">Loading...</td></tr></tbody>
                 </table>
             </div>
         </div>
@@ -259,25 +277,63 @@
             return `<span class="badge ${enabled ? 'on' : 'off'}">${enabled ? 'ENABLED' : 'DISABLED'}</span>`;
         }
 
+        let categoryFilter = 'all';
+
+        function renderCategoryChips(loaded, categories) {
+            const bar = document.getElementById('category-chips');
+            const counts = { all: loaded.length };
+            for (const c of (categories || [])) counts[c] = 0;
+            for (const p of loaded) {
+                const c = p.category || 'uncategorized';
+                counts[c] = (counts[c] || 0) + 1;
+            }
+            const order = ['all', ...Object.keys(counts).filter(k => k !== 'all').sort()];
+            bar.innerHTML = order.map(c => {
+                const active = c === categoryFilter ? 'active' : '';
+                return `<button class="chip ${active}" onclick="setCategoryFilter('${c}')">${escapeHtml(c)}<span class="count">${counts[c]}</span></button>`;
+            }).join('');
+        }
+
+        function setCategoryFilter(c) {
+            categoryFilter = c;
+            refresh();
+        }
+
         function renderLoaded(loaded) {
             const tbody = document.getElementById('loaded-rows');
-            document.getElementById('loaded-count').textContent = loaded.length + ' loaded';
-            if (!loaded.length) {
-                tbody.innerHTML = '<tr><td colspan="6" class="empty">No plugins declared in config.plugins</td></tr>';
+            document.getElementById('loaded-count').textContent = loaded.length + ' loaded · ' + loaded.filter(p => p.enabled).length + ' enabled';
+            const filtered = categoryFilter === 'all'
+                ? loaded
+                : loaded.filter(p => (p.category || 'uncategorized') === categoryFilter);
+            if (!filtered.length) {
+                tbody.innerHTML = `<tr><td colspan="8" class="empty">No plugins in category "${escapeHtml(categoryFilter)}"</td></tr>`;
                 return;
             }
-            tbody.innerHTML = loaded.map(p => {
+            tbody.innerHTML = filtered.map(p => {
                 const opts = (p.options && Object.keys(p.options).length)
                     ? `<details><summary>${Object.keys(p.options).length} option(s)</summary><pre>${escapeHtml(JSON.stringify(p.options, null, 2))}</pre></details>`
                     : '<span style="color:var(--text-dim); font-size:11px;">-</span>';
                 const btn = p.enabled
                     ? `<button class="btn btn-disable" onclick="toggle('${p.name}', false)">Disable</button>`
                     : `<button class="btn btn-enable" onclick="toggle('${p.name}', true)">Enable</button>`;
+                const hooks = p.hooks ? Object.entries(p.hooks)
+                    .filter(([_, v]) => v)
+                    .map(([h]) => `<span class="badge hook">${h}</span>`)
+                    .join('') : '';
+                const invCount = p.invocations || 0;
+                const errCount = p.errors || 0;
+                const invCell = invCount === 0
+                    ? '<span class="invocations zero">-</span>'
+                    : `<span class="invocations">${invCount.toLocaleString()}${errCount ? ' <span style="color:var(--red);">(' + errCount + ' err)</span>' : ''}</span>`;
                 return `<tr>
-                    <td><strong>${escapeHtml(p.name)}</strong></td>
+                    <td><strong>${escapeHtml(p.name)}</strong>
+                        <div style="font-size:10px;color:var(--text-dim);margin-top:2px;" title="${escapeHtml(p.module)}">${escapeHtml(p.class || '')}</div>
+                    </td>
+                    <td><span class="badge cat">${escapeHtml(p.category || 'uncategorized')}</span></td>
                     <td><span class="badge ver">${escapeHtml(p.version)}</span></td>
                     <td>${statusBadge(p.enabled)}</td>
-                    <td><span class="badge mod">${escapeHtml(p.module)}</span></td>
+                    <td><div class="hooks-cell">${hooks || '<span style="color:var(--text-dim);font-size:10px;">none</span>'}</div></td>
+                    <td>${invCell}</td>
                     <td>${opts}</td>
                     <td style="text-align:right;">${btn}</td>
                 </tr>`;
@@ -291,9 +347,13 @@
                 grid.innerHTML = '<div class="empty" style="grid-column:1/-1;">Every built-in plugin is already loaded. Add a custom module by editing <code>config.plugins</code>.</div>';
                 return;
             }
-            grid.innerHTML = available.map(name => `
+            // Accept both legacy list-of-strings and new list-of-{name, category}
+            const normalize = item => (typeof item === 'string' ? { name: item, category: null } : item);
+            const items = available.map(normalize);
+            grid.innerHTML = items.map(({ name, category }) => `
                 <div class="market-card">
                     <div class="name">${escapeHtml(name)}</div>
+                    ${category ? `<span class="badge cat" style="align-self:flex-start;">${escapeHtml(category)}</span>` : ''}
                     <div class="desc">${escapeHtml(PLUGIN_DESCRIPTIONS[name] || 'Built-in plugin.')}</div>
                     <div class="actions">
                         <button class="btn btn-add" onclick="addPlugin('${name}')">+ Add &amp; Enable</button>
@@ -331,6 +391,7 @@
         async function refresh() {
             try {
                 const data = await api('/api/plugins');
+                renderCategoryChips(data.loaded || [], data.categories || []);
                 renderLoaded(data.loaded || []);
                 renderMarket(data.available_builtin || []);
                 document.getElementById('last-refresh').textContent = 'Updated ' + new Date().toLocaleTimeString();

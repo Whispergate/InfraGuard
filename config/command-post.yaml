@@ -3,17 +3,33 @@
 #
 # Each instance needs a name, URL, and API token.
 # Environment variables (${VAR}) are resolved from .env automatically.
+#
+# Per-instance fields:
+#   name        - short identifier shown on the Command Post dashboard
+#   url         - full URL of the instance's dashboard API
+#   token       - Bearer token accepted by that instance's /api
+#   verify_ssl  - true when the instance has a CA-signed cert; default
+#                 false because InfraGuard proxies ship with a self-
+#                 signed cert (setting it true will 502 until a real
+#                 cert is provisioned)
+#   lat, lon    - optional exact coordinates for the fleet map. Omit
+#                 and the Command Post infers position from a region hint in the
+#                 name (eu-west-1 -> Falkenstein, us-east-1 -> Ashburn).
 
 instances:
   # Local proxy (same Docker network)
   - name: "proxy"
-    url: "https://infraguard-proxy:443"
+    url: "https://infraguard-dashboard:8080"
     token: "${INFRAGUARD_API_TOKEN}"
+    # verify_ssl: false            # default; flip to true only with a real cert
+    # lat: 50.5                    # optional exact position (Falkenstein)
+    # lon: 12.4
 
   # Add more instances:
   # - name: "prod-mythic"
   #   url: "https://ig2.example.com:8080"
   #   token: "${IG_PROD_MYTHIC_TOKEN}"
+  #   verify_ssl: true
   # - name: "staging"
   #   url: "https://ig3.example.com:8080"
   #   token: "${IG_STAGING_TOKEN}"

@@ -51,6 +51,12 @@ _SESSION_TTL = 86400  # 24 hours
 _MAX_SESSIONS = 1000
 
 
+def _cookie_name(request) -> str:
+    """Per-app cookie name so the dashboard and Command Post don't
+    overwrite each other's session on the same host."""
+    return getattr(request.app.state, "session_cookie_name", SESSION_COOKIE)
+
+
 def _token_hash(token: str) -> str:
     return hashlib.sha256(token.encode()).hexdigest()
 
@@ -95,8 +101,10 @@ async def check_auth(request: Request, expected_token: str | None) -> JSONRespon
             return None
         return JSONResponse({"error": "Invalid token"}, status_code=403)
 
-    # Check session cookie (web dashboard)
-    session_id = request.cookies.get(SESSION_COOKIE)
+    # Check session cookie (web dashboard). The cookie name is
+    # per-app so the dashboard and Command Post don't fight over
+    # ``ig_session``.
+    session_id = request.cookies.get(_cookie_name(request))
     if session_id:
         db: Database = request.app.state.db
         if await validate_session(db, session_id, expected_token):
@@ -141,12 +149,17 @@ async def login_handler(request: Request) -> JSONResponse:
     response = JSONResponse({"status": "ok"})
     # Set Secure flag based on whether the request arrived over HTTPS
     is_secure = request.url.scheme == "https" or request.headers.get("x-forwarded-proto") == "https"
+    # ``samesite="lax"`` (not strict) so opening a new tab from the
+    # dashboard header (``window.open`` for Plugins / Decoys / Health)
+    # keeps the session cookie attached; strict silently drops it on
+    # a subset of top-level navigations and shows up as "I got logged
+    # out." The dashboard is same-origin only so lax is still safe.
     response.set_cookie(
-        SESSION_COOKIE,
+        _cookie_name(request),
         session_id,
         httponly=True,
         secure=is_secure,
-        samesite="strict",
+        samesite="lax",
         max_age=ttl,
     )
     return response
@@ -154,12 +167,13 @@ async def login_handler(request: Request) -> JSONResponse:
 
 async def logout_handler(request: Request) -> JSONResponse:
     """POST /api/auth/logout -- clear session cookie."""
-    session_id = request.cookies.get(SESSION_COOKIE)
+    cookie_name = _cookie_name(request)
+    session_id = request.cookies.get(cookie_name)
     if session_id:
         db: Database = request.app.state.db
         await db.delete_session(session_id)
     response = JSONResponse({"status": "ok"})
-    response.delete_cookie(SESSION_COOKIE)
+    response.delete_cookie(cookie_name)
     return response
 
 

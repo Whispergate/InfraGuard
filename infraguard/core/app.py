@@ -87,6 +87,67 @@ def create_app(config: InfraGuardConfig) -> Starlette:
     async def health_check(request: Request) -> Response:
         return Response(content=b'{"status":"ok"}', media_type="application/json")
 
+    # Canary callback endpoints. Injected into decoy HTML by
+    # ``infraguard.intel.canary.inject_all_canaries``. A hit is a strong
+    # "scanner/sandbox pulled our decoy" signal because a human user
+    # would never fetch the tracking pixel then a 1px hidden-off-screen
+    # link then a hidden form field in the same session. Return the
+    # smallest plausible reply so the scanner does not learn anything
+    # from the response body.
+    _PIXEL_GIF = (
+        b"GIF89a\x01\x00\x01\x00\x80\x00\x00\xff\xff\xff\x00\x00\x00"
+        b"!\xf9\x04\x01\x00\x00\x00\x00,\x00\x00\x00\x00\x01\x00\x01"
+        b"\x00\x00\x02\x02D\x01\x00;"
+    )
+
+    async def canary_hit_handler(request: Request) -> Response:
+        canary_id = request.query_params.get("c", "")
+        kind = request.url.path.rsplit("/", 1)[-1]  # px | hp | hf
+        client_ip = request.client.host if request.client else "unknown"
+        ua = request.headers.get("user-agent", "")
+        host = request.headers.get("host", "")
+        log.warning(
+            "canary_hit",
+            kind=kind,
+            canary_id=canary_id,
+            client_ip=client_ip,
+            user_agent=ua,
+            path=request.url.path,
+            host=host,
+        )
+        # Also record to the tracking DB so the dashboard's live feed
+        # and /api/requests surface the hit; the router.handle path is
+        # bypassed here so we call the recorder directly.
+        try:
+            from infraguard.models.events import RequestEvent
+            recorder.record(RequestEvent.now(
+                domain=host.split(":")[0] if host else "",
+                client_ip=client_ip,
+                method=request.method,
+                uri=str(request.url.path) + (
+                    "?" + str(request.url.query) if request.url.query else ""
+                ),
+                user_agent=ua,
+                filter_result="canary_hit",
+                filter_reason=f"canary_hit:{kind}:{canary_id[:16]}",
+                filter_score=1.0,
+                response_status=200,
+                duration_ms=0.0,
+            ))
+        except Exception:
+            log.exception("canary_hit_record_failed")
+        if kind == "px":
+            return Response(content=_PIXEL_GIF, media_type="image/gif")
+        if kind == "hf":
+            # Form POST -> a bland 200 so the scanner thinks it worked.
+            return Response(status_code=200, content=b"", media_type="text/plain")
+        # Hidden link -> an empty page.
+        return Response(
+            status_code=200,
+            content=b"<!doctype html><title></title>",
+            media_type="text/html",
+        )
+
     # Phishing.club webhook receiver
     pc_cfg = config.phishingclub
     _phishingclub_handler = None
@@ -125,6 +186,18 @@ def create_app(config: InfraGuardConfig) -> Starlette:
         app.state.router = router
         app.state.state_backend = state_backend
         app.state.plugins = plugins
+        # Wrap each plugin's hooks with an invocation counter so the
+        # dashboard's Plugins tab can show which plugins are actually
+        # doing work. The wrap is idempotent.
+        try:
+            from infraguard.ui.api.routes.dashboard import PluginInvocationCounter
+
+            counter = PluginInvocationCounter()
+            for _p in plugins:
+                counter.wrap_plugin(_p)
+            app.state.plugin_invocations = counter
+        except Exception:
+            log.exception("plugin_counter_init_failed")
         # Hydrate persistent caches (replay filter) from the now-connected database
         await router.startup()
 
@@ -445,6 +518,12 @@ def create_app(config: InfraGuardConfig) -> Starlette:
             )
             _dashboard_app.state.burn_scorer = _burn_scorer
             _dashboard_app.state.plugins = plugins
+            # Share the invocation counter with the embedded dashboard app.
+            # Without this, /api/plugins on the dashboard port lazily creates
+            # its own empty counter and never sees the real wrapped hooks.
+            _dashboard_app.state.plugin_invocations = getattr(
+                app.state, "plugin_invocations", None,
+            )
             if _pdns_monitor is not None:
                 _dashboard_app.state.pdns_monitor = _pdns_monitor
             _api_bind = os.environ.get("INFRAGUARD_API_BIND", config.api.bind)
@@ -542,6 +621,12 @@ def create_app(config: InfraGuardConfig) -> Starlette:
 
     routes = [
         Route(health_route, health_check, methods=["GET"]),
+        # Canary callbacks: must sit above the catch-all so hits are
+        # recognized instead of falling through to the C2 pipeline
+        # and getting logged as a generic 404.
+        Route("/_ig/px", canary_hit_handler, methods=["GET"]),
+        Route("/_ig/hp", canary_hit_handler, methods=["GET"]),
+        Route("/_ig/hf", canary_hit_handler, methods=["POST", "GET"]),
     ]
     if _phishingclub_handler is not None:
         pc_path = "/" + pc_cfg.webhook_path.strip("/")

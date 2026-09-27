@@ -561,8 +561,9 @@ class RateLimitMiddleware:
             token = auth[7:]
             return f"bearer:{_hash_api_key(token)[:16]}"
 
-        # Check session cookie
-        session_id = request.cookies.get("ig_session")
+        # Check session cookie (per-app name via app.state)
+        _cookie = getattr(request.app.state, "session_cookie_name", "ig_session")
+        session_id = request.cookies.get(_cookie)
         if session_id:
             return f"session:{session_id[:16]}"
 
@@ -662,7 +663,8 @@ def _get_operator_identity(request: Request) -> str:
     api_key = request.headers.get("x-api-key", "")
     if api_key:
         return f"apikey:{api_key[:8]}..."
-    session_id = request.cookies.get("ig_session", "")
+    _cookie = getattr(request.app.state, "session_cookie_name", "ig_session")
+    session_id = request.cookies.get(_cookie, "")
     if session_id:
         return f"session:{session_id[:8]}..."
     return "unknown"

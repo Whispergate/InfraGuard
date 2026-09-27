@@ -26,6 +26,11 @@ from starlette.responses import JSONResponse
 
 from infraguard.config.schema import InfraGuardConfig, PluginSettings
 from infraguard.plugins.builtin import BUILTIN_PLUGINS
+from infraguard.ui.api.routes.dashboard import (
+    PLUGIN_CATEGORIES,
+    get_or_create_counter,
+    plugin_hooks,
+)
 
 log = structlog.get_logger()
 
@@ -130,12 +135,34 @@ def _persist_plugin_toggle(
         if plugin_name not in data["plugins"]:
             data["plugins"].append(plugin_name)
 
+    # ``.bak`` is a convenience for one-step manual undo; the atomic
+    # write below is the real durability guarantee. Don't let a
+    # permission error on the ``.bak`` block persistence.
     try:
         import shutil
         bak = config_path.with_suffix(config_path.suffix + ".bak")
         shutil.copy2(config_path, bak)
-        with config_path.open("w", encoding="utf-8") as f:
+    except Exception as exc:
+        log.debug("config_bak_skipped", error=str(exc))
+
+    try:
+        # Atomic write via tmp file + rename: a truncate+write is not
+        # crash-safe on Windows bind mounts and left a corrupted tail
+        # of stale bytes past EOF earlier this session.
+        tmp = config_path.with_suffix(config_path.suffix + ".tmp")
+        with tmp.open("w", encoding="utf-8") as f:
             yaml.dump(data, f, default_flow_style=False, allow_unicode=True, sort_keys=False)
+            f.flush()
+            try:
+                os.fsync(f.fileno())
+            except OSError:
+                pass
+        os.replace(tmp, config_path)
+    except PermissionError as exc:
+        return False, (
+            f"config write denied: {exc}. Fix host ownership so uid 1000 "
+            f"can write the config dir (e.g. ``chown -R 1000:1000 config/``)."
+        )
     except Exception as exc:
         return False, f"config write failed: {exc}"
 
@@ -165,11 +192,20 @@ async def list_plugins(request: Request) -> JSONResponse:
 
     config: InfraGuardConfig = request.app.state.config
     settings_by_name = config.plugin_settings or {}
+    counter = get_or_create_counter(request)
 
     loaded = []
     for p in plugins:
         name = getattr(p, "name", "unknown")
         s = settings_by_name.get(name)
+        # Prefer an explicit `category` attribute set by third-party plugins;
+        # fall back to the built-in map, else "uncategorized" so the UI still
+        # slots the card into a chip filter deterministically.
+        category = (
+            getattr(p, "category", None)
+            or PLUGIN_CATEGORIES.get(name, "uncategorized")
+        )
+        stats = counter.stats_for(name)
         loaded.append({
             "name": name,
             "version": getattr(p, "version", "?"),
@@ -177,14 +213,29 @@ async def list_plugins(request: Request) -> JSONResponse:
             "class": p.__class__.__name__,
             "module": p.__class__.__module__,
             "options": (getattr(s, "options", {}) if s else {}),
+            "category": category,
+            "hooks": plugin_hooks(p),
+            "invocations": stats["invocations"],
+            "errors": stats["errors"],
+            "last_called_at": stats["last_called_at"],
         })
 
     loaded_names = {row["name"] for row in loaded}
-    available = sorted(n for n in BUILTIN_PLUGINS if n not in loaded_names)
+    available = sorted(
+        (
+            {
+                "name": n,
+                "category": PLUGIN_CATEGORIES.get(n, "uncategorized"),
+            }
+            for n in BUILTIN_PLUGINS if n not in loaded_names
+        ),
+        key=lambda x: x["name"],
+    )
 
     return JSONResponse({
         "loaded": loaded,
         "available_builtin": available,
+        "categories": sorted(set(PLUGIN_CATEGORIES.values())),
         "config_path": os.environ.get("INFRAGUARD_CONFIG", "config/config.yaml"),
     })
 

@@ -287,23 +287,51 @@ class DomainRouter:
             # Build content route resolver
             content_routes = list(domain_config.content_routes)
 
-            # If the drop action is "decoy", auto-register a catch-all content
-            # route so the decoy site's assets (CSS, JS, images) are served
-            # directly without going through the C2 filter pipeline.
+            # If the drop action is "decoy", auto-register a catch-all
+            # content route so the decoy site's assets (CSS, JS, images)
+            # are served directly without going through the C2 filter
+            # pipeline. Two guards keep this from becoming a filter
+            # bypass: the target must be a bare site name (URLs make
+            # ``type: redirect`` the right choice, not ``decoy``), and
+            # the resolved directory must exist. Otherwise the catch-all
+            # would swallow every request with a plain 404 and hide
+            # scanner behavior from the pipeline.
             if domain_config.drop_action.type.value == "decoy" and domain_config.drop_action.target:
-                from infraguard.config.schema import ContentBackendConfig, ContentRouteConfig
-                from infraguard.models.common import ContentBackendType
                 decoy_site = domain_config.drop_action.target
-                decoy_path = str(Path(self.config.decoy_pages_dir) / decoy_site)
-                # Add as lowest-priority catch-all (appended last)
-                content_routes.append(ContentRouteConfig(
-                    path="/*",
-                    backend=ContentBackendConfig(
-                        type=ContentBackendType.FILESYSTEM,
-                        target=decoy_path,
-                    ),
-                    track=False,
-                ))
+                if decoy_site.startswith(("http://", "https://")) or "/" in decoy_site:
+                    log.warning(
+                        "decoy_target_not_a_site_name",
+                        domain=domain_name,
+                        target=decoy_site,
+                        hint="Set drop_action.type to 'redirect' for a URL, "
+                             "or pick a folder name from decoy_pages_dir.",
+                    )
+                else:
+                    from infraguard.config.schema import (
+                        ContentBackendConfig,
+                        ContentRouteConfig,
+                    )
+                    from infraguard.models.common import ContentBackendType
+                    decoy_path = Path(self.config.decoy_pages_dir) / decoy_site
+                    if not decoy_path.is_dir():
+                        log.warning(
+                            "decoy_site_dir_missing",
+                            domain=domain_name,
+                            target=decoy_site,
+                            resolved=str(decoy_path),
+                            hint="No such folder under decoy_pages_dir; "
+                                 "skipping the '/*' catch-all so requests "
+                                 "flow through the C2 pipeline instead.",
+                        )
+                    else:
+                        content_routes.append(ContentRouteConfig(
+                            path="/*",
+                            backend=ContentBackendConfig(
+                                type=ContentBackendType.FILESYSTEM,
+                                target=str(decoy_path),
+                            ),
+                            track=False,
+                        ))
 
             content_resolver = None
             fp_pipeline = None
@@ -454,19 +482,43 @@ class DomainRouter:
                 pipeline = FilterPipeline(filters, new_config.pipeline)
 
                 content_routes = list(domain_config.content_routes)
+                # Same guards as the initial-load path in ``_load_routes``:
+                # a URL target means the operator wanted a redirect, and
+                # a missing directory would otherwise turn ``/*`` into a
+                # filter-bypassing 404 machine. See _load_routes for the
+                # long-form rationale.
                 if domain_config.drop_action.type.value == "decoy" and domain_config.drop_action.target:
-                    from infraguard.config.schema import ContentBackendConfig, ContentRouteConfig
-                    from infraguard.models.common import ContentBackendType
                     decoy_site = domain_config.drop_action.target
-                    decoy_path = str(Path(new_config.decoy_pages_dir) / decoy_site)
-                    content_routes.append(ContentRouteConfig(
-                        path="/*",
-                        backend=ContentBackendConfig(
-                            type=ContentBackendType.FILESYSTEM,
-                            target=decoy_path,
-                        ),
-                        track=False,
-                    ))
+                    if decoy_site.startswith(("http://", "https://")) or "/" in decoy_site:
+                        log.warning(
+                            "decoy_target_not_a_site_name",
+                            domain=domain_name,
+                            target=decoy_site,
+                            hint="Set drop_action.type to 'redirect' for a URL.",
+                        )
+                    else:
+                        from infraguard.config.schema import (
+                            ContentBackendConfig,
+                            ContentRouteConfig,
+                        )
+                        from infraguard.models.common import ContentBackendType
+                        decoy_path = Path(new_config.decoy_pages_dir) / decoy_site
+                        if not decoy_path.is_dir():
+                            log.warning(
+                                "decoy_site_dir_missing",
+                                domain=domain_name,
+                                target=decoy_site,
+                                resolved=str(decoy_path),
+                            )
+                        else:
+                            content_routes.append(ContentRouteConfig(
+                                path="/*",
+                                backend=ContentBackendConfig(
+                                    type=ContentBackendType.FILESYSTEM,
+                                    target=str(decoy_path),
+                                ),
+                                track=False,
+                            ))
 
                 content_resolver = None
                 fp_pipeline = None
@@ -640,7 +692,10 @@ class DomainRouter:
                 reason=result.summary,
                 pages_dir=self.config.decoy_pages_dir, drop_rate_limiter=self._drop_rate_limiter,
             )
-            filter_result_str = "block"
+            # Reflect the delivery method (decoy/tarpit/redirect/reset)
+            # instead of a flat "block" so the dashboard's Overview KPI
+            # tiles can bucket by what the client actually received.
+            filter_result_str = _delivery_verdict(route.config.drop_action)
             filter_reason = "; ".join(result.blocking_reasons) or result.summary
 
         # 8. Plugin on_response hooks.
@@ -758,11 +813,25 @@ class DomainRouter:
                     path=request.url.path,
                     reasons=pre_result.blocking_reasons,
                 )
-                return await handle_drop(
+                start_full = time.perf_counter()
+                drop_resp = await handle_drop(
                     request, route.config.drop_action,
                     reason="full_pipeline_block_before_content",
                     pages_dir=self.config.decoy_pages_dir, drop_rate_limiter=self._drop_rate_limiter,
-            )
+                )
+                # Emit a tracking event so the dashboard's live feed and
+                # /api/requests actually show the block. Without this,
+                # blocks that fired at the pre-content gate never left
+                # a database row.
+                self._record_request_event(
+                    route=route, request=request, client_ip=client_ip,
+                    ctx=ctx, response=drop_resp,
+                    filter_result_str=_delivery_verdict(route.config.drop_action),
+                    filter_reason="full_pipeline_block_before_content",
+                    filter_score=1.0,
+                    start=start_full,
+                )
+                return drop_resp
             return None
 
         # Default "ip_only": fast blocklist check only.
@@ -773,11 +842,32 @@ class DomainRouter:
                 client=str(client_ip),
                 path=request.url.path,
             )
-            return await handle_drop(
+            start_ip = time.perf_counter()
+            drop_resp = await handle_drop(
                 request, route.config.drop_action,
                 reason="ip_blocked_before_content_route",
                 pages_dir=self.config.decoy_pages_dir, drop_rate_limiter=self._drop_rate_limiter,
             )
+            # See note above: record the block so the live feed sees it.
+            # This branch skipped context construction for speed, so
+            # synthesize a minimal ctx just for the tracking event.
+            minimal_ctx = RequestContext(
+                request=request,
+                client_ip=client_ip,
+                domain_config=route.config,
+                profile=route.profile,
+                metadata={"ja3": getattr(request.state, "ja3", None)},
+                domain=route.domain,
+            )
+            self._record_request_event(
+                route=route, request=request, client_ip=client_ip,
+                ctx=minimal_ctx, response=drop_resp,
+                filter_result_str=_delivery_verdict(route.config.drop_action),
+                filter_reason="ip_blocked_before_content_route",
+                filter_score=1.0,
+                start=start_ip,
+            )
+            return drop_resp
         return None
 
     async def _run_plugin_on_request(
@@ -1177,6 +1267,23 @@ class DomainRouter:
         self._content_backends.append(backend)
         response = await backend.serve(request, match)
 
+        # Inject canary tokens into HTML served by the auto-injected
+        # decoy catch-all. Otherwise scanners downloading the decoy
+        # site never load a canary pixel/link/form, defeating the
+        # whole "was our decoy pulled to a sandbox" signal. The auto-
+        # inject route is the only one whose ``track`` is False AND
+        # whose backend is filesystem, so we key on that pair.
+        da = route.config.drop_action
+        if (
+            da is not None
+            and da.type.value == "decoy"
+            and da.canary is not None
+            and da.canary.enabled
+            and content_config.backend.type.value == "filesystem"
+            and content_config.track is False
+        ):
+            response = await _inject_canary_into_html(response, da.canary)
+
         log.info(
             "content_served",
             domain=route.domain,
@@ -1240,3 +1347,67 @@ class DomainRouter:
                 await backend.close()
             except Exception:
                 pass
+
+
+def _delivery_verdict(drop_action) -> str:
+    """Map ``drop_action.type`` (decoy/tarpit/redirect/reset) to the
+    ``filter_result`` label the tracking DB stores. All values remain
+    "blocked" in aggregate but the delivery method is preserved so the
+    dashboard can bucket them separately.
+    """
+    try:
+        t = drop_action.type.value
+    except AttributeError:
+        return "block"
+    return t if t in ("decoy", "tarpit", "redirect", "reset") else "block"
+
+
+async def _inject_canary_into_html(response, canary):
+    """Rewrite an HTML response body to include canary tokens.
+
+    Supports both ``FileResponse`` (which streams from disk and has to
+    be materialised into an in-memory ``Response``) and plain
+    ``Response``. Non-HTML responses pass through untouched.
+    """
+    from starlette.responses import FileResponse
+    from starlette.responses import Response as _Response
+
+    from infraguard.intel.canary import inject_all_canaries
+
+    media_type = getattr(response, "media_type", None) or ""
+    ct = str(response.headers.get("content-type", media_type)).lower()
+    if "html" not in ct:
+        return response
+
+    # Extract the raw HTML body.
+    if isinstance(response, FileResponse):
+        try:
+            html = Path(response.path).read_text(encoding="utf-8", errors="replace")
+        except Exception:
+            return response
+    else:
+        body = getattr(response, "body", b"") or b""
+        try:
+            html = body.decode("utf-8", errors="replace")
+        except Exception:
+            return response
+
+    html = inject_all_canaries(
+        html,
+        enable_pixel=canary.tracking_pixel,
+        enable_honeypot_link=canary.honeypot_link,
+        enable_honeypot_form=canary.honeypot_form,
+    )
+
+    # Preserve headers other than content-length (the length changed
+    # after we injected markup).
+    passthru = {
+        k: v for k, v in response.headers.items()
+        if k.lower() != "content-length"
+    }
+    return _Response(
+        content=html,
+        status_code=response.status_code,
+        media_type=media_type or "text/html",
+        headers=passthru,
+    )

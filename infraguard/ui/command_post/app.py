@@ -14,7 +14,8 @@ from starlette.applications import Starlette
 from starlette.middleware.base import BaseHTTPMiddleware, RequestResponseEndpoint
 from starlette.requests import Request
 from starlette.responses import FileResponse, JSONResponse, Response
-from starlette.routing import Route, WebSocketRoute
+from starlette.routing import Mount, Route, WebSocketRoute
+from starlette.staticfiles import StaticFiles
 from starlette.websockets import WebSocket, WebSocketDisconnect
 
 from infraguard.tracking.database import Database
@@ -42,7 +43,10 @@ _PUBLIC_PATHS = frozenset({"/", "", "/api/auth/login", "/api/auth/check"})
 class AuthMiddleware(BaseHTTPMiddleware):
     async def dispatch(self, request: Request, call_next: RequestResponseEndpoint) -> Response:
         path = request.url.path
-        if path in _PUBLIC_PATHS:
+        # Static assets are unauthenticated: the login page needs the theme,
+        # logo, and any other file under /static/ before the user has a
+        # session. They're all non-sensitive files shipped with the app.
+        if path in _PUBLIC_PATHS or path.startswith("/static/"):
             return await call_next(request)
         # Note: BaseHTTPMiddleware does not intercept WebSocket routes;
         # WS auth is handled in the ws_events handler directly.
@@ -146,7 +150,8 @@ def create_command_post_app(config: CommandPostConfig) -> Starlette:
         auth_token = config.auth_token
         if auth_token:
             token = ws.query_params.get("token", "")
-            session_id = ws.cookies.get(SESSION_COOKIE, "")
+            _cookie = getattr(ws.app.state, "session_cookie_name", SESSION_COOKIE)
+            session_id = ws.cookies.get(_cookie, "")
             token_ok = token and hmac.compare_digest(token, auth_token)
             session_ok = session_id and await validate_session(db, session_id, auth_token)
             if not token_ok and not session_ok:
@@ -213,34 +218,40 @@ def create_command_post_app(config: CommandPostConfig) -> Starlette:
 
     # ── App ───────────────────────────────────────────────────────
 
-    app = Starlette(
-        routes=[
-            Route("/", serve_index, methods=["GET"]),
-            # Auth
-            Route("/api/auth/login", login_handler, methods=["POST"]),
-            Route("/api/auth/logout", logout_handler, methods=["POST"]),
-            Route("/api/auth/check", check_handler, methods=["GET"]),
-            # API
-            Route("/api/instances", get_instances, methods=["GET"]),
-            Route("/api/stats", get_stats, methods=["GET"]),
-            Route("/api/requests", get_requests, methods=["GET"]),
-            Route("/api/intel/whitelist", post_whitelist, methods=["POST"]),
-            Route("/api/intel/blocklist", post_blocklist, methods=["POST"]),
-            Route("/api/intel/blocklist", delete_blocklist, methods=["DELETE"]),
-            Route("/api/plugins", get_plugins, methods=["GET"]),
-            Route("/api/plugins/{name}/enable", enable_plugin_route, methods=["POST"]),
-            Route("/api/plugins/{name}/disable", disable_plugin_route, methods=["POST"]),
-            # Cross-instance intel sharing (v0.5). Proxies push IoCs and
-            # pull the fleet-wide blocklist; peers subscribe to the TAXII
-            # collection to get scanner indicators as a STIX 2.1 bundle.
-            Route("/api/intel/push", post_intel_push, methods=["POST"]),
-            Route("/api/intel/pull", get_intel_pull, methods=["GET"]),
-            Route("/taxii2/collections/{collection_id}/objects/",
-                  get_taxii_collection, methods=["GET"]),
-            WebSocketRoute("/ws/events", ws_events),
-        ],
-        lifespan=lifespan,
-    )
+    routes = [
+        Route("/", serve_index, methods=["GET"]),
+        # Auth
+        Route("/api/auth/login", login_handler, methods=["POST"]),
+        Route("/api/auth/logout", logout_handler, methods=["POST"]),
+        Route("/api/auth/check", check_handler, methods=["GET"]),
+        # API
+        Route("/api/instances", get_instances, methods=["GET"]),
+        Route("/api/stats", get_stats, methods=["GET"]),
+        Route("/api/requests", get_requests, methods=["GET"]),
+        Route("/api/intel/whitelist", post_whitelist, methods=["POST"]),
+        Route("/api/intel/blocklist", post_blocklist, methods=["POST"]),
+        Route("/api/intel/blocklist", delete_blocklist, methods=["DELETE"]),
+        Route("/api/plugins", get_plugins, methods=["GET"]),
+        Route("/api/plugins/{name}/enable", enable_plugin_route, methods=["POST"]),
+        Route("/api/plugins/{name}/disable", disable_plugin_route, methods=["POST"]),
+        # Cross-instance intel sharing (v0.5). Proxies push IoCs and
+        # pull the fleet-wide blocklist; peers subscribe to the TAXII
+        # collection to get scanner indicators as a STIX 2.1 bundle.
+        Route("/api/intel/push", post_intel_push, methods=["POST"]),
+        Route("/api/intel/pull", get_intel_pull, methods=["GET"]),
+        Route("/taxii2/collections/{collection_id}/objects/",
+              get_taxii_collection, methods=["GET"]),
+        WebSocketRoute("/ws/events", ws_events),
+    ]
+
+    # Mount static files so the shared theme + logo icon load. Without
+    # this, /static/ig-theme.css 404s and every page renders unstyled.
+    if static_dir.exists():
+        routes.append(
+            Mount("/static", app=StaticFiles(directory=str(static_dir)), name="static"),
+        )
+
+    app = Starlette(routes=routes, lifespan=lifespan)
 
     app.add_middleware(AuthMiddleware)
 
@@ -251,5 +262,9 @@ def create_command_post_app(config: CommandPostConfig) -> Starlette:
     app.state.config = SimpleNamespace(
         api=SimpleNamespace(auth_token=config.auth_token, session_ttl=86400)
     )
+    # Command Post uses its own cookie name so logging into the dashboard
+    # on the same host doesn't clobber the operator's Command Post
+    # session (and vice versa).
+    app.state.session_cookie_name = "ig_cp_session"
 
     return app
