@@ -36,7 +36,7 @@ class IPFilter:
         classification = await self.intel.classify(ip)
 
         if classification.is_whitelisted:
-            return FilterResult.allow_terminal(filter_name=self.name)
+            return FilterResult.allow(filter_name=self.name)
 
         if classification.is_blocked:
             return FilterResult.block(
