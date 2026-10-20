@@ -54,6 +54,7 @@ _COMMAND_MODULES: tuple[str, ...] = (
     "infraguard.cli.transpile_cmd",
     "infraguard.cli.preflight_cmd",
     "infraguard.cli.deploy_shim",
+    "infraguard.cli.data_cmd",
 )
 
 for _mod in _COMMAND_MODULES:

@@ -80,11 +80,13 @@ class CanaryConfig(BaseModel):
     tracking_pixel: bool = True
     honeypot_link: bool = True
     honeypot_form: bool = False
+    prefix: str = "_ig"
+    rate_limit_per_ip: int = 10
 
 
 class DropActionConfig(BaseModel):
-    type: DropActionType = DropActionType.REDIRECT
-    target: str = "https://www.google.com"
+    type: DropActionType = DropActionType.DECOY
+    target: str = ""
     rotation_targets: list[str] = Field(default_factory=list)
     rotation_strategy: Literal["random", "round_robin"] = "random"
     persona: PersonaConfig = Field(default_factory=PersonaConfig)
@@ -98,7 +100,7 @@ class ContentBackendConfig(BaseModel):
     target: str = ""
     auth_token: str | None = None
     headers: dict[str, str] = Field(default_factory=dict)
-    ssl_verify: bool = False
+    ssl_verify: bool = True
     ssl_ca_bundle: str | None = None
     # mythic_file only: UUID of the file in Mythic's file store
     file_id: str | None = None
@@ -201,7 +203,7 @@ class DomainConfig(BaseModel):
     decoy_dir: str | None = None
     drop_action: DropActionConfig = Field(default_factory=DropActionConfig)
     content_routes: list[ContentRouteConfig] = Field(default_factory=list)
-    ssl_verify: bool = False
+    ssl_verify: bool = True
     ssl_ca_bundle: str | None = None
     extra_allowed_headers: list[str] = Field(default_factory=list)
     content_route_filter: Literal["ip_only", "full_pipeline"] = "ip_only"

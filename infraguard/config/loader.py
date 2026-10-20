@@ -283,8 +283,8 @@ domains:
       - "192.168.1.0/24"
     decoy_dir: null
     drop_action:
-      type: "redirect"
-      target: "https://jquery.com"
+      type: "decoy"
+      target: ""
 
 intel:
   geoip_db: null

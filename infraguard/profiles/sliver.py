@@ -193,7 +193,11 @@ class SliverParser:
 
         client = ClientConfig(
             headers=req_headers,
-            message=MessageConfig(location="cookie", name=cookies[0] if cookies else "PHPSESSID"),
+            message=MessageConfig(
+                location="cookie",
+                name=cookies[0] if cookies else "PHPSESSID",
+                names=cookies,
+            ),
             transforms=[],
         )
 

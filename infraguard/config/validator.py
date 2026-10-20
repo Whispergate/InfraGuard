@@ -166,6 +166,14 @@ class ConfigValidator:
         for cidr in api.trusted_proxies:
             self._check_cidr(r, cidr, "api.trusted_proxies")
 
+        if api.health_path.strip("/") in ("health", ""):
+            r.add(
+                "warning", "OPS010", "api.health_path",
+                "Health path is the shipped default (/health). Every default "
+                "deployment answers on the same path, making fleet-wide "
+                "fingerprinting trivial. Set a unique health_path per deployment.",
+            )
+
     def _check_listeners(self, r: ValidationReport) -> None:
         if not self.cfg.listeners:
             r.add(
@@ -216,15 +224,25 @@ class ConfigValidator:
             # TLS verification
             if dom.upstream.startswith("https://") and not dom.ssl_verify:
                 r.add(
-                    "warning", "TLS003", f"{base}.ssl_verify",
+                    "error", "TLS003", f"{base}.ssl_verify",
                     f"TLS verification is DISABLED for upstream {dom.upstream}. "
                     "Vulnerable to MITM between redirector and teamserver. "
-                    "Enable ssl_verify and set ssl_ca_bundle for self-signed certs.",
+                    "Set ssl_ca_bundle for self-signed certs, or set "
+                    "ssl_verify: false only if you accept the risk.",
                 )
 
             # Whitelist CIDRs
             for cidr in dom.whitelist_cidrs:
                 self._check_cidr(r, cidr, f"{base}.whitelist_cidrs")
+
+            # Canary prefix
+            if dom.drop_action.canary.enabled and dom.drop_action.canary.prefix == "_ig":
+                r.add(
+                    "warning", "OPS016", f"{base}.drop_action.canary.prefix",
+                    "Canary prefix is the shipped default (/_ig/). A single "
+                    "scan rule identifies every default InfraGuard deployment. "
+                    "Set a unique canary prefix per deployment.",
+                )
 
             # Content routes
             seen_paths: set[str] = set()

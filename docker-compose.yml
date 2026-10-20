@@ -28,18 +28,13 @@ services:
     build: .
     container_name: infraguard-proxy
     restart: unless-stopped
-    env_file: .env
+    # Secrets are loaded at runtime from the mounted .env file by
+    # InfraGuard's config loader (_load_dotenv). Do NOT use env_file
+    # here - it injects every secret into the container environment,
+    # readable via `docker inspect` and /proc/<pid>/environ.
     environment:
-      # Bind embedded API to all interfaces so the dashboard container
-      # can reach it over the Docker network for forwarding mutations.
-      # Port 8080 is NOT exposed to the host - only reachable within
-      # the infraguard bridge network.
       - INFRAGUARD_API_BIND=0.0.0.0
-      # Self-signed cert dir; the tmpfs at /app/.infraguard would work
-      # too but the explicit override survives future rootfs tweaks.
       - INFRAGUARD_SELF_SIGNED_DIR=/app/.infraguard/tls
-      # Config-history git repo. Home is read-only in this container,
-      # so land the audit repo on the writable data volume.
       - INFRAGUARD_CONFIG_HISTORY=/app/data/config-history.git
     depends_on:
       cert-init:
@@ -54,6 +49,7 @@ services:
       # rw so dashboard-driven mutations (drop-action, plugin toggle,
       # profile swap) can persist back to config.yaml. Set :ro to lock
       # the config against runtime writes.
+      - ./.env:/app/.env:ro
       - ./config:/app/config
       - ./examples:/app/examples:ro
       - ./rules:/app/rules:ro
@@ -114,17 +110,15 @@ services:
     build: .
     container_name: infraguard-dashboard
     restart: unless-stopped
-    env_file: .env
     environment:
       - INFRAGUARD_PROXY_API=http://infraguard-proxy:8080
       - INFRAGUARD_OLLAMA_URL=http://infraguard-ollama:11434
-      # Land any writes that might land here (drop-action fallback, cert
-      # regen) on the writable tmpfs instead of the read-only /home.
       - INFRAGUARD_SELF_SIGNED_DIR=/app/.infraguard/tls
       - INFRAGUARD_CONFIG_HISTORY=/app/data/config-history.git
     ports:
       - "8080:8080"
     volumes:
+      - ./.env:/app/.env:ro
       - ./config:/app/config:ro
       - ./examples:/app/examples:ro
       - ./rules:/app/rules:ro
@@ -195,7 +189,10 @@ services:
     image: certbot/certbot:latest
     container_name: infraguard-certbot
     profiles: ["letsencrypt"]
-    env_file: .env
+    environment:
+      - INFRAGUARD_LETSENCRYPT=${INFRAGUARD_LETSENCRYPT:-false}
+      - INFRAGUARD_DOMAIN_EMAIL=${INFRAGUARD_DOMAIN_EMAIL:-}
+      - INFRAGUARD_DOMAIN=${INFRAGUARD_DOMAIN:-}
     volumes:
       - certs:/etc/letsencrypt
       - certbot-www:/var/www/certbot
@@ -224,7 +221,6 @@ services:
     image: certbot/certbot:latest
     container_name: infraguard-certbot-renew
     profiles: ["letsencrypt"]
-    env_file: .env
     volumes:
       - certs:/etc/letsencrypt
       - certbot-www:/var/www/certbot
@@ -295,13 +291,13 @@ services:
     build: .
     profiles: ["scale"]
     restart: unless-stopped
-    env_file: .env
     depends_on:
       redis:
         condition: service_healthy
     ports:
       - "443"
     volumes:
+      - ./.env:/app/.env:ro
       - ./config:/app/config:ro
       - ./examples:/app/examples:ro
       - ./data:/app/data
@@ -334,12 +330,12 @@ services:
     container_name: infraguard-command-post
     profiles: ["command-post"]
     restart: unless-stopped
-    env_file: .env
     environment:
       INFRAGUARD_SELF_SIGNED_DIR: /tmp/tls
     ports:
       - "9090:9090"
     volumes:
+      - ./.env:/app/.env:ro
       - ./config:/app/config:ro
       - certs:/app/certs:ro
     # ── Security hardening ────────────────────────────────────────────
@@ -387,7 +383,6 @@ services:
     container_name: infraguard-pwndrop
     profiles: ["pwndrop"]
     restart: unless-stopped
-    env_file: .env
     ports:
       - "8443:443"
     volumes:
@@ -427,7 +422,7 @@ services:
     profiles: ["ollama"]
     restart: unless-stopped
     ports:
-      - "11434:11434"
+      - "127.0.0.1:11434:11434"
     volumes:
       - ollama-data:/root/.ollama
     deploy:
@@ -456,8 +451,8 @@ services:
     volumes:
       - ./deploy/otel/config.yaml:/etc/otel/config.yaml:ro
     ports:
-      - "4318:4318"      # OTLP HTTP
-      - "4317:4317"      # OTLP gRPC
+      - "127.0.0.1:4318:4318"      # OTLP HTTP
+      - "127.0.0.1:4317:4317"      # OTLP gRPC
     networks:
       - infraguard
 
@@ -470,7 +465,7 @@ services:
       - ./deploy/prometheus/prometheus.yml:/etc/prometheus/prometheus.yml:ro
       - prometheus-data:/prometheus
     ports:
-      - "9091:9090"
+      - "127.0.0.1:9091:9090"
     networks:
       - infraguard
 
@@ -480,7 +475,7 @@ services:
     profiles: ["observability"]
     restart: unless-stopped
     environment:
-      - GF_SECURITY_ADMIN_PASSWORD=${GRAFANA_ADMIN_PASSWORD:-admin}
+      - GF_SECURITY_ADMIN_PASSWORD=${GRAFANA_ADMIN_PASSWORD:?Set GRAFANA_ADMIN_PASSWORD in .env}
       - GF_AUTH_ANONYMOUS_ENABLED=false
     volumes:
       - grafana-data:/var/lib/grafana
@@ -488,7 +483,7 @@ services:
     depends_on:
       - prometheus
     ports:
-      - "3000:3000"
+      - "127.0.0.1:3000:3000"
     networks:
       - infraguard
 

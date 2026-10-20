@@ -282,6 +282,7 @@ def _serve_decoy_spa(
             enable_pixel=canary.tracking_pixel,
             enable_honeypot_link=canary.honeypot_link,
             enable_honeypot_form=canary.honeypot_form,
+            prefix=canary.prefix,
         )
         return Response(
             content=html,

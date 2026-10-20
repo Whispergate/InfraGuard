@@ -105,17 +105,16 @@ class ProfileFilter:
         # Validate metadata location is populated
         if txn.client.message:
             msg = txn.client.message
-            if msg.location == "cookie" and msg.name:
+            if msg.location == "cookie" and (msg.name or msg.names):
                 cookies = request.cookies
-                if msg.name not in cookies:
-                    # Check if it's in a prepend pattern (e.g., "__cfduid=...")
-                    cookie_header = request.headers.get("cookie", "")
-                    if msg.name not in cookie_header:
-                        return FilterResult.block(
-                            reason=f"Missing metadata cookie: {msg.name}",
-                            filter_name=self.name,
-                            score=0.7,
-                        )
+                cookie_header = request.headers.get("cookie", "")
+                expected = msg.names if msg.names else [msg.name]
+                if not any(n in cookies or n in cookie_header for n in expected):
+                    return FilterResult.block(
+                        reason=f"Missing metadata cookie: {'/'.join(expected)}",
+                        filter_name=self.name,
+                        score=0.7,
+                    )
             elif msg.location == "header" and msg.name:
                 if msg.name not in request.headers:
                     return FilterResult.block(

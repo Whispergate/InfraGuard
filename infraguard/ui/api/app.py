@@ -67,6 +67,7 @@ from infraguard.ui.api.routes.decoys import (
     update_decoy_file,
 )
 from infraguard.ui.api.routes.health import get_health, get_health_summary
+from infraguard.ui.api.routes.opsec import get_opsec_audit
 from infraguard.ui.api.routes.intel import (
     add_blocklist,
     add_whitelist,
@@ -379,6 +380,7 @@ def create_api_app(
         Route("/api/health/watchdog", get_watchdog, methods=["GET"]),
         Route("/api/health/deadman", get_deadman, methods=["GET"]),
         Route("/api/health/rotations", get_rotations, methods=["GET"]),
+        Route("/api/health/opsec", get_opsec_audit, methods=["GET"]),
         # Operator actions the dashboard's buttons hit
         Route("/api/rotate/preflight", post_rotate_preflight, methods=["POST"]),
         Route("/api/burn/trigger", post_burn, methods=["POST"]),

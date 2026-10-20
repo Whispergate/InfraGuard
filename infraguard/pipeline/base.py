@@ -62,11 +62,27 @@ class PipelineResult:
         ]
 
     @property
+    def score_breakdown(self) -> str:
+        parts = [
+            f"{r.filter_name}={r.score:.2f}"
+            for r in self.results
+            if r.score > 0
+        ]
+        return ", ".join(parts)
+
+    @property
     def summary(self) -> str:
         if self.allowed:
             return f"ALLOW (score={self.total_score:.2f}, {self.duration_ms:.1f}ms)"
-        reasons = ", ".join(self.blocking_reasons) or "threshold exceeded"
-        return f"BLOCK (score={self.total_score:.2f}, {self.duration_ms:.1f}ms): {reasons}"
+        breakdown = self.score_breakdown
+        reasons = ", ".join(self.blocking_reasons)
+        if reasons and breakdown:
+            detail = f"{breakdown} | {reasons}"
+        elif breakdown:
+            detail = f"{breakdown} | threshold exceeded"
+        else:
+            detail = reasons or "threshold exceeded"
+        return f"BLOCK (score={self.total_score:.2f}, {self.duration_ms:.1f}ms): {detail}"
 
 
 class FilterPipeline:

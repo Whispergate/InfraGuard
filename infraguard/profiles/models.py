@@ -35,13 +35,21 @@ class MessageConfig:
 
     location: str  # cookie, header, parameter, body, uri-append
     name: str = ""
+    names: list[str] = field(default_factory=list)
 
-    def to_dict(self) -> dict[str, str]:
-        return {"location": self.location, "name": self.name}
+    def to_dict(self) -> dict[str, Any]:
+        d: dict[str, Any] = {"location": self.location, "name": self.name}
+        if self.names:
+            d["names"] = self.names
+        return d
 
     @classmethod
-    def from_dict(cls, data: dict[str, str]) -> MessageConfig:
-        return cls(location=data["location"], name=data.get("name", ""))
+    def from_dict(cls, data: dict[str, Any]) -> MessageConfig:
+        return cls(
+            location=data["location"],
+            name=data.get("name", ""),
+            names=data.get("names", []),
+        )
 
 
 @dataclass

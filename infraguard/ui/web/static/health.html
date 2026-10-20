@@ -3,7 +3,7 @@
 <head>
     <meta charset="UTF-8">
     <meta name="viewport" content="width=device-width, initial-scale=1.0">
-    <title>InfraGuard - Infrastructure Health</title>
+    <title>Infrastructure Health</title>
     <link rel="icon" type="image/svg+xml" href="/static/infraguard_icon.svg">
     <style>
         :root {
@@ -155,6 +155,60 @@
 
         /* ── Refresh indicator ──────────────────────────────── */
         .refresh-info { font-size: 11px; color: var(--text-dim); }
+
+        /* ── OPSEC Auditor ─────────────────────────────────── */
+        .opsec-score {
+            font-size: 42px;
+            font-weight: bold;
+            line-height: 1;
+        }
+        .opsec-score.good    { color: var(--green); }
+        .opsec-score.fair    { color: var(--yellow); }
+        .opsec-score.poor    { color: var(--red); }
+        .opsec-ring {
+            width: 100px; height: 100px;
+            border-radius: 50%;
+            display: flex; align-items: center; justify-content: center;
+            margin: 0 auto 8px;
+        }
+        .opsec-ring.good    { border: 4px solid var(--green); }
+        .opsec-ring.fair    { border: 4px solid var(--yellow); }
+        .opsec-ring.poor    { border: 4px solid var(--red); }
+        .opsec-summary { display: flex; gap: 16px; justify-content: center; font-size: 12px; margin: 8px 0; }
+        .opsec-summary .cnt { font-weight: bold; }
+        .opsec-summary .cnt.critical { color: var(--red); }
+        .opsec-summary .cnt.warning  { color: var(--yellow); }
+        .opsec-summary .cnt.info     { color: var(--accent); }
+        .opsec-summary .cnt.ok       { color: var(--green); }
+        .opsec-category { margin-top: 12px; }
+        .opsec-category-header {
+            font-size: 11px; text-transform: uppercase; color: var(--text-dim);
+            padding: 6px 0; border-bottom: 1px solid var(--border); margin-bottom: 4px;
+        }
+        .opsec-finding {
+            display: flex; align-items: flex-start; gap: 10px;
+            padding: 6px 0; border-bottom: 1px solid rgba(48,54,61,0.4); font-size: 12px;
+        }
+        .opsec-finding:last-child { border-bottom: none; }
+        .opsec-finding .severity-dot {
+            width: 8px; height: 8px; border-radius: 50%; margin-top: 4px; flex-shrink: 0;
+        }
+        .severity-dot.critical { background: var(--red); }
+        .severity-dot.warning  { background: var(--yellow); }
+        .severity-dot.info     { background: var(--accent); }
+        .severity-dot.ok       { background: var(--green); }
+        .opsec-finding .finding-body { flex: 1; min-width: 0; }
+        .opsec-finding .finding-title { font-weight: bold; }
+        .opsec-finding .finding-detail { color: var(--text-dim); font-size: 11px; margin-top: 2px; }
+        .opsec-finding .finding-rec { color: var(--yellow); font-size: 11px; margin-top: 2px; font-style: italic; }
+        .opsec-filter-bar { display: flex; gap: 6px; margin-bottom: 8px; flex-wrap: wrap; }
+        .opsec-filter-btn {
+            font-size: 10px; padding: 3px 8px; border-radius: 3px;
+            border: 1px solid var(--border); background: transparent;
+            color: var(--text-dim); cursor: pointer; font-family: inherit;
+        }
+        .opsec-filter-btn.active { border-color: var(--accent); color: var(--accent); }
+        .opsec-filter-btn:hover { border-color: var(--text-dim); }
     </style>
     <link rel="stylesheet" href="/static/ig-theme.css">
 </head>
@@ -164,7 +218,7 @@
     <div class="header">
         <div class="header-brand">
             <img src="/static/infraguard_icon.svg" alt="" class="header-icon">
-            <h1>InfraGuard - Infrastructure Health</h1>
+            <h1>Infrastructure Health</h1>
         </div>
         <div class="header-right">
             <span class="status-dot ok" id="overall-dot">&#9679;</span>
@@ -216,6 +270,24 @@
             <h3>Active Alerts <span id="alert-count" style="color:var(--text-dim);font-weight:normal;"></span></h3>
             <div id="alerts-container">
                 <div class="no-alerts">&#10003; No active alerts</div>
+            </div>
+        </div>
+
+        <!-- ── OPSEC Auditor ───────────────────────────────── -->
+        <div class="card" id="opsec-score-card">
+            <h3>OPSEC Score</h3>
+            <div class="opsec-ring good" id="opsec-ring">
+                <span class="opsec-score good" id="opsec-score">-</span>
+            </div>
+            <div class="opsec-summary" id="opsec-summary"></div>
+            <div class="sub" style="text-align:center;" id="opsec-grade"></div>
+        </div>
+
+        <div class="card" style="grid-column: span 3;" id="opsec-findings-card">
+            <h3>OPSEC Auditor <span id="opsec-finding-count" style="font-weight:normal;text-transform:none;color:var(--text-dim);"></span></h3>
+            <div class="opsec-filter-bar" id="opsec-filters"></div>
+            <div id="opsec-findings">
+                <div style="color:var(--text-dim);font-size:13px;padding:8px 0;">Loading...</div>
             </div>
         </div>
 
@@ -621,6 +693,131 @@
             </tr>`).join('');
         }
 
+        // ── OPSEC Auditor ─────────────────────────────────────
+        let opsecFilter = 'all';
+        let opsecData = null;
+
+        const CATEGORY_LABELS = {
+            network: 'Network Exposure',
+            fingerprint: 'Fingerprint Resistance',
+            auth: 'Access Control',
+            pipeline: 'Pipeline Coverage',
+            data: 'Data Hygiene',
+            tls: 'TLS Posture',
+        };
+
+        function renderOpsecScore(data) {
+            if (!data) return;
+            opsecData = data;
+            const score = data.score;
+            const grade = score >= 80 ? 'good' : score >= 50 ? 'fair' : 'poor';
+            const gradeLabel = score >= 80 ? 'Hardened' : score >= 50 ? 'Needs attention' : 'Exposed';
+
+            const ring = document.getElementById('opsec-ring');
+            const scoreEl = document.getElementById('opsec-score');
+            const gradeEl = document.getElementById('opsec-grade');
+            const summaryEl = document.getElementById('opsec-summary');
+
+            ring.className = 'opsec-ring ' + grade;
+            scoreEl.className = 'opsec-score ' + grade;
+            scoreEl.textContent = score;
+            gradeEl.textContent = gradeLabel;
+
+            const s = data.summary;
+            summaryEl.innerHTML = [
+                s.critical ? `<span><span class="cnt critical">${s.critical}</span> critical</span>` : '',
+                s.warning ? `<span><span class="cnt warning">${s.warning}</span> warning</span>` : '',
+                s.info ? `<span><span class="cnt info">${s.info}</span> info</span>` : '',
+                `<span><span class="cnt ok">${s.ok}</span> passed</span>`,
+            ].filter(Boolean).join('');
+
+            renderOpsecFilters(data);
+            renderOpsecFindings(data);
+        }
+
+        function renderOpsecFilters(data) {
+            const bar = document.getElementById('opsec-filters');
+            const categories = [...new Set(data.findings.map(f => f.category))];
+            const sevs = ['critical', 'warning', 'info', 'ok'];
+            let html = `<button class="opsec-filter-btn ${opsecFilter === 'all' ? 'active' : ''}" onclick="setOpsecFilter('all')">All</button>`;
+            for (const sev of sevs) {
+                const cnt = data.findings.filter(f => f.severity === sev).length;
+                if (cnt > 0) {
+                    html += `<button class="opsec-filter-btn ${opsecFilter === sev ? 'active' : ''}" onclick="setOpsecFilter('${sev}')">${sev} (${cnt})</button>`;
+                }
+            }
+            for (const cat of categories) {
+                const label = CATEGORY_LABELS[cat] || cat;
+                html += `<button class="opsec-filter-btn ${opsecFilter === cat ? 'active' : ''}" onclick="setOpsecFilter('${esc(cat)}')">${esc(label)}</button>`;
+            }
+            bar.innerHTML = html;
+        }
+
+        function setOpsecFilter(f) {
+            opsecFilter = f;
+            if (opsecData) {
+                renderOpsecFilters(opsecData);
+                renderOpsecFindings(opsecData);
+            }
+        }
+
+        function renderOpsecFindings(data) {
+            const container = document.getElementById('opsec-findings');
+            const countEl = document.getElementById('opsec-finding-count');
+            let findings = data.findings;
+
+            if (opsecFilter !== 'all') {
+                const sevs = ['critical', 'warning', 'info', 'ok'];
+                if (sevs.includes(opsecFilter)) {
+                    findings = findings.filter(f => f.severity === opsecFilter);
+                } else {
+                    findings = findings.filter(f => f.category === opsecFilter);
+                }
+            }
+
+            const actionable = data.findings.filter(f => f.severity !== 'ok').length;
+            countEl.textContent = actionable > 0 ? `(${actionable} actionable)` : '(all clear)';
+
+            if (findings.length === 0) {
+                container.innerHTML = '<div class="no-alerts">&#10003; No findings in this filter</div>';
+                return;
+            }
+
+            const grouped = {};
+            for (const f of findings) {
+                if (!grouped[f.category]) grouped[f.category] = [];
+                grouped[f.category].push(f);
+            }
+
+            const sevOrder = { critical: 0, warning: 1, info: 2, ok: 3 };
+            const catOrder = Object.entries(grouped).sort((a, b) => {
+                const aMin = Math.min(...a[1].map(f => sevOrder[f.severity]));
+                const bMin = Math.min(...b[1].map(f => sevOrder[f.severity]));
+                return aMin - bMin;
+            });
+
+            let html = '';
+            for (const [cat, items] of catOrder) {
+                const label = CATEGORY_LABELS[cat] || cat;
+                html += `<div class="opsec-category">`;
+                html += `<div class="opsec-category-header">${esc(label)}</div>`;
+                items.sort((a, b) => sevOrder[a.severity] - sevOrder[b.severity]);
+                for (const f of items) {
+                    html += `<div class="opsec-finding">`;
+                    html += `<div class="severity-dot ${esc(f.severity)}"></div>`;
+                    html += `<div class="finding-body">`;
+                    html += `<div class="finding-title">${esc(f.title)} <span class="badge ${esc(f.severity)}" style="font-size:9px;vertical-align:middle;">${esc(f.id)}</span></div>`;
+                    html += `<div class="finding-detail">${esc(f.detail)}</div>`;
+                    if (f.recommendation) {
+                        html += `<div class="finding-rec">${esc(f.recommendation)}</div>`;
+                    }
+                    html += `</div></div>`;
+                }
+                html += `</div>`;
+            }
+            container.innerHTML = html;
+        }
+
         // ── Main refresh ──────────────────────────────────────
         async function refresh() {
             try {
@@ -655,17 +852,19 @@
                 renderLatency(data.upstream_latency.by_domain);
                 renderNodes(data.nodes);
 
-                // v0.6 additions - parallel fetch, tolerant of any single failure
-                const [cb, wd, dm, rot] = await Promise.all([
+                // v0.6 additions + OPSEC - parallel fetch, tolerant of any single failure
+                const [cb, wd, dm, rot, opsec] = await Promise.all([
                     fetchJSON('/api/health/circuit-breakers').catch(() => null),
                     fetchJSON('/api/health/watchdog').catch(() => null),
                     fetchJSON('/api/health/deadman').catch(() => null),
                     fetchJSON('/api/health/rotations?limit=20').catch(() => null),
+                    fetchJSON('/api/health/opsec').catch(() => null),
                 ]);
                 renderBreakers(cb);
                 renderWatchdog(wd);
                 renderDeadman(dm);
                 renderRotations(rot);
+                renderOpsecScore(opsec);
 
                 // Timestamp
                 document.getElementById('last-refresh').textContent =

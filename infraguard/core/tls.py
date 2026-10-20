@@ -51,7 +51,6 @@ def generate_self_signed_cert(
 
     subject = issuer = x509.Name([
         x509.NameAttribute(NameOID.COMMON_NAME, domain),
-        x509.NameAttribute(NameOID.ORGANIZATION_NAME, "InfraGuard Self-Signed"),
     ])
 
     now = datetime.datetime.now(datetime.UTC)

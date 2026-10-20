@@ -24,6 +24,10 @@ def generate_canary_id() -> str:
     return secrets.token_hex(6)
 
 
+def _callback(prefix: str, suffix: str) -> str:
+    return f"/{prefix.strip('/')}/{suffix}"
+
+
 def inject_tracking_pixel(html: str, callback_path: str = "/_ig/px") -> str:
     """Inject a 1x1 tracking pixel before </body>.
 
@@ -96,12 +100,13 @@ def inject_all_canaries(
     enable_pixel: bool = True,
     enable_honeypot_link: bool = True,
     enable_honeypot_form: bool = False,
+    prefix: str = "_ig",
 ) -> str:
     """Inject all enabled canary types into an HTML response."""
     if enable_pixel:
-        html = inject_tracking_pixel(html)
+        html = inject_tracking_pixel(html, callback_path=_callback(prefix, "px"))
     if enable_honeypot_link:
-        html = inject_honeypot_link(html)
+        html = inject_honeypot_link(html, callback_path=_callback(prefix, "hp"))
     if enable_honeypot_form:
-        html = inject_honeypot_form(html)
+        html = inject_honeypot_form(html, callback_path=_callback(prefix, "hf"))
     return html

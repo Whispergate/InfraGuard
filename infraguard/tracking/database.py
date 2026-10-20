@@ -238,6 +238,14 @@ class Database:
         cursor = await self.execute("DELETE FROM sessions WHERE expires_at < ?", (now,))
         return cursor.rowcount
 
+    async def purge_old_requests(self, retention_days: int) -> int:
+        """Delete request rows older than *retention_days*. Returns count deleted."""
+        cutoff = (datetime.now(UTC) - timedelta(days=retention_days)).isoformat()
+        cursor = await self.execute(
+            "DELETE FROM requests WHERE timestamp < ?", (cutoff,)
+        )
+        return cursor.rowcount
+
     # ── Audit log helpers ─────────────────────────────────────────────
 
     async def audit(

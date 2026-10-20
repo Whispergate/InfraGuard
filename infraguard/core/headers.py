@@ -43,8 +43,14 @@ BLOCKED_HEADERS: frozenset[str] = frozenset(
         "x-drupal-cache",
         "x-varnish",
         "via",
+        "x-served-by",
+        "x-cache",
+        "x-cache-hits",
+        "x-timer",
         "x-amz-request-id",
         "x-amz-id-2",
+        "x-amz-cf-id",
+        "x-amz-cf-pop",
         "x-azure-ref",
         "x-ms-request-id",
         "x-debug",
@@ -84,6 +90,18 @@ def sanitize_response_headers(
         allowed = (allowed | extra_allowed) - BLOCKED_HEADERS
 
     result = {k: v for k, v in headers.items() if k.lower() in allowed}
+
+    # Strip proxy-revealing Vary directives (X-Forwarded-*)
+    for k in list(result):
+        if k.lower() == "vary":
+            parts = [
+                p.strip() for p in result[k].split(",")
+                if not p.strip().lower().startswith("x-forwarded")
+            ]
+            if parts:
+                result[k] = ", ".join(parts)
+            else:
+                del result[k]
 
     # Inject persona Server header to match the redirector's cover identity
     if server_header:

@@ -1267,6 +1267,10 @@ class DomainRouter:
         self._content_backends.append(backend)
         response = await backend.serve(request, match)
 
+        # Ensure persona Server header on content route responses
+        persona = route.config.drop_action.persona
+        response.headers["Server"] = persona.server_header
+
         # Inject canary tokens into HTML served by the auto-injected
         # decoy catch-all. Otherwise scanners downloading the decoy
         # site never load a canary pixel/link/form, defeating the
@@ -1397,6 +1401,7 @@ async def _inject_canary_into_html(response, canary):
         enable_pixel=canary.tracking_pixel,
         enable_honeypot_link=canary.honeypot_link,
         enable_honeypot_form=canary.honeypot_form,
+        prefix=canary.prefix,
     )
 
     # Preserve headers other than content-length (the length changed

@@ -84,8 +84,21 @@ def create_app(config: InfraGuardConfig) -> Starlette:
     async def proxy_handler(request: Request) -> Response:
         return await router.handle(request)
 
+    _persona_server = "nginx"
+    _canary_prefix = "_ig"
+    _canary_rate_limit = 10
+    for _dc in config.domains.values():
+        _persona_server = _dc.drop_action.persona.server_header
+        _canary_prefix = _dc.drop_action.canary.prefix
+        _canary_rate_limit = _dc.drop_action.canary.rate_limit_per_ip
+        break
+
     async def health_check(request: Request) -> Response:
-        return Response(content=b'{"status":"ok"}', media_type="application/json")
+        return Response(
+            content=b'{"status":"ok"}',
+            media_type="application/json",
+            headers={"Server": _persona_server},
+        )
 
     # Canary callback endpoints. Injected into decoy HTML by
     # ``infraguard.intel.canary.inject_all_canaries``. A hit is a strong
@@ -100,12 +113,26 @@ def create_app(config: InfraGuardConfig) -> Starlette:
         b"\x00\x00\x02\x02D\x01\x00;"
     )
 
+    _canary_hits: dict[str, int] = {}
+    _canary_window_start: float = 0.0
+
     async def canary_hit_handler(request: Request) -> Response:
+        import time as _time
+        nonlocal _canary_window_start
         canary_id = request.query_params.get("c", "")
         kind = request.url.path.rsplit("/", 1)[-1]  # px | hp | hf
         client_ip = request.client.host if request.client else "unknown"
         ua = request.headers.get("user-agent", "")
         host = request.headers.get("host", "")
+
+        now = _time.monotonic()
+        if now - _canary_window_start > 60:
+            _canary_hits.clear()
+            _canary_window_start = now
+        _canary_hits[client_ip] = _canary_hits.get(client_ip, 0) + 1
+        if _canary_hits[client_ip] > _canary_rate_limit:
+            return Response(status_code=404, headers={"Server": _persona_server})
+
         log.warning(
             "canary_hit",
             kind=kind,
@@ -115,9 +142,6 @@ def create_app(config: InfraGuardConfig) -> Starlette:
             path=request.url.path,
             host=host,
         )
-        # Also record to the tracking DB so the dashboard's live feed
-        # and /api/requests surface the hit; the router.handle path is
-        # bypassed here so we call the recorder directly.
         try:
             from infraguard.models.events import RequestEvent
             recorder.record(RequestEvent.now(
@@ -136,16 +160,16 @@ def create_app(config: InfraGuardConfig) -> Starlette:
             ))
         except Exception:
             log.exception("canary_hit_record_failed")
+        _server_hdr = {"Server": _persona_server}
         if kind == "px":
-            return Response(content=_PIXEL_GIF, media_type="image/gif")
+            return Response(content=_PIXEL_GIF, media_type="image/gif", headers=_server_hdr)
         if kind == "hf":
-            # Form POST -> a bland 200 so the scanner thinks it worked.
-            return Response(status_code=200, content=b"", media_type="text/plain")
-        # Hidden link -> an empty page.
+            return Response(status_code=200, content=b"", media_type="text/plain", headers=_server_hdr)
         return Response(
             status_code=200,
             content=b"<!doctype html><title></title>",
             media_type="text/html",
+            headers=_server_hdr,
         )
 
     # Phishing.club webhook receiver
@@ -165,6 +189,19 @@ def create_app(config: InfraGuardConfig) -> Starlette:
                     log.info("sessions_cleaned", expired_count=deleted)
             except Exception:
                 log.exception("session_cleanup_error")
+
+    _retention_days = config.tracking.retention_days
+
+    async def _retention_purge_loop(database: Database) -> None:
+        """Purge request rows older than the configured retention window."""
+        while True:
+            await asyncio.sleep(3600)  # hourly
+            try:
+                deleted = await database.purge_old_requests(_retention_days)
+                if deleted:
+                    log.info("retention_purge", deleted=deleted, retention_days=_retention_days)
+            except Exception:
+                log.exception("retention_purge_error")
 
     @asynccontextmanager
     async def lifespan(app: Starlette):
@@ -406,6 +443,11 @@ def create_app(config: InfraGuardConfig) -> Starlette:
         _cleanup_task = asyncio.create_task(_session_cleanup_loop(db))
         _background_tasks.append(_cleanup_task)
 
+        # Background task: enforce request retention policy (hourly)
+        if _retention_days > 0:
+            _retention_task = asyncio.create_task(_retention_purge_loop(db))
+            _background_tasks.append(_retention_task)
+
         # Background task: refresh the active-beacons + burn-score gauges
         # every 15s so HPAs and Grafana panels stay honest.
         async def _metrics_refresh_loop() -> None:
@@ -624,9 +666,9 @@ def create_app(config: InfraGuardConfig) -> Starlette:
         # Canary callbacks: must sit above the catch-all so hits are
         # recognized instead of falling through to the C2 pipeline
         # and getting logged as a generic 404.
-        Route("/_ig/px", canary_hit_handler, methods=["GET"]),
-        Route("/_ig/hp", canary_hit_handler, methods=["GET"]),
-        Route("/_ig/hf", canary_hit_handler, methods=["POST", "GET"]),
+        Route(f"/{_canary_prefix}/px", canary_hit_handler, methods=["GET"]),
+        Route(f"/{_canary_prefix}/hp", canary_hit_handler, methods=["GET"]),
+        Route(f"/{_canary_prefix}/hf", canary_hit_handler, methods=["POST", "GET"]),
     ]
     if _phishingclub_handler is not None:
         pc_path = "/" + pc_cfg.webhook_path.strip("/")
