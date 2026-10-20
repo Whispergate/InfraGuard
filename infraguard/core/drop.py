@@ -70,6 +70,8 @@ async def handle_drop(
             if await drop_rate_limiter.should_soft_drop(client_host):
                 log.info(
                     "drop_soft_limited",
+                    action="soft_reset",
+                    configured_action=config.type.value,
                     client=client_host,
                     path=request.url.path,
                     reason=reason,

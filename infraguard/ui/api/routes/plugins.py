@@ -314,6 +314,15 @@ async def _toggle(request: Request, enabled: bool) -> JSONResponse:
     actor = getattr(request.state, "user", None) or getattr(request.state, "actor", None) or "dashboard"
     ok, err = _persist_plugin_toggle(config_path, name, enabled, actor=str(actor))
 
+    router = getattr(request.app.state, "router", None)
+    reload_ok = False
+    if router and ok:
+        try:
+            await router.reload(request.app.state.config)
+            reload_ok = True
+        except Exception:
+            pass
+
     log.info(
         "plugin_runtime_toggled",
         plugin=name, enabled=enabled, persisted=ok, added=added_new,
@@ -324,6 +333,7 @@ async def _toggle(request: Request, enabled: bool) -> JSONResponse:
         "added": added_new,
         "persisted": ok,
         "persist_error": err,
+        "reloaded": reload_ok,
     })
 
 

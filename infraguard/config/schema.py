@@ -91,6 +91,8 @@ class DropActionConfig(BaseModel):
     rotation_strategy: Literal["random", "round_robin"] = "random"
     persona: PersonaConfig = Field(default_factory=PersonaConfig)
     canary: CanaryConfig = Field(default_factory=CanaryConfig)
+    rate_limit: int = 30
+    rate_window: int = 60
 
 
 class ContentBackendConfig(BaseModel):
@@ -304,6 +306,7 @@ class IntelConfig(BaseModel):
     allowed_asns: list[int] = Field(default_factory=list)
     auto_block_scanners: bool = True
     dynamic_whitelist_threshold: int = DEFAULT_DYNAMIC_WHITELIST_THRESHOLD
+    dynamic_whitelist_ttl: int = 259200
     banned_ip_file: str | None = None
     rules_dir: str | None = None  # auto-ingest .htaccess / robots.txt on startup
     feeds: FeedConfig = Field(default_factory=FeedConfig)

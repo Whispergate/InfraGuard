@@ -231,12 +231,22 @@ async def update_drop_action(request: Request) -> JSONResponse:
         actor=str(getattr(request.state, "user", None) or "dashboard"),
     )
 
+    router = getattr(request.app.state, "router", None)
+    reload_ok = False
+    if router and persisted:
+        try:
+            await router.reload(request.app.state.config)
+            reload_ok = True
+        except Exception:
+            pass
+
     return JSONResponse({
         "status": "ok",
         "domain": domain,
         "drop_action": dc.drop_action.model_dump(),
         "persisted": persisted,
         "persist_error": persist_error,
+        "reloaded": reload_ok,
     })
 
 
@@ -486,6 +496,15 @@ async def swap_profile(request: Request) -> JSONResponse:
         actor=str(getattr(request.state, "user", None) or "dashboard"),
     )
 
+    router = getattr(request.app.state, "router", None)
+    reload_ok = False
+    if router and persisted:
+        try:
+            await router.reload(request.app.state.config)
+            reload_ok = True
+        except Exception:
+            pass
+
     return JSONResponse({
         "status": "ok",
         "domain": domain,
@@ -497,6 +516,7 @@ async def swap_profile(request: Request) -> JSONResponse:
         },
         "persisted": persisted,
         "persist_error": persist_error,
+        "reloaded": reload_ok,
     })
 
 

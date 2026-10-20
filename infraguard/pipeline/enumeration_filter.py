@@ -45,6 +45,14 @@ class EnumerationFilter:
         now = time.time()
         cutoff = now - self._window
 
+        # URIs that match the loaded profile are expected beacon traffic,
+        # not enumeration - don't count them toward the threshold.
+        profile = ctx.profile
+        rules = profile.uri_rules if profile else None
+        known_uris = set(profile.all_uris()) if profile else set()
+        if (rules and rules.matches(path)) or path in known_uris:
+            return FilterResult.allow(filter_name=self.name)
+
         history = self._path_history[ip]
 
         # Slide the window: remove entries older than the cutoff

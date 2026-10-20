@@ -90,13 +90,18 @@ services:
         - "python3"
         - "-c"
         - |
-          import urllib.request, ssl, os
-          p = os.environ.get('INFRAGUARD_HEALTH_PATH', 'health').strip('/')
-          # Health check runs against localhost with self-signed cert; unverified context is intentional
-          urllib.request.urlopen(
-              f'https://127.0.0.1:443/{p}',
-              context=ssl._create_unverified_context()
-          )
+          import urllib.request, ssl, os, pathlib
+          env = {}
+          ef = pathlib.Path('/app/.env')
+          if ef.exists():
+              for line in ef.read_text().splitlines():
+                  line = line.strip()
+                  if line and not line.startswith('#') and '=' in line:
+                      k, _, v = line.partition('=')
+                      env[k.strip()] = v.strip().strip('"').strip("'")
+          p = env.get('INFRAGUARD_HEALTH_PATH', os.environ.get('INFRAGUARD_HEALTH_PATH', 'health')).strip('/')
+          ctx = ssl._create_unverified_context()
+          urllib.request.urlopen(f'https://127.0.0.1:443/{p}', context=ctx)
       interval: 30s
       timeout: 10s
       retries: 5

@@ -95,9 +95,16 @@ class DomainRouter:
         from infraguard.state.drop_rate_limit import DropRateLimiter
         from infraguard.state.whitelist import SharedWhitelist
 
-        self._shared_whitelist = SharedWhitelist(state_backend) if state_backend else None
+        wl_ttl = config.intel.dynamic_whitelist_ttl if config.intel else 259200
+        self._shared_whitelist = (
+            SharedWhitelist(state_backend, ttl_seconds=wl_ttl) if state_backend else None
+        )
+        drop_cfg = next(iter(config.domains.values()), None)
+        drop_limit = drop_cfg.drop_action.rate_limit if drop_cfg else 30
+        drop_window = drop_cfg.drop_action.rate_window if drop_cfg else 60
         self._drop_rate_limiter = (
-            DropRateLimiter(state_backend) if state_backend else None
+            DropRateLimiter(state_backend, limit=drop_limit, window_seconds=drop_window)
+            if state_backend else None
         )
         # Cache the callables so hot paths do not re-import.
         self._compute_beacon_id = compute_beacon_id
@@ -330,7 +337,7 @@ class DomainRouter:
                                 type=ContentBackendType.FILESYSTEM,
                                 target=str(decoy_path),
                             ),
-                            track=False,
+                            track=True,
                         ))
 
             content_resolver = None
@@ -517,7 +524,7 @@ class DomainRouter:
                                     type=ContentBackendType.FILESYSTEM,
                                     target=str(decoy_path),
                                 ),
-                                track=False,
+                                track=True,
                             ))
 
                 content_resolver = None

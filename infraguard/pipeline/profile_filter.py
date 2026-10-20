@@ -40,13 +40,17 @@ class ProfileFilter:
         method = request.method.upper()
         path = request.url.path
 
-        # Determine which transaction to validate against
+        # Determine which transaction to validate against.
+        # When Sliver URI rules are present, use pattern matching instead
+        # of exact membership - Sliver builds multi-segment URIs from pools
+        # and enumerating all combinations is not feasible.
+        rules = profile.uri_rules
         txn = None
         if profile.http_get and method == profile.http_get.verb.upper():
-            if path in profile.http_get.uris:
+            if (rules and rules.matches(path)) or path in profile.http_get.uris:
                 txn = profile.http_get
         if txn is None and profile.http_post and method == profile.http_post.verb.upper():
-            if path in profile.http_post.uris:
+            if (rules and rules.matches(path)) or path in profile.http_post.uris:
                 txn = profile.http_post
         if txn is None and profile.http_stager:
             if path in profile.http_stager.uris:
@@ -54,8 +58,8 @@ class ProfileFilter:
 
         # URI not in any transaction
         if txn is None:
-            all_uris = profile.all_uris()
-            if path not in all_uris:
+            uri_known = (rules and rules.matches(path)) or path in profile.all_uris()
+            if not uri_known:
                 return FilterResult.block(
                     reason=f"URI '{path}' not in profile",
                     filter_name=self.name,

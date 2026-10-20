@@ -72,6 +72,15 @@ def run_server(config_path: Path, host: str | None, port: int | None, ollama_url
         cert_path, key_path = resolve_tls_paths(http_listener.tls, domains)
         uvicorn_kwargs["ssl_certfile"] = cert_path
         uvicorn_kwargs["ssl_keyfile"] = key_path
+    elif listen_port == 443:
+        from infraguard.core.tls import generate_self_signed_cert
+
+        domains = list(cfg.domains.keys())
+        domain = domains[0] if domains else "localhost"
+        click.echo(f"Warning: No TLS config but listening on 443, generating self-signed cert for {domain}")
+        cert_path, key_path = generate_self_signed_cert(domain)
+        uvicorn_kwargs["ssl_certfile"] = str(cert_path)
+        uvicorn_kwargs["ssl_keyfile"] = str(key_path)
 
         # HTTP/2 support
         if http_listener.http2:

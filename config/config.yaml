@@ -6,11 +6,21 @@ listeners:
     key: ${INFRAGUARD_TLS_KEY}
   domains:
   - ${INFRAGUARD_DOMAIN}
+  - sliver-test.local
 - bind: 0.0.0.0
   port: 80
   domains:
   - ${INFRAGUARD_DOMAIN}
+  - sliver-test.local
 domains:
+  sliver-test.local:
+    upstream: https://mock-c2:9443
+    profile_path: ../examples/sliver.json
+    profile_type: sliver
+    whitelist_cidrs: []
+    ssl_verify: false
+    drop_action:
+      type: decoy
   ${INFRAGUARD_DOMAIN}:
     upstream: ${INFRAGUARD_MYTHIC_UPSTREAM}
     profile_path: ../examples/jquery-c2.3.14.profile.json

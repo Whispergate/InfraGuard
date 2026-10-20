@@ -28,6 +28,7 @@ from infraguard.profiles.models import (
     HttpTransaction,
     MessageConfig,
     ServerConfig,
+    SliverURIRules,
 )
 
 
@@ -90,6 +91,8 @@ class SliverParser:
                 "min_files": api_implant.get("MinFileGen", 0),
                 "max_paths": api_implant.get("MaxPathGen", 0),
                 "min_paths": api_implant.get("MinPathGen", 0),
+                "min_path_length": api_implant.get("MinPathLength", 1),
+                "max_path_length": api_implant.get("MaxPathLength", 1),
             },
             "server_config": {
                 "random_version_headers": api_server.get("RandomVersionHeaders", False),
@@ -159,10 +162,43 @@ class SliverParser:
         )
 
         # GET transaction: poll + close + stager URIs
-        get_uris = list(set(poll_uris + close_uris + stager_uris))
+        get_uris = sorted(set(poll_uris + close_uris + stager_uris))
 
         # POST transaction: session + start_session URIs
-        post_uris = list(set(session_uris + start_session_uris))
+        post_uris = sorted(set(session_uris + start_session_uris))
+
+        # Build rule-based URI matcher from pools and depth range.
+        # Sliver uses min_path_length/max_path_length to control how many
+        # directory segments appear in generated URIs (default 1).
+        min_depth = implant.get("min_path_length", 1)
+        max_depth = implant.get("max_path_length", 1)
+        all_paths: set[str] = set()
+        all_files: set[str] = set()
+        all_exts: set[str] = set()
+        for stage_key in ("poll_paths", "session_paths", "close_paths", "stager_paths"):
+            for p in (implant.get(stage_key) or generic_paths):
+                all_paths.add(p)
+        for stage_key in ("poll_files", "session_files", "close_files", "stager_files"):
+            for f in (implant.get(stage_key) or generic_files):
+                all_files.add(f)
+        for e in generic_exts:
+            ext = e if e.startswith(".") else ("." + e if e else "")
+            all_exts.add(ext)
+        for stage_key in ("poll_file_ext", "session_file_ext",
+                          "start_session_file_ext", "close_file_ext",
+                          "stager_file_ext"):
+            val = implant.get(stage_key)
+            if val:
+                e = val if val.startswith(".") else "." + val
+                all_exts.add(e)
+
+        uri_rules = SliverURIRules(
+            paths=frozenset(all_paths),
+            files=frozenset(all_files),
+            extensions=frozenset(all_exts),
+            min_path_segments=max(1, min_depth),
+            max_path_segments=max(1, max_depth),
+        )
 
         # A profile that generates no URIs matches nothing, so the filter would
         # block every request including legitimate beacon traffic. Fail here,
@@ -234,6 +270,7 @@ class SliverParser:
             http_get=http_get,
             http_post=http_post,
             useragent=useragent,
+            uri_rules=uri_rules,
             global_options={
                 "stager_ext": _ext_str(_get_ext("stager_file_ext", ".woff")),
                 "poll_ext": _ext_str(_get_ext("poll_file_ext", ".js")),
