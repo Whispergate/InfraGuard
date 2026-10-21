@@ -8,12 +8,17 @@
 # IP/bot/geo/replay filters still block scanners.
 #
 # Stack:
-#   Internet → InfraGuard (443) → Sliver Teamserver (31337)
+#   Internet → InfraGuard (443) → Sliver HTTP C2 listener (e.g. 8888)
+#
+# The upstream is the HTTP(S) **C2 listener** an operator starts inside the
+# Sliver console with `http -L <ip> -l <port>` — not the teamserver's operator
+# port (31337), which speaks gRPC over mTLS to the Sliver client and never
+# serves implant traffic.
 #
 # Required env vars:
 #   INFRAGUARD_TLS_CERT   - path to TLS cert
 #   INFRAGUARD_TLS_KEY    - path to TLS key
-#   SLIVER_UPSTREAM       - e.g. https://10.0.0.8:31337
+#   SLIVER_UPSTREAM       - the Sliver HTTP C2 listener, e.g. http://10.0.0.8:8888
 #   INFRAGUARD_DB_PATH    - SQLite path
 
 listeners:

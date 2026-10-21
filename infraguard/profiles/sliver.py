@@ -4,14 +4,31 @@ Parses Sliver HTTP C2 profile JSON files into the normalized C2Profile
 model. Sliver profiles define URI generation rules rather than fixed URIs:
 implants construct random URIs from path/file/extension combinations.
 
-The parser generates all valid URI patterns so the profile filter can
-match incoming beacon requests. Sliver uses different URI patterns for
-different stages:
+Two generations of profile exist, and the parser accepts both.
+
+**Pre-1.6** profiles carry stage-specific keys, and each stage has its own
+URI shape:
+
   - poll (long poll):      /{poll_paths}/{poll_files}{poll_file_ext}
   - session (data xfer):   /{session_paths}/{session_files}{session_file_ext}
   - start_session:         /{session_paths}/{session_files}{start_session_file_ext}
   - close:                 /{close_paths}/{close_files}{close_file_ext}
   - stager:                /{poll_paths}/{poll_files}{stager_file_ext}
+
+**1.6 and later** dropped those keys for a single pooled
+``extensions``/``files``/``paths`` (Sliver commit 1decc7f4, "update client
+side c2 profile to match new format"). There is no longer any stage
+distinction, so for a current profile every stage draws from the same pool
+and ``http_get.uris`` and ``http_post.uris`` come out identical — method is
+not a distinguishing signal for these profiles.
+
+Note that for 1.6+ profiles the generated URI set is an approximation: the
+implant picks ``MinPathLength``..``MaxPathLength`` path segments *with
+replacement* (see ``randomPath`` in
+``implant/sliver/transports/httpclient/httpclient.go``), so the real space is
+combinatorial and is neither single-segment nor repeat-free. The generated
+list is also capped. Matching therefore holds only for profiles configured
+with a single path segment and a small pool.
 
 Docs: https://sliver.sh/docs?name=HTTPS+C2
 """
