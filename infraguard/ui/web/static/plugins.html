@@ -34,15 +34,10 @@
         .header-right { display: flex; gap: 12px; align-items: center; }
         .refresh-info { color: var(--text-dim); font-size: 11px; }
 
-        .nav { display: flex; gap: 4px; padding: 0 24px; background: var(--surface); border-bottom: 1px solid var(--border); }
-        .nav a {
-            padding: 10px 16px;
-            font-size: 12px;
-            color: var(--text-dim);
-            text-decoration: none;
-            border-bottom: 2px solid transparent;
-        }
-        .nav a.active, .nav a:hover { color: var(--accent); border-bottom-color: var(--accent); }
+        /* Nav styling lives entirely in ig-theme.css. A copy here used to
+           override it with different padding (10px vs 12px), a different
+           row indent and a different active colour, so the tabs changed
+           height and colour from one page to the next. */
 
         .grid { display: grid; grid-template-columns: 1fr; gap: 16px; padding: 24px; }
         .card { background: var(--surface); border: 1px solid var(--border); border-radius: 8px; padding: 20px; }
@@ -153,6 +148,7 @@
         details pre { font-size: 10px; color: var(--text-dim); background: var(--bg); padding: 6px; border-radius: 4px; margin-top: 4px; overflow-x: auto; }
     </style>
     <link rel="stylesheet" href="/static/ig-theme.css">
+    <script src="/static/ig-nav.js"></script>
 </head>
 <body>
 
@@ -170,9 +166,9 @@
 
     <div class="nav" role="navigation" aria-label="Dashboard sections">
         <a href="/">Overview</a>
-        <a href="/static/decoys.html">Decoys</a>
-        <a href="/static/health.html">Health</a>
-        <a href="/static/plugins.html" class="active">Plugins</a>
+        <a href="/static/decoys.html">Decoys<span class="count" id="nav-count-decoys"></span></a>
+        <a href="/static/health.html">Health<span class="count" id="nav-count-health"></span></a>
+        <a href="/static/plugins.html" class="active">Plugins<span class="count" id="nav-count-plugins"></span></a>
     </div>
 
     <div class="grid">

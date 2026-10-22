@@ -143,20 +143,16 @@
         .btn-ghost:hover { color: var(--text); border-color: var(--text-dim); }
 
         /* ── Nav tabs ───────────────────────────────────────── */
-        .nav { display: flex; gap: 4px; padding: 0 24px; background: var(--surface); border-bottom: 1px solid var(--border); }
-        .nav a {
-            padding: 10px 16px;
-            font-size: 12px;
-            color: var(--text-dim);
-            text-decoration: none;
-            border-bottom: 2px solid transparent;
-        }
-        .nav a.active, .nav a:hover { color: var(--accent); border-bottom-color: var(--accent); }
+        /* Nav styling lives entirely in ig-theme.css. A copy here used to
+           override it with different padding (10px vs 12px), a different
+           row indent and a different active colour, so the tabs changed
+           height and colour from one page to the next. */
 
         /* ── Refresh indicator ──────────────────────────────── */
         .refresh-info { font-size: 11px; color: var(--text-dim); }
     </style>
     <link rel="stylesheet" href="/static/ig-theme.css">
+    <script src="/static/ig-nav.js"></script>
 </head>
 <body>
 
@@ -178,9 +174,9 @@
     <!-- ── Nav ─────────────────────────────────────────────── -->
     <div class="nav" role="navigation" aria-label="Dashboard sections">
         <a href="/">Overview</a>
-        <a href="/static/decoys.html">Decoys</a>
-        <a href="/static/health.html" class="active">Health</a>
-        <a href="/static/plugins.html">Plugins</a>
+        <a href="/static/decoys.html">Decoys<span class="count" id="nav-count-decoys"></span></a>
+        <a href="/static/health.html" class="active">Health<span class="count" id="nav-count-health"></span></a>
+        <a href="/static/plugins.html">Plugins<span class="count" id="nav-count-plugins"></span></a>
     </div>
 
     <div class="grid">

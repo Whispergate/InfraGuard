@@ -65,6 +65,7 @@
         }
     </style>
     <link rel="stylesheet" href="/static/ig-theme.css">
+    <script src="/static/ig-nav.js"></script>
 </head>
 <body>
 
@@ -270,23 +271,7 @@
     <script>
         const API_BASE = window.location.origin;
 
-        // ── Theme ──────────────────────────────────────────────
-        function initTheme() {
-            const t = localStorage.getItem('infraguard-theme') || 'dark';
-            document.documentElement.setAttribute('data-theme', t);
-            updateThemeButton(t);
-        }
-        function toggleTheme() {
-            const cur = document.documentElement.getAttribute('data-theme') === 'light' ? 'dark' : 'light';
-            document.documentElement.setAttribute('data-theme', cur);
-            localStorage.setItem('infraguard-theme', cur);
-            updateThemeButton(cur);
-        }
-        function updateThemeButton(t) {
-            const b = document.getElementById('theme-toggle');
-            if (b) b.textContent = t === 'light' ? '☀ Dark' : '☾ Light';
-        }
-        initTheme();
+        // Theme lives in /static/ig-nav.js so every page shares it.
 
         // ── Toast ──────────────────────────────────────────────
         function toast(msg, kind) {
