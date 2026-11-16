@@ -37,6 +37,8 @@ DEFAULT_FEED_URLS: list[str] = [
     "https://www.spamhaus.org/drop/drop.txt",
     # Binary Defense IP banlist
     "https://www.binarydefense.com/banlist.txt",
+    # NetAPI honeypot attackers (IPv4 seen attacking honeypot sensors in the last 48 hours)
+    "https://netapi.com/api2/?method=compromised&dataset_type=ip",
 ]
 
 # Per-feed last-successful-refresh timestamps

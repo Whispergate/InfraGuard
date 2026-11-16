@@ -41,7 +41,7 @@ InfraGuard sits between the internet and your C2 teamserver, validating every in
 ### Intelligence
 
 - **IP intelligence** -- built-in CIDR blocklists for 19 security vendor ranges (Shodan, Censys, Rapid7, etc.), GeoIP filtering, reverse DNS keyword matching
-- **Threat intel feeds** -- auto-update blocklists from public sources (abuse.ch, Emerging Threats, Spamhaus DROP, Binary Defense) with configurable refresh interval and disk caching
+- **Threat intel feeds** -- auto-update blocklists from public sources (abuse.ch, Emerging Threats, Spamhaus DROP, Binary Defense, NetAPI honeypots) with configurable refresh interval and disk caching
 - **Dynamic IP blocking** -- block IPs outside whitelisted ranges; auto-whitelist IPs after N valid C2 requests
 - **Whitelist enrichment** -- whitelisted CIDRs are auto-enriched with ASN, organization, country, and continent data on startup via GeoIP databases
 - **Burn detection** -- Certificate Transparency log monitoring via crt.sh, domain reputation self-monitoring via URLhaus/OpenPhish/Google Safe Browsing, and cross-domain analyst detection when a single IP accesses multiple operator domains
